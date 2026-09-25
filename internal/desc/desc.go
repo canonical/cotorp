@@ -44,6 +44,7 @@ type (
 	RepeatedFieldEncoding int
 	UTF8Validation        int
 	MessageEncoding       int
+	JSONFormat            int
 )
 
 const (
@@ -62,6 +63,9 @@ const (
 
 	MessageLengthPrefixed MessageEncoding = 1
 	MessageDelimited      MessageEncoding = 2
+
+	JSONAllow            JSONFormat = 1
+	JSONLegacyBestEffort JSONFormat = 2
 )
 
 // Features is the resolved feature set at some point in the descriptor
@@ -72,16 +76,17 @@ type Features struct {
 	RepeatedFieldEncoding RepeatedFieldEncoding
 	UTF8Validation        UTF8Validation
 	MessageEncoding       MessageEncoding
+	JSONFormat            JSONFormat
 }
 
 func defaultFeatures(e Edition) Features {
 	switch e {
 	case EditionProto2:
-		return Features{PresenceExplicit, EnumClosed, RepeatedExpanded, UTF8None, MessageLengthPrefixed}
+		return Features{PresenceExplicit, EnumClosed, RepeatedExpanded, UTF8None, MessageLengthPrefixed, JSONLegacyBestEffort}
 	case EditionProto3:
-		return Features{PresenceImplicit, EnumOpen, RepeatedPacked, UTF8Verify, MessageLengthPrefixed}
+		return Features{PresenceImplicit, EnumOpen, RepeatedPacked, UTF8Verify, MessageLengthPrefixed, JSONAllow}
 	default:
-		return Features{PresenceExplicit, EnumOpen, RepeatedPacked, UTF8Verify, MessageLengthPrefixed}
+		return Features{PresenceExplicit, EnumOpen, RepeatedPacked, UTF8Verify, MessageLengthPrefixed, JSONAllow}
 	}
 }
 
@@ -253,6 +258,12 @@ type Field struct {
 	Extendee *Message
 
 	Default *DefaultValue
+
+	// JSONName is the field's ProtoJSON name: the json_name option if set,
+	// otherwise the lowerCamelCase form of Name.
+	JSONName string
+	// CustomJSONName reports that JSONName came from the json_name option.
+	CustomJSONName bool
 
 	Deprecated bool
 	Comments   string

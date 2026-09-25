@@ -4,10 +4,16 @@
 package editions2024pb
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"io"
+	"math/big"
 	"math/bits"
 	"slices"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -274,6 +280,168 @@ func (m *Visible) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *Visible) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *Visible) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.A != nil {
+		b = append(b, "\"a\":"...)
+		b = strconv.AppendInt(b, int64((*m.A)), 10)
+		b = append(b, ',')
+	}
+	if m.Hidden != nil {
+		b = append(b, "\"hidden\":"...)
+		{
+			var err error
+			if b, err = m.Hidden.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *Visible) UnmarshalJSON(b []byte) error {
+	*m = Visible{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *Visible) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: cotorp.test.editions2024.Visible: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: cotorp.test.editions2024.Visible: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "a":
+			f = 0
+		case "hidden":
+			f = 1
+		default:
+			return errors.New("proto: cotorp.test.editions2024.Visible: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: cotorp.test.editions2024.Visible: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: cotorp.test.editions2024.Visible: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		switch jb.f {
+		case 0:
+			class, bits = 1, 32
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: cotorp.test.editions2024.Visible: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: cotorp.test.editions2024.Visible: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: cotorp.test.editions2024.Visible: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: cotorp.test.editions2024.Visible: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.A = &x
+		case 1:
+			if m.Hidden == nil {
+				m.Hidden = &Visible_Hidden{}
+			}
+			if err := m.Hidden.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 type Visible_Hidden struct {
 	S *string
 
@@ -493,5 +661,138 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *Visible_Hidden) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *Visible_Hidden) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *Visible_Hidden) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.S != nil {
+		b = append(b, "\"s\":"...)
+		if !utf8.ValidString((*m.S)) {
+			return nil, errors.New("proto: cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.S)); ci++ {
+			switch c := (*m.S)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *Visible_Hidden) UnmarshalJSON(b []byte) error {
+	*m = Visible_Hidden{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *Visible_Hidden) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [1]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "s":
+			f = 0
+		default:
+			return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var sv string
+		switch jb.f {
+		case 0:
+			class = 5
+		}
+		switch class {
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.S = &x
+		}
+	}
 	return nil
 }

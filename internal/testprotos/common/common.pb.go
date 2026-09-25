@@ -4,11 +4,16 @@
 package commonpb
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"io"
+	"math/big"
 	"math/bits"
 	"slices"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -309,5 +314,182 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *Shared) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *Shared) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *Shared) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Label) > 0 {
+		b = append(b, "\"label\":"...)
+		if !utf8.ValidString(m.Label) {
+			return nil, errors.New("proto: cotorp.test.common.Shared.label contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len(m.Label); ci++ {
+			switch c := m.Label[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Value != 0 {
+		b = append(b, "\"value\":"...)
+		b = append(b, '"')
+		b = strconv.AppendInt(b, m.Value, 10)
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *Shared) UnmarshalJSON(b []byte) error {
+	*m = Shared{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *Shared) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: cotorp.test.common.Shared: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: cotorp.test.common.Shared: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "label":
+			f = 0
+		case "value":
+			f = 1
+		default:
+			return errors.New("proto: cotorp.test.common.Shared: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: cotorp.test.common.Shared: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: cotorp.test.common.Shared: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 1:
+			class, bits = 1, 64
+		case 0:
+			class = 5
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: cotorp.test.common.Shared: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: cotorp.test.common.Shared: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: cotorp.test.common.Shared: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: cotorp.test.common.Shared: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: cotorp.test.common.Shared: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			m.Label = sv
+		case 1:
+			m.Value = iv
+		}
+	}
 	return nil
 }

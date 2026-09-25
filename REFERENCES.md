@@ -74,6 +74,30 @@ Installed at `/nix/store/4hdzvycn5mkg3xm1ggscp3mxz8005c3m-protobuf-36.1`.
 - `internal/impl/codec_map.go` was grepped for DELIMITED handling. It had
   no matches, and nothing from it was used.
 
+### protobuf-go `protojson` (JSON reference implementation)
+
+protoc has no JSON mode. For JSON support, a throwaway program in the
+development scratch directory (not in the repository) was built offline
+against the cached `google.golang.org/protobuf@v1.36.11`. It loads protoc's
+descriptor sets through `protodesc`, `dynamicpb` and `protojson`, and converts
+between binary and ProtoJSON. Every case in `internal/testprotos/json_test.go`
+was checked against it in both directions. Behaviours taken from it:
+
+- a top-level `null` is rejected (cotorp deliberately differs; see README);
+- unknown numbers for closed enums are accepted from JSON;
+- an implicit `NullValue` field holding an undeclared number encodes as
+  `null`.
+
+### protoc JSON-name validation (found by experiment)
+
+- With `json_format = ALLOW` (the proto3 and editions default), any JSON-name
+  conflict is an error.
+- With `LEGACY_BEST_EFFORT` (the proto2 default), conflicts between two
+  default names are only warnings, but conflicts involving a custom
+  `json_name` are errors.
+- Names are compared case-sensitively (`foo` and `Foo` do not conflict).
+- `json_name` is rejected on extensions.
+
 ### Go toolchain (go1.27.1)
 
 - `go vet`, `go test -fuzz`, `go/format`, `go/parser` and `go/ast` were used
@@ -113,6 +137,18 @@ this work. Correctness relies on the protoc-based tests.
   last.
 - **C++ `TextFormat` prints map entries sorted by key.** The map test
   harness relies on this.
+- **ProtoJSON mapping** (https://protobuf.dev/programming-guides/json/):
+  - JSON names and the proto-name fallback on input;
+  - 64-bit integers as strings, and integers accepted as strings or exact
+    exponent forms;
+  - NaN and Infinity as strings;
+  - base64 alphabets;
+  - null semantics, including `Value` and `NullValue`;
+  - the well-known-type formats, including Timestamp and Duration ranges and
+    0/3/6/9 fractional digits, and FieldMask camelCase conversion.
+
+  The details were written from memory; `protojson` confirmed them (above).
+- **protoc's `ToJsonName`** (drop `_` and upper-case the next character).
 
 ### protobuf-go
 

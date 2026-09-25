@@ -25,7 +25,7 @@ ignored.
 | `cmd/cotorp` | CLI: flags, input resolution, writing output files. |
 | `internal/parser` | Lexer, recursive-descent parser and AST for proto2, proto3 and editions. |
 | `internal/desc` | Linker: symbol tables, protoc-style name resolution, lowering of every syntax to per-field editions features, and validation. |
-| `internal/gengo` | Go generator. `gengo.go` handles naming, packages and imports; `message.go` handles types and getters; `methods.go` handles size, marshal, unmarshal and required checks; `kinds.go` holds per-kind snippets. |
+| `internal/gengo` | Go generator. `gengo.go` handles naming, packages and imports; `message.go` handles types and getters; `methods.go` handles binary size, marshal, unmarshal and required checks; `json.go` handles ProtoJSON, including the well-known types; `kinds.go` holds per-kind snippets. |
 | `internal/compiler` | Loads files from `-I` paths plus the bundled includes, and links imports in dependency order. |
 | `internal/wkt` | Embedded `google/protobuf/*.proto` files, copied unmodified from protoc 36.1. Do not edit them; they are under Google's license (`internal/wkt/LICENSE`). |
 | `internal/testprotos` | Test `.proto` sources (`proto/`), the committed generated packages, and the compatibility, fuzz and staleness tests. |
@@ -53,7 +53,8 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   `TestSelfContained` enforces this. All wire logic is inlined into methods;
   methods may call the standard library and the methods of other generated
   messages (`ProtoSize`, `ProtoMarshalToSizedBuffer`, `ProtoMergeDepth`,
-  `ProtoCheckInitialized`, `IsValid`).
+  `ProtoCheckInitialized`, `ProtoAppendJSON`, `ProtoMergeJSON`) and the
+  exported enum tables (`IsValid`, `E_name`, `E_value`).
 - **Stdlib imports are tracked.** Reference a stdlib package only through
   `fg.std("import/path")`, which records the import and returns the package
   name. Writing `binary.` or `math.` directly into generated code leads to a
@@ -81,6 +82,14 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **Naming follows protoc-gen-go** (`camelCase` in `names.go`, `_` suffixes
   for conflicts, `Msg_Field` oneof wrappers). Changing a name is a breaking
   change for users.
+- **JSON unmarshal runs in two phases** (see the comment at the top of
+  `json.go`):
+  - Phase one splits the object into `job`s; phase two parses each job with
+    one shared block per scalar class, then assigns the result.
+  - Declare scratch variables such as `iv`, `sv` and `bits` only when a class
+    that reads them is in use, or the unused-variable check fails.
+  - Build error messages with dynamic parts using `fg.errConcat`.
+  - Well-known types are selected by full name in `genJSON`.
 
 ## Rules for changing the parser or linker
 
@@ -114,6 +123,18 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   `internal/testprotos/gen.go` if you add a new file.
 - **Decoder changes:** run the fuzzer, and add a regression input to
   `TestMalformed` or `TestRecursionLimit` where relevant.
+- **JSON:** add encoding cases to `TestJSONMarshal` and parsing cases (valid
+  and invalid) to `TestJSONUnmarshal` in `internal/testprotos/json_test.go`.
+  - protoc has no JSON mode, so the reference is protobuf-go's `protojson`.
+    Set `COTORP_JSON_ORACLE` to a program invoked as
+    `oracle <descriptor set> <message full name> tojson|fromjson`. It reads
+    binary or JSON on stdin and writes the other form using
+    `protodesc` + `dynamicpb` + `protojson`.
+  - The oracle must live outside this repository, because the repository
+    stays stdlib-only.
+  - Every case must agree with the oracle. A deliberate difference goes in
+    `jsonDeviations` with a reason.
+  - `FuzzJSON` fuzzes the JSON decoder.
 
 ## Housekeeping
 
@@ -130,5 +151,5 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   experiment, upstream code) in REFERENCES.md.
 - Known gaps are listed in README.md:
   - no typed extension accessors (extensions round-trip as unknown fields);
-  - no JSON, text format or reflection;
+  - no text format or reflection, and no JSON for `google.protobuf.Any`;
   - custom options are parsed but not validated.

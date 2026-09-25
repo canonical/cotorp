@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package cotorp.test.json;
+
+import "common/common.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/canonical/cotorp/internal/testprotos/jsontest;jsontestpb";
+
+message WellKnown {
+  google.protobuf.Timestamp ts = 1;
+  google.protobuf.Duration dur = 2;
+  google.protobuf.DoubleValue dbl = 3;
+  google.protobuf.FloatValue flt = 4;
+  google.protobuf.Int64Value i64 = 5;
+  google.protobuf.UInt64Value u64 = 6;
+  google.protobuf.Int32Value i32 = 7;
+  google.protobuf.UInt32Value u32 = 8;
+  google.protobuf.BoolValue bool = 9;
+  google.protobuf.StringValue str = 10;
+  google.protobuf.BytesValue bytes = 11;
+  google.protobuf.Struct st = 12;
+  google.protobuf.Value val = 13;
+  google.protobuf.ListValue lst = 14;
+  google.protobuf.FieldMask mask = 15;
+  google.protobuf.Empty empty = 16;
+  google.protobuf.NullValue null_value = 17;
+  repeated google.protobuf.Value vals = 18;
+  map<string, google.protobuf.Value> val_map = 19;
+  optional google.protobuf.NullValue opt_null = 20;
+  oneof o {
+    google.protobuf.Value o_val = 21;
+    google.protobuf.NullValue o_null = 22;
+    string o_str = 23;
+  }
+  google.protobuf.Any any = 24;
+  repeated google.protobuf.Timestamp tss = 25;
+  map<int32, google.protobuf.Duration> durs = 26;
+}
+
+message Names {
+  int32 custom = 1 [json_name = "renamed"];
+  int32 snake_case_field = 2;
+  int32 _leading = 3;
+  int32 with_2_digits = 4;
+  cotorp.test.common.Color color = 5;
+  map<bool, string> by_bool = 6;
+  map<uint64, int32> by_u64 = 7;
+  map<sint32, bytes> by_s32 = 8;
+}

@@ -1,7 +1,8 @@
 # cotorp
 
-`cotorp` is a protocol buffers compiler that generates Go code for binary
-marshaling and unmarshaling. The generated code imports **only the Go standard
+`cotorp` is a protocol buffers compiler that generates Go code for binary and
+[ProtoJSON](https://protobuf.dev/programming-guides/json/) marshaling and
+unmarshaling. The generated code imports **only the Go standard
 library** (plus other cotorp-generated packages it references). There is no
 runtime module, no shared helper file, no reflection, and no dependency on
 `google.golang.org/protobuf`. All wire-format logic is inlined into each
@@ -73,6 +74,11 @@ func (m *M) ProtoCheckInitialized() error            // required fields
 func (m *M) ProtoUnknownFields() []byte
 func (m *M) Reset()
 func (m *M) GetX() T                                 // nil-safe getters, returning defaults
+
+func (m *M) MarshalJSON() ([]byte, error)            // json.Marshaler (ProtoJSON)
+func (m *M) UnmarshalJSON(b []byte) error            // json.Unmarshaler; resets m first
+func (m *M) ProtoAppendJSON(b []byte) ([]byte, error)
+func (m *M) ProtoMergeJSON(b []byte) error
 ```
 
 `ProtoMarshalToSizedBuffer` and `ProtoMergeDepth` are exported only so that
@@ -97,6 +103,36 @@ message rather than with `errors.Is`.
 * **Required fields** are checked by `MarshalBinary`, `AppendBinary` and
   `UnmarshalBinary`.
 
+## JSON
+
+`MarshalJSON` and `UnmarshalJSON` implement the canonical
+[ProtoJSON mapping](https://protobuf.dev/programming-guides/json/), and the
+methods work with `encoding/json`. Use pointers (`*M`), because the methods
+have pointer receivers.
+
+* Output uses lowerCamelCase JSON names (or `json_name`) and omits fields that
+  are unset or hold default values. Enums are written as names (numbers when
+  unknown), 64-bit integers as strings, bytes as standard base64, and
+  NaN/±Infinity as strings. Map keys are sorted.
+* Input accepts either the JSON name or the proto field name, and integers as
+  numbers or strings, including exponent forms such as `1e2` when they are
+  exact. Bytes may be standard or URL-safe base64, with or without padding.
+  `null` means unset, except for `google.protobuf.Value` and `NullValue`.
+* Unknown keys, duplicate keys and multiple members of one oneof are
+  rejected. Required fields are checked, as in binary.
+* Well-known types use their special forms: `Timestamp` (RFC 3339),
+  `Duration` (`"1.5s"`), the wrapper types, `Struct`, `Value`, `ListValue`,
+  `FieldMask` and `Empty`. Generate these types with cotorp (see
+  *Usage*).
+* **Not supported:** `google.protobuf.Any` returns an error in both
+  directions, because resolving `@type` needs a global type registry, which
+  would need shared runtime code. Unknown fields and extensions are dropped
+  from JSON output. There are no options (such as `EmitUnpopulated` or
+  `DiscardUnknown`).
+* **Deliberate deviation:** a top-level `null` passed to `UnmarshalJSON` is a
+  no-op, following the `encoding/json` convention for `Unmarshaler`s;
+  protojson rejects it.
+
 ## Language support
 
 * `proto2`, `proto3`, and editions `2023` and `2024`. All features are resolved
@@ -109,7 +145,7 @@ message rather than with `errors.Is`.
   fields, public and weak imports, MessageSet (as raw extensions), and custom
   options (parsed; not interpreted).
 * **Not generated:** typed extension accessors (extension data round-trips as
-  unknown fields), services, JSON, text format and reflection.
+  unknown fields), services, text format and reflection.
 
 ## Development
 
@@ -118,6 +154,9 @@ go generate ./internal/testprotos   # regenerate test packages
 go test ./...                       # protoc on PATH enables cross-checks
 go test ./internal/testprotos -run XXX -fuzz FuzzRoundTrip
 ```
+
+Set `COTORP_JSON_ORACLE` to a protojson-based converter (see AGENTS.md) to also
+cross-check the JSON tests against protobuf-go's `protojson`.
 
 The tests compare generated code against `protoc --encode/--decode`,
 round-trip `protoc --descriptor_set_out` through a cotorp-generated

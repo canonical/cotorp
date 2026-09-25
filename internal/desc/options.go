@@ -180,5 +180,7 @@ func (b *builder) setFeature(f *Features, name string, v *parser.Value, pos pars
 		f.UTF8Validation = UTF8Validation(n)
 	case "message_encoding":
 		f.MessageEncoding = MessageEncoding(n)
+	case "json_format":
+		f.JSONFormat = JSONFormat(n)
 	}
 }

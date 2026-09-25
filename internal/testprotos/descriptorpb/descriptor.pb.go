@@ -4,12 +4,19 @@
 package descriptorpb
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"io"
 	"math"
+	"math/big"
 	"math/bits"
 	"slices"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 // The verification state of the extension range.
@@ -1329,6 +1336,143 @@ func (m *FileDescriptorSet) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FileDescriptorSet) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FileDescriptorSet) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.File) > 0 {
+		b = append(b, "\"file\":["...)
+		for j := range m.File {
+			{
+				var err error
+				if b, err = m.File[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FileDescriptorSet) UnmarshalJSON(b []byte) error {
+	*m = FileDescriptorSet{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FileDescriptorSet) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [1]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "file":
+			f = 0
+		default:
+			return errors.New("proto: google.protobuf.FileDescriptorSet: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FileDescriptorSet: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.FileDescriptorSet: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		switch jb.f {
+		case 0:
+			mv := &FileDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.File = append(m.File, mv)
+		}
+	}
+	return nil
+}
+
 // Describes a complete .proto file.
 type FileDescriptorProto struct {
 	Name    *string
@@ -2189,6 +2333,488 @@ func (m *FileDescriptorProto) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FileDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.FileDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Package != nil {
+		b = append(b, "\"package\":"...)
+		if !utf8.ValidString((*m.Package)) {
+			return nil, errors.New("proto: google.protobuf.FileDescriptorProto.package contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Package)); ci++ {
+			switch c := (*m.Package)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if len(m.Dependency) > 0 {
+		b = append(b, "\"dependency\":["...)
+		for j := range m.Dependency {
+			if !utf8.ValidString(m.Dependency[j]) {
+				return nil, errors.New("proto: google.protobuf.FileDescriptorProto.dependency contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(m.Dependency[j]); ci++ {
+				switch c := m.Dependency[j][ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.PublicDependency) > 0 {
+		b = append(b, "\"publicDependency\":["...)
+		for j := range m.PublicDependency {
+			b = strconv.AppendInt(b, int64(m.PublicDependency[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.WeakDependency) > 0 {
+		b = append(b, "\"weakDependency\":["...)
+		for j := range m.WeakDependency {
+			b = strconv.AppendInt(b, int64(m.WeakDependency[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.OptionDependency) > 0 {
+		b = append(b, "\"optionDependency\":["...)
+		for j := range m.OptionDependency {
+			if !utf8.ValidString(m.OptionDependency[j]) {
+				return nil, errors.New("proto: google.protobuf.FileDescriptorProto.option_dependency contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(m.OptionDependency[j]); ci++ {
+				switch c := m.OptionDependency[j][ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.MessageType) > 0 {
+		b = append(b, "\"messageType\":["...)
+		for j := range m.MessageType {
+			{
+				var err error
+				if b, err = m.MessageType[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.EnumType) > 0 {
+		b = append(b, "\"enumType\":["...)
+		for j := range m.EnumType {
+			{
+				var err error
+				if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.Service) > 0 {
+		b = append(b, "\"service\":["...)
+		for j := range m.Service {
+			{
+				var err error
+				if b, err = m.Service[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.Extension) > 0 {
+		b = append(b, "\"extension\":["...)
+		for j := range m.Extension {
+			{
+				var err error
+				if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.SourceCodeInfo != nil {
+		b = append(b, "\"sourceCodeInfo\":"...)
+		{
+			var err error
+			if b, err = m.SourceCodeInfo.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.Syntax != nil {
+		b = append(b, "\"syntax\":"...)
+		if !utf8.ValidString((*m.Syntax)) {
+			return nil, errors.New("proto: google.protobuf.FileDescriptorProto.syntax contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Syntax)); ci++ {
+			switch c := (*m.Syntax)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Edition != nil {
+		b = append(b, "\"edition\":"...)
+		if s, ok := Edition_name[int32((*m.Edition))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Edition)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FileDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = FileDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [14]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "package":
+			f = 1
+		case "dependency":
+			f = 2
+		case "publicDependency", "public_dependency":
+			f = 3
+		case "weakDependency", "weak_dependency":
+			f = 4
+		case "optionDependency", "option_dependency":
+			f = 5
+		case "messageType", "message_type":
+			f = 6
+		case "enumType", "enum_type":
+			f = 7
+		case "service":
+			f = 8
+		case "extension":
+			f = 9
+		case "options":
+			f = 10
+		case "sourceCodeInfo", "source_code_info":
+			f = 11
+		case "syntax":
+			f = 12
+		case "edition":
+			f = 13
+		default:
+			return errors.New("proto: google.protobuf.FileDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FileDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 10, 11, 12, 13:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 2, 3, 4, 5, 6, 7, 8, 9:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.FileDescriptorProto: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 3, 4:
+			class, bits = 1, 32
+		case 0, 1, 2, 5, 12:
+			class = 5
+		case 13:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FileDescriptorProto: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			x := sv
+			m.Package = &x
+		case 2:
+			m.Dependency = append(m.Dependency, sv)
+		case 3:
+			m.PublicDependency = append(m.PublicDependency, int32(iv))
+		case 4:
+			m.WeakDependency = append(m.WeakDependency, int32(iv))
+		case 5:
+			m.OptionDependency = append(m.OptionDependency, sv)
+		case 6:
+			mv := &DescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.MessageType = append(m.MessageType, mv)
+		case 7:
+			mv := &EnumDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.EnumType = append(m.EnumType, mv)
+		case 8:
+			mv := &ServiceDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Service = append(m.Service, mv)
+		case 9:
+			mv := &FieldDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Extension = append(m.Extension, mv)
+		case 10:
+			if m.Options == nil {
+				m.Options = &FileOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 11:
+			if m.SourceCodeInfo == nil {
+				m.SourceCodeInfo = &SourceCodeInfo{}
+			}
+			if err := m.SourceCodeInfo.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 12:
+			x := sv
+			m.Syntax = &x
+		case 13:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.Edition = &x
+		}
+	}
+	return nil
+}
+
 // Describes a message type.
 type DescriptorProto struct {
 	Name           *string
@@ -2921,6 +3547,432 @@ func (m *DescriptorProto) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *DescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.DescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if len(m.Field) > 0 {
+		b = append(b, "\"field\":["...)
+		for j := range m.Field {
+			{
+				var err error
+				if b, err = m.Field[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.Extension) > 0 {
+		b = append(b, "\"extension\":["...)
+		for j := range m.Extension {
+			{
+				var err error
+				if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.NestedType) > 0 {
+		b = append(b, "\"nestedType\":["...)
+		for j := range m.NestedType {
+			{
+				var err error
+				if b, err = m.NestedType[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.EnumType) > 0 {
+		b = append(b, "\"enumType\":["...)
+		for j := range m.EnumType {
+			{
+				var err error
+				if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.ExtensionRange) > 0 {
+		b = append(b, "\"extensionRange\":["...)
+		for j := range m.ExtensionRange {
+			{
+				var err error
+				if b, err = m.ExtensionRange[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.OneofDecl) > 0 {
+		b = append(b, "\"oneofDecl\":["...)
+		for j := range m.OneofDecl {
+			{
+				var err error
+				if b, err = m.OneofDecl[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.ReservedRange) > 0 {
+		b = append(b, "\"reservedRange\":["...)
+		for j := range m.ReservedRange {
+			{
+				var err error
+				if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.ReservedName) > 0 {
+		b = append(b, "\"reservedName\":["...)
+		for j := range m.ReservedName {
+			if !utf8.ValidString(m.ReservedName[j]) {
+				return nil, errors.New("proto: google.protobuf.DescriptorProto.reserved_name contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(m.ReservedName[j]); ci++ {
+				switch c := m.ReservedName[j][ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Visibility != nil {
+		b = append(b, "\"visibility\":"...)
+		if s, ok := SymbolVisibility_name[int32((*m.Visibility))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Visibility)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *DescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = DescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.DescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [11]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "field":
+			f = 1
+		case "extension":
+			f = 2
+		case "nestedType", "nested_type":
+			f = 3
+		case "enumType", "enum_type":
+			f = 4
+		case "extensionRange", "extension_range":
+			f = 5
+		case "oneofDecl", "oneof_decl":
+			f = 6
+		case "options":
+			f = 7
+		case "reservedRange", "reserved_range":
+			f = 8
+		case "reservedName", "reserved_name":
+			f = 9
+		case "visibility":
+			f = 10
+		default:
+			return errors.New("proto: google.protobuf.DescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.DescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 7, 10:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 1, 2, 3, 4, 5, 6, 8, 9:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.DescriptorProto: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0, 9:
+			class = 5
+		case 10:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.DescriptorProto: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.DescriptorProto: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.DescriptorProto: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.DescriptorProto: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.DescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			mv := &FieldDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Field = append(m.Field, mv)
+		case 2:
+			mv := &FieldDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Extension = append(m.Extension, mv)
+		case 3:
+			mv := &DescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.NestedType = append(m.NestedType, mv)
+		case 4:
+			mv := &EnumDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.EnumType = append(m.EnumType, mv)
+		case 5:
+			mv := &DescriptorProto_ExtensionRange{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.ExtensionRange = append(m.ExtensionRange, mv)
+		case 6:
+			mv := &OneofDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.OneofDecl = append(m.OneofDecl, mv)
+		case 7:
+			if m.Options == nil {
+				m.Options = &MessageOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 8:
+			mv := &DescriptorProto_ReservedRange{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.ReservedRange = append(m.ReservedRange, mv)
+		case 9:
+			m.ReservedName = append(m.ReservedName, sv)
+		case 10:
+			var ev SymbolVisibility
+			switch class {
+			case 5:
+				n, ok := SymbolVisibility_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.DescriptorProto: invalid value for enum google.protobuf.SymbolVisibility: " + strconv.Quote(sv))
+				}
+				ev = SymbolVisibility(n)
+			case 1:
+				ev = SymbolVisibility(iv)
+			}
+			x := ev
+			m.Visibility = &x
+		}
+	}
+	return nil
+}
+
 type DescriptorProto_ExtensionRange struct {
 	Start   *int32
 	End     *int32
@@ -3230,6 +4282,184 @@ func (m *DescriptorProto_ExtensionRange) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *DescriptorProto_ExtensionRange) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *DescriptorProto_ExtensionRange) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Start != nil {
+		b = append(b, "\"start\":"...)
+		b = strconv.AppendInt(b, int64((*m.Start)), 10)
+		b = append(b, ',')
+	}
+	if m.End != nil {
+		b = append(b, "\"end\":"...)
+		b = strconv.AppendInt(b, int64((*m.End)), 10)
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *DescriptorProto_ExtensionRange) UnmarshalJSON(b []byte) error {
+	*m = DescriptorProto_ExtensionRange{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "start":
+			f = 0
+		case "end":
+			f = 1
+		case "options":
+			f = 2
+		default:
+			return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		switch jb.f {
+		case 0, 1:
+			class, bits = 1, 32
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.Start = &x
+		case 1:
+			x := int32(iv)
+			m.End = &x
+		case 2:
+			if m.Options == nil {
+				m.Options = &ExtensionRangeOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // Range of reserved tag numbers. Reserved tag numbers may not be used by
 // fields or extension ranges in the same message. Reserved ranges may
 // not overlap.
@@ -3476,6 +4706,159 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *DescriptorProto_ReservedRange) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *DescriptorProto_ReservedRange) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *DescriptorProto_ReservedRange) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Start != nil {
+		b = append(b, "\"start\":"...)
+		b = strconv.AppendInt(b, int64((*m.Start)), 10)
+		b = append(b, ',')
+	}
+	if m.End != nil {
+		b = append(b, "\"end\":"...)
+		b = strconv.AppendInt(b, int64((*m.End)), 10)
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *DescriptorProto_ReservedRange) UnmarshalJSON(b []byte) error {
+	*m = DescriptorProto_ReservedRange{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "start":
+			f = 0
+		case "end":
+			f = 1
+		default:
+			return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		switch jb.f {
+		case 0, 1:
+			class, bits = 1, 32
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.Start = &x
+		case 1:
+			x := int32(iv)
+			m.End = &x
+		}
+	}
 	return nil
 }
 
@@ -3874,6 +5257,269 @@ func (m *ExtensionRangeOptions) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *ExtensionRangeOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.Declaration) > 0 {
+		b = append(b, "\"declaration\":["...)
+		for j := range m.Declaration {
+			{
+				var err error
+				if b, err = m.Declaration[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.Verification != nil {
+		b = append(b, "\"verification\":"...)
+		if s, ok := ExtensionRangeOptions_VerificationState_name[int32((*m.Verification))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Verification)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *ExtensionRangeOptions) UnmarshalJSON(b []byte) error {
+	*m = ExtensionRangeOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [4]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 0
+		case "declaration":
+			f = 1
+		case "features":
+			f = 2
+		case "verification":
+			f = 3
+		default:
+			return errors.New("proto: google.protobuf.ExtensionRangeOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.ExtensionRangeOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 2, 3:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 0, 1:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 3:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+		case 1:
+			mv := &ExtensionRangeOptions_Declaration{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Declaration = append(m.Declaration, mv)
+		case 2:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 3:
+			var ev ExtensionRangeOptions_VerificationState
+			switch class {
+			case 5:
+				n, ok := ExtensionRangeOptions_VerificationState_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid value for enum google.protobuf.ExtensionRangeOptions.VerificationState: " + strconv.Quote(sv))
+				}
+				ev = ExtensionRangeOptions_VerificationState(n)
+			case 1:
+				ev = ExtensionRangeOptions_VerificationState(iv)
+			}
+			x := ev
+			m.Verification = &x
+		}
+	}
+	return nil
+}
+
 type ExtensionRangeOptions_Declaration struct {
 	// The extension number declared within the extension range.
 	Number *int32
@@ -4234,6 +5880,246 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *ExtensionRangeOptions_Declaration) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *ExtensionRangeOptions_Declaration) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *ExtensionRangeOptions_Declaration) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Number != nil {
+		b = append(b, "\"number\":"...)
+		b = strconv.AppendInt(b, int64((*m.Number)), 10)
+		b = append(b, ',')
+	}
+	if m.FullName != nil {
+		b = append(b, "\"fullName\":"...)
+		if !utf8.ValidString((*m.FullName)) {
+			return nil, errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration.full_name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.FullName)); ci++ {
+			switch c := (*m.FullName)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Type != nil {
+		b = append(b, "\"type\":"...)
+		if !utf8.ValidString((*m.Type)) {
+			return nil, errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration.type contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Type)); ci++ {
+			switch c := (*m.Type)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Reserved != nil {
+		b = append(b, "\"reserved\":"...)
+		if *m.Reserved {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Repeated != nil {
+		b = append(b, "\"repeated\":"...)
+		if *m.Repeated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *ExtensionRangeOptions_Declaration) UnmarshalJSON(b []byte) error {
+	*m = ExtensionRangeOptions_Declaration{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [5]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "number":
+			f = 0
+		case "fullName", "full_name":
+			f = 1
+		case "type":
+			f = 2
+		case "reserved":
+			f = 3
+		case "repeated":
+			f = 4
+		default:
+			return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 0:
+			class, bits = 1, 32
+		case 3, 4:
+			class = 4
+		case 1, 2:
+			class = 5
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.Number = &x
+		case 1:
+			x := sv
+			m.FullName = &x
+		case 2:
+			x := sv
+			m.Type = &x
+		case 3:
+			x := bv
+			m.Reserved = &x
+		case 4:
+			x := bv
+			m.Repeated = &x
+		}
+	}
 	return nil
 }
 
@@ -4888,6 +6774,402 @@ func (m *FieldDescriptorProto) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FieldDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Number != nil {
+		b = append(b, "\"number\":"...)
+		b = strconv.AppendInt(b, int64((*m.Number)), 10)
+		b = append(b, ',')
+	}
+	if m.Label != nil {
+		b = append(b, "\"label\":"...)
+		if s, ok := FieldDescriptorProto_Label_name[int32((*m.Label))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Label)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.Type != nil {
+		b = append(b, "\"type\":"...)
+		if s, ok := FieldDescriptorProto_Type_name[int32((*m.Type))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Type)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.TypeName != nil {
+		b = append(b, "\"typeName\":"...)
+		if !utf8.ValidString((*m.TypeName)) {
+			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.type_name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.TypeName)); ci++ {
+			switch c := (*m.TypeName)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Extendee != nil {
+		b = append(b, "\"extendee\":"...)
+		if !utf8.ValidString((*m.Extendee)) {
+			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.extendee contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Extendee)); ci++ {
+			switch c := (*m.Extendee)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.DefaultValue != nil {
+		b = append(b, "\"defaultValue\":"...)
+		if !utf8.ValidString((*m.DefaultValue)) {
+			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.default_value contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.DefaultValue)); ci++ {
+			switch c := (*m.DefaultValue)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.OneofIndex != nil {
+		b = append(b, "\"oneofIndex\":"...)
+		b = strconv.AppendInt(b, int64((*m.OneofIndex)), 10)
+		b = append(b, ',')
+	}
+	if m.JsonName != nil {
+		b = append(b, "\"jsonName\":"...)
+		if !utf8.ValidString((*m.JsonName)) {
+			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.json_name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.JsonName)); ci++ {
+			switch c := (*m.JsonName)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.Proto3Optional != nil {
+		b = append(b, "\"proto3Optional\":"...)
+		if *m.Proto3Optional {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FieldDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = FieldDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FieldDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [11]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "number":
+			f = 1
+		case "label":
+			f = 2
+		case "type":
+			f = 3
+		case "typeName", "type_name":
+			f = 4
+		case "extendee":
+			f = 5
+		case "defaultValue", "default_value":
+			f = 6
+		case "oneofIndex", "oneof_index":
+			f = 7
+		case "jsonName", "json_name":
+			f = 8
+		case "options":
+			f = 9
+		case "proto3Optional", "proto3_optional":
+			f = 10
+		default:
+			return errors.New("proto: google.protobuf.FieldDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FieldDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 1, 7:
+			class, bits = 1, 32
+		case 10:
+			class = 4
+		case 0, 4, 5, 6, 8:
+			class = 5
+		case 2, 3:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			x := int32(iv)
+			m.Number = &x
+		case 2:
+			var ev FieldDescriptorProto_Label
+			switch class {
+			case 5:
+				n, ok := FieldDescriptorProto_Label_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid value for enum google.protobuf.FieldDescriptorProto.Label: " + strconv.Quote(sv))
+				}
+				ev = FieldDescriptorProto_Label(n)
+			case 1:
+				ev = FieldDescriptorProto_Label(iv)
+			}
+			x := ev
+			m.Label = &x
+		case 3:
+			var ev FieldDescriptorProto_Type
+			switch class {
+			case 5:
+				n, ok := FieldDescriptorProto_Type_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid value for enum google.protobuf.FieldDescriptorProto.Type: " + strconv.Quote(sv))
+				}
+				ev = FieldDescriptorProto_Type(n)
+			case 1:
+				ev = FieldDescriptorProto_Type(iv)
+			}
+			x := ev
+			m.Type = &x
+		case 4:
+			x := sv
+			m.TypeName = &x
+		case 5:
+			x := sv
+			m.Extendee = &x
+		case 6:
+			x := sv
+			m.DefaultValue = &x
+		case 7:
+			x := int32(iv)
+			m.OneofIndex = &x
+		case 8:
+			x := sv
+			m.JsonName = &x
+		case 9:
+			if m.Options == nil {
+				m.Options = &FieldOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 10:
+			x := bv
+			m.Proto3Optional = &x
+		}
+	}
+	return nil
+}
+
 // Describes a oneof.
 type OneofDescriptorProto struct {
 	Name    *string
@@ -5164,6 +7446,164 @@ func (m *OneofDescriptorProto) ProtoCheckInitialized() error {
 	}
 	if err := m.Options.ProtoCheckInitialized(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *OneofDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *OneofDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.OneofDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *OneofDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = OneofDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.OneofDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "options":
+			f = 1
+		default:
+			return errors.New("proto: google.protobuf.OneofDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.OneofDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var sv string
+		switch jb.f {
+		case 0:
+			class = 5
+		}
+		switch class {
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.OneofDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			if m.Options == nil {
+				m.Options = &OneofOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -5633,6 +8073,322 @@ func (m *EnumDescriptorProto) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *EnumDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.EnumDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if len(m.Value) > 0 {
+		b = append(b, "\"value\":["...)
+		for j := range m.Value {
+			{
+				var err error
+				if b, err = m.Value[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.ReservedRange) > 0 {
+		b = append(b, "\"reservedRange\":["...)
+		for j := range m.ReservedRange {
+			{
+				var err error
+				if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.ReservedName) > 0 {
+		b = append(b, "\"reservedName\":["...)
+		for j := range m.ReservedName {
+			if !utf8.ValidString(m.ReservedName[j]) {
+				return nil, errors.New("proto: google.protobuf.EnumDescriptorProto.reserved_name contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(m.ReservedName[j]); ci++ {
+				switch c := m.ReservedName[j][ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Visibility != nil {
+		b = append(b, "\"visibility\":"...)
+		if s, ok := SymbolVisibility_name[int32((*m.Visibility))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Visibility)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *EnumDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = EnumDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [6]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "value":
+			f = 1
+		case "options":
+			f = 2
+		case "reservedRange", "reserved_range":
+			f = 3
+		case "reservedName", "reserved_name":
+			f = 4
+		case "visibility":
+			f = 5
+		default:
+			return errors.New("proto: google.protobuf.EnumDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.EnumDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 2, 5:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 1, 3, 4:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0, 4:
+			class = 5
+		case 5:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			mv := &EnumValueDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Value = append(m.Value, mv)
+		case 2:
+			if m.Options == nil {
+				m.Options = &EnumOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 3:
+			mv := &EnumDescriptorProto_EnumReservedRange{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.ReservedRange = append(m.ReservedRange, mv)
+		case 4:
+			m.ReservedName = append(m.ReservedName, sv)
+		case 5:
+			var ev SymbolVisibility
+			switch class {
+			case 5:
+				n, ok := SymbolVisibility_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid value for enum google.protobuf.SymbolVisibility: " + strconv.Quote(sv))
+				}
+				ev = SymbolVisibility(n)
+			case 1:
+				ev = SymbolVisibility(iv)
+			}
+			x := ev
+			m.Visibility = &x
+		}
+	}
+	return nil
+}
+
 // Range of reserved numeric values. Reserved values may not be used by
 // entries in the same enum. Reserved ranges may not overlap.
 //
@@ -5882,6 +8638,159 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *EnumDescriptorProto_EnumReservedRange) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *EnumDescriptorProto_EnumReservedRange) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Start != nil {
+		b = append(b, "\"start\":"...)
+		b = strconv.AppendInt(b, int64((*m.Start)), 10)
+		b = append(b, ',')
+	}
+	if m.End != nil {
+		b = append(b, "\"end\":"...)
+		b = strconv.AppendInt(b, int64((*m.End)), 10)
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *EnumDescriptorProto_EnumReservedRange) UnmarshalJSON(b []byte) error {
+	*m = EnumDescriptorProto_EnumReservedRange{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "start":
+			f = 0
+		case "end":
+			f = 1
+		default:
+			return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		switch jb.f {
+		case 0, 1:
+			class, bits = 1, 32
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.Start = &x
+		case 1:
+			x := int32(iv)
+			m.End = &x
+		}
+	}
 	return nil
 }
 
@@ -6195,6 +9104,208 @@ func (m *EnumValueDescriptorProto) ProtoCheckInitialized() error {
 	}
 	if err := m.Options.ProtoCheckInitialized(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *EnumValueDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *EnumValueDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.EnumValueDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Number != nil {
+		b = append(b, "\"number\":"...)
+		b = strconv.AppendInt(b, int64((*m.Number)), 10)
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *EnumValueDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = EnumValueDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "number":
+			f = 1
+		case "options":
+			f = 2
+		default:
+			return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.EnumValueDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 1:
+			class, bits = 1, 32
+		case 0:
+			class = 5
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			x := int32(iv)
+			m.Number = &x
+		case 2:
+			if m.Options == nil {
+				m.Options = &EnumValueOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -6529,6 +9640,205 @@ func (m *ServiceDescriptorProto) ProtoCheckInitialized() error {
 	}
 	if err := m.Options.ProtoCheckInitialized(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *ServiceDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *ServiceDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.ServiceDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if len(m.Method) > 0 {
+		b = append(b, "\"method\":["...)
+		for j := range m.Method {
+			{
+				var err error
+				if b, err = m.Method[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *ServiceDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = ServiceDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *ServiceDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "method":
+			f = 1
+		case "options":
+			f = 2
+		default:
+			return errors.New("proto: google.protobuf.ServiceDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.ServiceDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 1:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.ServiceDescriptorProto: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var sv string
+		switch jb.f {
+		case 0:
+			class = 5
+		}
+		switch class {
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.ServiceDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			mv := &MethodDescriptorProto{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Method = append(m.Method, mv)
+		case 2:
+			if m.Options == nil {
+				m.Options = &ServiceOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -6959,6 +10269,251 @@ func (m *MethodDescriptorProto) ProtoCheckInitialized() error {
 	}
 	if err := m.Options.ProtoCheckInitialized(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *MethodDescriptorProto) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *MethodDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Name != nil {
+		b = append(b, "\"name\":"...)
+		if !utf8.ValidString((*m.Name)) {
+			return nil, errors.New("proto: google.protobuf.MethodDescriptorProto.name contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Name)); ci++ {
+			switch c := (*m.Name)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.InputType != nil {
+		b = append(b, "\"inputType\":"...)
+		if !utf8.ValidString((*m.InputType)) {
+			return nil, errors.New("proto: google.protobuf.MethodDescriptorProto.input_type contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.InputType)); ci++ {
+			switch c := (*m.InputType)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.OutputType != nil {
+		b = append(b, "\"outputType\":"...)
+		if !utf8.ValidString((*m.OutputType)) {
+			return nil, errors.New("proto: google.protobuf.MethodDescriptorProto.output_type contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.OutputType)); ci++ {
+			switch c := (*m.OutputType)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Options != nil {
+		b = append(b, "\"options\":"...)
+		{
+			var err error
+			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.ClientStreaming != nil {
+		b = append(b, "\"clientStreaming\":"...)
+		if *m.ClientStreaming {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.ServerStreaming != nil {
+		b = append(b, "\"serverStreaming\":"...)
+		if *m.ServerStreaming {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *MethodDescriptorProto) UnmarshalJSON(b []byte) error {
+	*m = MethodDescriptorProto{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.MethodDescriptorProto: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [6]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "inputType", "input_type":
+			f = 1
+		case "outputType", "output_type":
+			f = 2
+		case "options":
+			f = 3
+		case "clientStreaming", "client_streaming":
+			f = 4
+		case "serverStreaming", "server_streaming":
+			f = 5
+		default:
+			return errors.New("proto: google.protobuf.MethodDescriptorProto: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.MethodDescriptorProto: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4, 5:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 4, 5:
+			class = 4
+		case 0, 1, 2:
+			class = 5
+		}
+		switch class {
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.Name = &x
+		case 1:
+			x := sv
+			m.InputType = &x
+		case 2:
+			x := sv
+			m.OutputType = &x
+		case 3:
+			if m.Options == nil {
+				m.Options = &MethodOptions{}
+			}
+			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 4:
+			x := bv
+			m.ClientStreaming = &x
+		case 5:
+			x := bv
+			m.ServerStreaming = &x
+		}
 	}
 	return nil
 }
@@ -8031,6 +11586,612 @@ func (m *FileOptions) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FileOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.JavaPackage != nil {
+		b = append(b, "\"javaPackage\":"...)
+		if !utf8.ValidString((*m.JavaPackage)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.java_package contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.JavaPackage)); ci++ {
+			switch c := (*m.JavaPackage)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.JavaOuterClassname != nil {
+		b = append(b, "\"javaOuterClassname\":"...)
+		if !utf8.ValidString((*m.JavaOuterClassname)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.java_outer_classname contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.JavaOuterClassname)); ci++ {
+			switch c := (*m.JavaOuterClassname)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.JavaMultipleFiles != nil {
+		b = append(b, "\"javaMultipleFiles\":"...)
+		if *m.JavaMultipleFiles {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.JavaGenerateEqualsAndHash != nil {
+		b = append(b, "\"javaGenerateEqualsAndHash\":"...)
+		if *m.JavaGenerateEqualsAndHash {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.JavaStringCheckUtf8 != nil {
+		b = append(b, "\"javaStringCheckUtf8\":"...)
+		if *m.JavaStringCheckUtf8 {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.OptimizeFor != nil {
+		b = append(b, "\"optimizeFor\":"...)
+		if s, ok := FileOptions_OptimizeMode_name[int32((*m.OptimizeFor))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.OptimizeFor)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.GoPackage != nil {
+		b = append(b, "\"goPackage\":"...)
+		if !utf8.ValidString((*m.GoPackage)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.go_package contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.GoPackage)); ci++ {
+			switch c := (*m.GoPackage)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.CcGenericServices != nil {
+		b = append(b, "\"ccGenericServices\":"...)
+		if *m.CcGenericServices {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.JavaGenericServices != nil {
+		b = append(b, "\"javaGenericServices\":"...)
+		if *m.JavaGenericServices {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.PyGenericServices != nil {
+		b = append(b, "\"pyGenericServices\":"...)
+		if *m.PyGenericServices {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.CcEnableArenas != nil {
+		b = append(b, "\"ccEnableArenas\":"...)
+		if *m.CcEnableArenas {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.ObjcClassPrefix != nil {
+		b = append(b, "\"objcClassPrefix\":"...)
+		if !utf8.ValidString((*m.ObjcClassPrefix)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.objc_class_prefix contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.ObjcClassPrefix)); ci++ {
+			switch c := (*m.ObjcClassPrefix)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.CsharpNamespace != nil {
+		b = append(b, "\"csharpNamespace\":"...)
+		if !utf8.ValidString((*m.CsharpNamespace)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.csharp_namespace contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.CsharpNamespace)); ci++ {
+			switch c := (*m.CsharpNamespace)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.SwiftPrefix != nil {
+		b = append(b, "\"swiftPrefix\":"...)
+		if !utf8.ValidString((*m.SwiftPrefix)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.swift_prefix contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.SwiftPrefix)); ci++ {
+			switch c := (*m.SwiftPrefix)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.PhpClassPrefix != nil {
+		b = append(b, "\"phpClassPrefix\":"...)
+		if !utf8.ValidString((*m.PhpClassPrefix)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.php_class_prefix contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.PhpClassPrefix)); ci++ {
+			switch c := (*m.PhpClassPrefix)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.PhpNamespace != nil {
+		b = append(b, "\"phpNamespace\":"...)
+		if !utf8.ValidString((*m.PhpNamespace)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.php_namespace contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.PhpNamespace)); ci++ {
+			switch c := (*m.PhpNamespace)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.PhpMetadataNamespace != nil {
+		b = append(b, "\"phpMetadataNamespace\":"...)
+		if !utf8.ValidString((*m.PhpMetadataNamespace)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.php_metadata_namespace contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.PhpMetadataNamespace)); ci++ {
+			switch c := (*m.PhpMetadataNamespace)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.RubyPackage != nil {
+		b = append(b, "\"rubyPackage\":"...)
+		if !utf8.ValidString((*m.RubyPackage)) {
+			return nil, errors.New("proto: google.protobuf.FileOptions.ruby_package contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.RubyPackage)); ci++ {
+			switch c := (*m.RubyPackage)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FileOptions) UnmarshalJSON(b []byte) error {
+	*m = FileOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FileOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FileOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FileOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [21]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "javaPackage", "java_package":
+			f = 0
+		case "javaOuterClassname", "java_outer_classname":
+			f = 1
+		case "javaMultipleFiles", "java_multiple_files":
+			f = 2
+		case "javaGenerateEqualsAndHash", "java_generate_equals_and_hash":
+			f = 3
+		case "javaStringCheckUtf8", "java_string_check_utf8":
+			f = 4
+		case "optimizeFor", "optimize_for":
+			f = 5
+		case "goPackage", "go_package":
+			f = 6
+		case "ccGenericServices", "cc_generic_services":
+			f = 7
+		case "javaGenericServices", "java_generic_services":
+			f = 8
+		case "pyGenericServices", "py_generic_services":
+			f = 9
+		case "deprecated":
+			f = 10
+		case "ccEnableArenas", "cc_enable_arenas":
+			f = 11
+		case "objcClassPrefix", "objc_class_prefix":
+			f = 12
+		case "csharpNamespace", "csharp_namespace":
+			f = 13
+		case "swiftPrefix", "swift_prefix":
+			f = 14
+		case "phpClassPrefix", "php_class_prefix":
+			f = 15
+		case "phpNamespace", "php_namespace":
+			f = 16
+		case "phpMetadataNamespace", "php_metadata_namespace":
+			f = 17
+		case "rubyPackage", "ruby_package":
+			f = 18
+		case "features":
+			f = 19
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 20
+		default:
+			return errors.New("proto: google.protobuf.FileOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FileOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 20:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.FileOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.FileOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FileOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 2, 3, 4, 7, 8, 9, 10, 11:
+			class = 4
+		case 0, 1, 6, 12, 13, 14, 15, 16, 17, 18:
+			class = 5
+		case 5:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FileOptions: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FileOptions: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FileOptions: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FileOptions: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.FileOptions: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FileOptions: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.JavaPackage = &x
+		case 1:
+			x := sv
+			m.JavaOuterClassname = &x
+		case 2:
+			x := bv
+			m.JavaMultipleFiles = &x
+		case 3:
+			x := bv
+			m.JavaGenerateEqualsAndHash = &x
+		case 4:
+			x := bv
+			m.JavaStringCheckUtf8 = &x
+		case 5:
+			var ev FileOptions_OptimizeMode
+			switch class {
+			case 5:
+				n, ok := FileOptions_OptimizeMode_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FileOptions: invalid value for enum google.protobuf.FileOptions.OptimizeMode: " + strconv.Quote(sv))
+				}
+				ev = FileOptions_OptimizeMode(n)
+			case 1:
+				ev = FileOptions_OptimizeMode(iv)
+			}
+			x := ev
+			m.OptimizeFor = &x
+		case 6:
+			x := sv
+			m.GoPackage = &x
+		case 7:
+			x := bv
+			m.CcGenericServices = &x
+		case 8:
+			x := bv
+			m.JavaGenericServices = &x
+		case 9:
+			x := bv
+			m.PyGenericServices = &x
+		case 10:
+			x := bv
+			m.Deprecated = &x
+		case 11:
+			x := bv
+			m.CcEnableArenas = &x
+		case 12:
+			x := sv
+			m.ObjcClassPrefix = &x
+		case 13:
+			x := sv
+			m.CsharpNamespace = &x
+		case 14:
+			x := sv
+			m.SwiftPrefix = &x
+		case 15:
+			x := sv
+			m.PhpClassPrefix = &x
+		case 16:
+			x := sv
+			m.PhpNamespace = &x
+		case 17:
+			x := sv
+			m.PhpMetadataNamespace = &x
+		case 18:
+			x := sv
+			m.RubyPackage = &x
+		case 19:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 20:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+		}
+	}
+	return nil
+}
+
 type MessageOptions struct {
 	// Set true to use the old proto1 MessageSet wire format for extensions.
 	// This is provided for backwards-compatibility with the MessageSet wire
@@ -8549,6 +12710,252 @@ func (m *MessageOptions) ProtoCheckInitialized() error {
 	for _, v := range m.UninterpretedOption {
 		if err := v.ProtoCheckInitialized(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *MessageOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *MessageOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.MessageSetWireFormat != nil {
+		b = append(b, "\"messageSetWireFormat\":"...)
+		if *m.MessageSetWireFormat {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.NoStandardDescriptorAccessor != nil {
+		b = append(b, "\"noStandardDescriptorAccessor\":"...)
+		if *m.NoStandardDescriptorAccessor {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.MapEntry != nil {
+		b = append(b, "\"mapEntry\":"...)
+		if *m.MapEntry {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.DeprecatedLegacyJsonFieldConflicts != nil {
+		b = append(b, "\"deprecatedLegacyJsonFieldConflicts\":"...)
+		if *m.DeprecatedLegacyJsonFieldConflicts {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *MessageOptions) UnmarshalJSON(b []byte) error {
+	*m = MessageOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *MessageOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.MessageOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.MessageOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [7]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "messageSetWireFormat", "message_set_wire_format":
+			f = 0
+		case "noStandardDescriptorAccessor", "no_standard_descriptor_accessor":
+			f = 1
+		case "deprecated":
+			f = 2
+		case "mapEntry", "map_entry":
+			f = 3
+		case "deprecatedLegacyJsonFieldConflicts", "deprecated_legacy_json_field_conflicts":
+			f = 4
+		case "features":
+			f = 5
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 6
+		default:
+			return errors.New("proto: google.protobuf.MessageOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.MessageOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4, 5:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 6:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.MessageOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.MessageOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.MessageOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var bv bool
+		switch jb.f {
+		case 0, 1, 2, 3, 4:
+			class = 4
+		}
+		switch class {
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.MessageOptions: invalid boolean " + string(raw))
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := bv
+			m.MessageSetWireFormat = &x
+		case 1:
+			x := bv
+			m.NoStandardDescriptorAccessor = &x
+		case 2:
+			x := bv
+			m.Deprecated = &x
+		case 3:
+			x := bv
+			m.MapEntry = &x
+		case 4:
+			x := bv
+			m.DeprecatedLegacyJsonFieldConflicts = &x
+		case 5:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 6:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
 	return nil
@@ -9398,6 +13805,467 @@ func (m *FieldOptions) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FieldOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Ctype != nil {
+		b = append(b, "\"ctype\":"...)
+		if s, ok := FieldOptions_CType_name[int32((*m.Ctype))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Ctype)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.Packed != nil {
+		b = append(b, "\"packed\":"...)
+		if *m.Packed {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Jstype != nil {
+		b = append(b, "\"jstype\":"...)
+		if s, ok := FieldOptions_JSType_name[int32((*m.Jstype))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Jstype)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.Lazy != nil {
+		b = append(b, "\"lazy\":"...)
+		if *m.Lazy {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.UnverifiedLazy != nil {
+		b = append(b, "\"unverifiedLazy\":"...)
+		if *m.UnverifiedLazy {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Weak != nil {
+		b = append(b, "\"weak\":"...)
+		if *m.Weak {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.DebugRedact != nil {
+		b = append(b, "\"debugRedact\":"...)
+		if *m.DebugRedact {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Retention != nil {
+		b = append(b, "\"retention\":"...)
+		if s, ok := FieldOptions_OptionRetention_name[int32((*m.Retention))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Retention)), 10)
+		}
+		b = append(b, ',')
+	}
+	if len(m.Targets) > 0 {
+		b = append(b, "\"targets\":["...)
+		for j := range m.Targets {
+			if s, ok := FieldOptions_OptionTargetType_name[int32(m.Targets[j])]; ok {
+				b = append(b, '"')
+				b = append(b, s...)
+				b = append(b, '"')
+			} else {
+				b = strconv.AppendInt(b, int64(m.Targets[j]), 10)
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.EditionDefaults) > 0 {
+		b = append(b, "\"editionDefaults\":["...)
+		for j := range m.EditionDefaults {
+			{
+				var err error
+				if b, err = m.EditionDefaults[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.FeatureSupport != nil {
+		b = append(b, "\"featureSupport\":"...)
+		{
+			var err error
+			if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FieldOptions) UnmarshalJSON(b []byte) error {
+	*m = FieldOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FieldOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FieldOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [14]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "ctype":
+			f = 0
+		case "packed":
+			f = 1
+		case "jstype":
+			f = 2
+		case "lazy":
+			f = 3
+		case "unverifiedLazy", "unverified_lazy":
+			f = 4
+		case "deprecated":
+			f = 5
+		case "weak":
+			f = 6
+		case "debugRedact", "debug_redact":
+			f = 7
+		case "retention":
+			f = 8
+		case "targets":
+			f = 9
+		case "editionDefaults", "edition_defaults":
+			f = 10
+		case "features":
+			f = 11
+		case "featureSupport", "feature_support":
+			f = 12
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 13
+		default:
+			return errors.New("proto: google.protobuf.FieldOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FieldOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 9, 10, 13:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.FieldOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.FieldOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 1, 3, 4, 5, 6, 7:
+			class = 4
+		case 0, 2, 8, 9:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FieldOptions: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FieldOptions: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FieldOptions: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FieldOptions: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.FieldOptions: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FieldOptions: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			var ev FieldOptions_CType
+			switch class {
+			case 5:
+				n, ok := FieldOptions_CType_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.CType: " + strconv.Quote(sv))
+				}
+				ev = FieldOptions_CType(n)
+			case 1:
+				ev = FieldOptions_CType(iv)
+			}
+			x := ev
+			m.Ctype = &x
+		case 1:
+			x := bv
+			m.Packed = &x
+		case 2:
+			var ev FieldOptions_JSType
+			switch class {
+			case 5:
+				n, ok := FieldOptions_JSType_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.JSType: " + strconv.Quote(sv))
+				}
+				ev = FieldOptions_JSType(n)
+			case 1:
+				ev = FieldOptions_JSType(iv)
+			}
+			x := ev
+			m.Jstype = &x
+		case 3:
+			x := bv
+			m.Lazy = &x
+		case 4:
+			x := bv
+			m.UnverifiedLazy = &x
+		case 5:
+			x := bv
+			m.Deprecated = &x
+		case 6:
+			x := bv
+			m.Weak = &x
+		case 7:
+			x := bv
+			m.DebugRedact = &x
+		case 8:
+			var ev FieldOptions_OptionRetention
+			switch class {
+			case 5:
+				n, ok := FieldOptions_OptionRetention_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.OptionRetention: " + strconv.Quote(sv))
+				}
+				ev = FieldOptions_OptionRetention(n)
+			case 1:
+				ev = FieldOptions_OptionRetention(iv)
+			}
+			x := ev
+			m.Retention = &x
+		case 9:
+			var ev FieldOptions_OptionTargetType
+			switch class {
+			case 5:
+				n, ok := FieldOptions_OptionTargetType_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.OptionTargetType: " + strconv.Quote(sv))
+				}
+				ev = FieldOptions_OptionTargetType(n)
+			case 1:
+				ev = FieldOptions_OptionTargetType(iv)
+			}
+			m.Targets = append(m.Targets, ev)
+		case 10:
+			mv := &FieldOptions_EditionDefault{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.EditionDefaults = append(m.EditionDefaults, mv)
+		case 11:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 12:
+			if m.FeatureSupport == nil {
+				m.FeatureSupport = &FieldOptions_FeatureSupport{}
+			}
+			if err := m.FeatureSupport.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 13:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+		}
+	}
+	return nil
+}
+
 type FieldOptions_EditionDefault struct {
 	Edition *Edition
 	Value   *string
@@ -9650,6 +14518,207 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *FieldOptions_EditionDefault) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FieldOptions_EditionDefault) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FieldOptions_EditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Edition != nil {
+		b = append(b, "\"edition\":"...)
+		if s, ok := Edition_name[int32((*m.Edition))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Edition)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.Value != nil {
+		b = append(b, "\"value\":"...)
+		if !utf8.ValidString((*m.Value)) {
+			return nil, errors.New("proto: google.protobuf.FieldOptions.EditionDefault.value contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Value)); ci++ {
+			switch c := (*m.Value)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FieldOptions_EditionDefault) UnmarshalJSON(b []byte) error {
+	*m = FieldOptions_EditionDefault{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "edition":
+			f = 0
+		case "value":
+			f = 1
+		default:
+			return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 1:
+			class = 5
+		case 0:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.Edition = &x
+		case 1:
+			x := sv
+			m.Value = &x
+		}
+	}
 	return nil
 }
 
@@ -10037,6 +15106,285 @@ func (m *FieldOptions_FeatureSupport) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FieldOptions_FeatureSupport) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.EditionIntroduced != nil {
+		b = append(b, "\"editionIntroduced\":"...)
+		if s, ok := Edition_name[int32((*m.EditionIntroduced))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.EditionIntroduced)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.EditionDeprecated != nil {
+		b = append(b, "\"editionDeprecated\":"...)
+		if s, ok := Edition_name[int32((*m.EditionDeprecated))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.EditionDeprecated)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.DeprecationWarning != nil {
+		b = append(b, "\"deprecationWarning\":"...)
+		if !utf8.ValidString((*m.DeprecationWarning)) {
+			return nil, errors.New("proto: google.protobuf.FieldOptions.FeatureSupport.deprecation_warning contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.DeprecationWarning)); ci++ {
+			switch c := (*m.DeprecationWarning)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.EditionRemoved != nil {
+		b = append(b, "\"editionRemoved\":"...)
+		if s, ok := Edition_name[int32((*m.EditionRemoved))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.EditionRemoved)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.RemovalError != nil {
+		b = append(b, "\"removalError\":"...)
+		if !utf8.ValidString((*m.RemovalError)) {
+			return nil, errors.New("proto: google.protobuf.FieldOptions.FeatureSupport.removal_error contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.RemovalError)); ci++ {
+			switch c := (*m.RemovalError)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FieldOptions_FeatureSupport) UnmarshalJSON(b []byte) error {
+	*m = FieldOptions_FeatureSupport{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [5]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "editionIntroduced", "edition_introduced":
+			f = 0
+		case "editionDeprecated", "edition_deprecated":
+			f = 1
+		case "deprecationWarning", "deprecation_warning":
+			f = 2
+		case "editionRemoved", "edition_removed":
+			f = 3
+		case "removalError", "removal_error":
+			f = 4
+		default:
+			return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 2, 4:
+			class = 5
+		case 0, 1, 3:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.EditionIntroduced = &x
+		case 1:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.EditionDeprecated = &x
+		case 2:
+			x := sv
+			m.DeprecationWarning = &x
+		case 3:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.EditionRemoved = &x
+		case 4:
+			x := sv
+			m.RemovalError = &x
+		}
+	}
+	return nil
+}
+
 type OneofOptions struct {
 	// Any features defined in the specific edition.
 	// WARNING: This field should only be used by protobuf plugins or special
@@ -10330,6 +15678,166 @@ func (m *OneofOptions) ProtoCheckInitialized() error {
 	for _, v := range m.UninterpretedOption {
 		if err := v.ProtoCheckInitialized(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *OneofOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *OneofOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *OneofOptions) UnmarshalJSON(b []byte) error {
+	*m = OneofOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *OneofOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.OneofOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.OneofOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "features":
+			f = 0
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 1
+		default:
+			return errors.New("proto: google.protobuf.OneofOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.OneofOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 1:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.OneofOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.OneofOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.OneofOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		switch jb.f {
+		case 0:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 1:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
 	return nil
@@ -10743,6 +16251,224 @@ func (m *EnumOptions) ProtoCheckInitialized() error {
 	for _, v := range m.UninterpretedOption {
 		if err := v.ProtoCheckInitialized(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *EnumOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *EnumOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.AllowAlias != nil {
+		b = append(b, "\"allowAlias\":"...)
+		if *m.AllowAlias {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.DeprecatedLegacyJsonFieldConflicts != nil {
+		b = append(b, "\"deprecatedLegacyJsonFieldConflicts\":"...)
+		if *m.DeprecatedLegacyJsonFieldConflicts {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *EnumOptions) UnmarshalJSON(b []byte) error {
+	*m = EnumOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *EnumOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.EnumOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.EnumOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [5]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "allowAlias", "allow_alias":
+			f = 0
+		case "deprecated":
+			f = 1
+		case "deprecatedLegacyJsonFieldConflicts", "deprecated_legacy_json_field_conflicts":
+			f = 2
+		case "features":
+			f = 3
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 4
+		default:
+			return errors.New("proto: google.protobuf.EnumOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.EnumOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 4:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.EnumOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.EnumOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var bv bool
+		switch jb.f {
+		case 0, 1, 2:
+			class = 4
+		}
+		switch class {
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.EnumOptions: invalid boolean " + string(raw))
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := bv
+			m.AllowAlias = &x
+		case 1:
+			x := bv
+			m.Deprecated = &x
+		case 2:
+			x := bv
+			m.DeprecatedLegacyJsonFieldConflicts = &x
+		case 3:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 4:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
 	return nil
@@ -11175,6 +16901,229 @@ func (m *EnumValueOptions) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *EnumValueOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.DebugRedact != nil {
+		b = append(b, "\"debugRedact\":"...)
+		if *m.DebugRedact {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.FeatureSupport != nil {
+		b = append(b, "\"featureSupport\":"...)
+		{
+			var err error
+			if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *EnumValueOptions) UnmarshalJSON(b []byte) error {
+	*m = EnumValueOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.EnumValueOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [5]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "deprecated":
+			f = 0
+		case "features":
+			f = 1
+		case "debugRedact", "debug_redact":
+			f = 2
+		case "featureSupport", "feature_support":
+			f = 3
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 4
+		default:
+			return errors.New("proto: google.protobuf.EnumValueOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.EnumValueOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 4:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.EnumValueOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumValueOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var bv bool
+		switch jb.f {
+		case 0, 2:
+			class = 4
+		}
+		switch class {
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.EnumValueOptions: invalid boolean " + string(raw))
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := bv
+			m.Deprecated = &x
+		case 1:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 2:
+			x := bv
+			m.DebugRedact = &x
+		case 3:
+			if m.FeatureSupport == nil {
+				m.FeatureSupport = &FieldOptions_FeatureSupport{}
+			}
+			if err := m.FeatureSupport.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 4:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+		}
+	}
+	return nil
+}
+
 type ServiceOptions struct {
 	// Any features defined in the specific edition.
 	// WARNING: This field should only be used by protobuf plugins or special
@@ -11511,6 +17460,196 @@ func (m *ServiceOptions) ProtoCheckInitialized() error {
 	for _, v := range m.UninterpretedOption {
 		if err := v.ProtoCheckInitialized(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *ServiceOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *ServiceOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *ServiceOptions) UnmarshalJSON(b []byte) error {
+	*m = ServiceOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *ServiceOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.ServiceOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "features":
+			f = 0
+		case "deprecated":
+			f = 1
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 2
+		default:
+			return errors.New("proto: google.protobuf.ServiceOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.ServiceOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 2:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.ServiceOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ServiceOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var bv bool
+		switch jb.f {
+		case 1:
+			class = 4
+		}
+		switch class {
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.ServiceOptions: invalid boolean " + string(raw))
+			}
+		}
+		switch jb.f {
+		case 0:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 1:
+			x := bv
+			m.Deprecated = &x
+		case 2:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
 	return nil
@@ -11893,6 +18032,272 @@ func (m *MethodOptions) ProtoCheckInitialized() error {
 	for _, v := range m.UninterpretedOption {
 		if err := v.ProtoCheckInitialized(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *MethodOptions) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *MethodOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Deprecated != nil {
+		b = append(b, "\"deprecated\":"...)
+		if *m.Deprecated {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if m.IdempotencyLevel != nil {
+		b = append(b, "\"idempotencyLevel\":"...)
+		if s, ok := MethodOptions_IdempotencyLevel_name[int32((*m.IdempotencyLevel))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.IdempotencyLevel)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.Features != nil {
+		b = append(b, "\"features\":"...)
+		{
+			var err error
+			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.UninterpretedOption) > 0 {
+		b = append(b, "\"uninterpretedOption\":["...)
+		for j := range m.UninterpretedOption {
+			{
+				var err error
+				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *MethodOptions) UnmarshalJSON(b []byte) error {
+	*m = MethodOptions{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.MethodOptions: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.MethodOptions: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [4]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "deprecated":
+			f = 0
+		case "idempotencyLevel", "idempotency_level":
+			f = 1
+		case "features":
+			f = 2
+		case "uninterpretedOption", "uninterpreted_option":
+			f = 3
+		default:
+			return errors.New("proto: google.protobuf.MethodOptions: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.MethodOptions: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 3:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.MethodOptions: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.MethodOptions: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.MethodOptions: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 0:
+			class = 4
+		case 1:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.MethodOptions: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.MethodOptions: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.MethodOptions: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.MethodOptions: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.MethodOptions: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.MethodOptions: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := bv
+			m.Deprecated = &x
+		case 1:
+			var ev MethodOptions_IdempotencyLevel
+			switch class {
+			case 5:
+				n, ok := MethodOptions_IdempotencyLevel_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.MethodOptions: invalid value for enum google.protobuf.MethodOptions.IdempotencyLevel: " + strconv.Quote(sv))
+				}
+				ev = MethodOptions_IdempotencyLevel(n)
+			case 1:
+				ev = MethodOptions_IdempotencyLevel(iv)
+			}
+			x := ev
+			m.IdempotencyLevel = &x
+		case 2:
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 3:
+			mv := &UninterpretedOption{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
 	return nil
@@ -12356,6 +18761,368 @@ func (m *UninterpretedOption) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *UninterpretedOption) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Name) > 0 {
+		b = append(b, "\"name\":["...)
+		for j := range m.Name {
+			{
+				var err error
+				if b, err = m.Name[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.IdentifierValue != nil {
+		b = append(b, "\"identifierValue\":"...)
+		if !utf8.ValidString((*m.IdentifierValue)) {
+			return nil, errors.New("proto: google.protobuf.UninterpretedOption.identifier_value contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.IdentifierValue)); ci++ {
+			switch c := (*m.IdentifierValue)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.PositiveIntValue != nil {
+		b = append(b, "\"positiveIntValue\":"...)
+		b = append(b, '"')
+		b = strconv.AppendUint(b, (*m.PositiveIntValue), 10)
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.NegativeIntValue != nil {
+		b = append(b, "\"negativeIntValue\":"...)
+		b = append(b, '"')
+		b = strconv.AppendInt(b, (*m.NegativeIntValue), 10)
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.DoubleValue != nil {
+		b = append(b, "\"doubleValue\":"...)
+		switch fl := float64((*m.DoubleValue)); {
+		case math.IsNaN(fl):
+			b = append(b, `"NaN"`...)
+		case math.IsInf(fl, 1):
+			b = append(b, `"Infinity"`...)
+		case math.IsInf(fl, -1):
+			b = append(b, `"-Infinity"`...)
+		default:
+			b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+		}
+		b = append(b, ',')
+	}
+	if m.StringValue != nil {
+		b = append(b, "\"stringValue\":"...)
+		{
+			n := base64.StdEncoding.EncodedLen(len(m.StringValue))
+			b = append(b, '"')
+			l := len(b)
+			b = slices.Grow(b, n)[:l+n]
+			base64.StdEncoding.Encode(b[l:], m.StringValue)
+			b = append(b, '"')
+		}
+		b = append(b, ',')
+	}
+	if m.AggregateValue != nil {
+		b = append(b, "\"aggregateValue\":"...)
+		if !utf8.ValidString((*m.AggregateValue)) {
+			return nil, errors.New("proto: google.protobuf.UninterpretedOption.aggregate_value contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.AggregateValue)); ci++ {
+			switch c := (*m.AggregateValue)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *UninterpretedOption) UnmarshalJSON(b []byte) error {
+	*m = UninterpretedOption{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.UninterpretedOption: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [7]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "name":
+			f = 0
+		case "identifierValue", "identifier_value":
+			f = 1
+		case "positiveIntValue", "positive_int_value":
+			f = 2
+		case "negativeIntValue", "negative_int_value":
+			f = 3
+		case "doubleValue", "double_value":
+			f = 4
+		case "stringValue", "string_value":
+			f = 5
+		case "aggregateValue", "aggregate_value":
+			f = 6
+		default:
+			return errors.New("proto: google.protobuf.UninterpretedOption: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.UninterpretedOption: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 1, 2, 3, 4, 5, 6:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 0:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.UninterpretedOption: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.UninterpretedOption: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var uv uint64
+		var fv float64
+		var sv string
+		var by []byte
+		switch jb.f {
+		case 3:
+			class, bits = 1, 64
+		case 2:
+			class, bits = 2, 64
+		case 4:
+			class, bits = 3, 64
+		case 1, 6:
+			class = 5
+		case 5:
+			class = 6
+		}
+		switch class {
+		case 1, 2:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.UninterpretedOption: invalid number " + string(raw))
+			}
+			var err error
+			if class == 1 {
+				iv, err = strconv.ParseInt(s, 10, bits)
+			} else {
+				uv, err = strconv.ParseUint(s, 10, bits)
+			}
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if class == 1 {
+					if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+						return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+					}
+					iv = n.Int64()
+				} else {
+					if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
+						return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+					}
+					uv = n.Uint64()
+				}
+			}
+		case 3:
+			s := string(raw)
+			special := false
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+				switch s {
+				case "NaN":
+					fv, special = math.NaN(), true
+				case "Infinity":
+					fv, special = math.Inf(1), true
+				case "-Infinity":
+					fv, special = math.Inf(-1), true
+				}
+			}
+			if !special {
+				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+					return errors.New("proto: google.protobuf.UninterpretedOption: invalid number " + string(raw))
+				}
+				var err error
+				if fv, err = strconv.ParseFloat(s, bits); err != nil {
+					return errors.New("proto: google.protobuf.UninterpretedOption: invalid number " + string(raw))
+				}
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.UninterpretedOption: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		case 6:
+			var s string
+			if raw[0] != '"' {
+				return errors.New("proto: google.protobuf.UninterpretedOption: invalid bytes " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &s); err != nil {
+				return err
+			}
+			// Accept standard and URL-safe alphabets, with or without padding.
+			enc := base64.StdEncoding
+			if strings.ContainsAny(s, "-_") {
+				enc = base64.URLEncoding
+			}
+			if len(s)%4 != 0 {
+				enc = enc.WithPadding(base64.NoPadding)
+			}
+			var err error
+			if by, err = enc.DecodeString(s); err != nil {
+				return errors.New("proto: google.protobuf.UninterpretedOption: invalid bytes " + string(raw))
+			}
+		}
+		switch jb.f {
+		case 0:
+			mv := &UninterpretedOption_NamePart{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Name = append(m.Name, mv)
+		case 1:
+			x := sv
+			m.IdentifierValue = &x
+		case 2:
+			x := uv
+			m.PositiveIntValue = &x
+		case 3:
+			x := iv
+			m.NegativeIntValue = &x
+		case 4:
+			x := fv
+			m.DoubleValue = &x
+		case 5:
+			m.StringValue = by
+		case 6:
+			x := sv
+			m.AggregateValue = &x
+		}
+	}
+	return nil
+}
+
 // The name of the uninterpreted option.  Each string represents a segment in
 // a dot-separated name.  is_extension is true iff a segment represents an
 // extension (denoted with parentheses in options specs in .proto files).
@@ -12620,6 +19387,170 @@ func (m *UninterpretedOption_NamePart) ProtoCheckInitialized() error {
 	}
 	if m.IsExtension == nil {
 		return errors.New("proto: required field google.protobuf.UninterpretedOption.NamePart.is_extension not set")
+	}
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *UninterpretedOption_NamePart) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *UninterpretedOption_NamePart) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.NamePart != nil {
+		b = append(b, "\"namePart\":"...)
+		if !utf8.ValidString((*m.NamePart)) {
+			return nil, errors.New("proto: google.protobuf.UninterpretedOption.NamePart.name_part contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.NamePart)); ci++ {
+			switch c := (*m.NamePart)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.IsExtension != nil {
+		b = append(b, "\"isExtension\":"...)
+		if *m.IsExtension {
+			b = append(b, "true"...)
+		} else {
+			b = append(b, "false"...)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *UninterpretedOption_NamePart) UnmarshalJSON(b []byte) error {
+	*m = UninterpretedOption_NamePart{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [2]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "namePart", "name_part":
+			f = 0
+		case "isExtension", "is_extension":
+			f = 1
+		default:
+			return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		var bv bool
+		var sv string
+		switch jb.f {
+		case 1:
+			class = 4
+		case 0:
+			class = 5
+		}
+		switch class {
+		case 4:
+			switch string(raw) {
+			case "true":
+				bv = true
+			case "false":
+			default:
+				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid boolean " + string(raw))
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := sv
+			m.NamePart = &x
+		case 1:
+			x := bv
+			m.IsExtension = &x
+		}
 	}
 	return nil
 }
@@ -13159,6 +20090,397 @@ func (m *FeatureSet) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FeatureSet) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FeatureSet) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.FieldPresence != nil {
+		b = append(b, "\"fieldPresence\":"...)
+		if s, ok := FeatureSet_FieldPresence_name[int32((*m.FieldPresence))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.FieldPresence)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.EnumType != nil {
+		b = append(b, "\"enumType\":"...)
+		if s, ok := FeatureSet_EnumType_name[int32((*m.EnumType))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.EnumType)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.RepeatedFieldEncoding != nil {
+		b = append(b, "\"repeatedFieldEncoding\":"...)
+		if s, ok := FeatureSet_RepeatedFieldEncoding_name[int32((*m.RepeatedFieldEncoding))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.RepeatedFieldEncoding)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.Utf8Validation != nil {
+		b = append(b, "\"utf8Validation\":"...)
+		if s, ok := FeatureSet_Utf8Validation_name[int32((*m.Utf8Validation))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Utf8Validation)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.MessageEncoding != nil {
+		b = append(b, "\"messageEncoding\":"...)
+		if s, ok := FeatureSet_MessageEncoding_name[int32((*m.MessageEncoding))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.MessageEncoding)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.JsonFormat != nil {
+		b = append(b, "\"jsonFormat\":"...)
+		if s, ok := FeatureSet_JsonFormat_name[int32((*m.JsonFormat))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.JsonFormat)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.EnforceNamingStyle != nil {
+		b = append(b, "\"enforceNamingStyle\":"...)
+		if s, ok := FeatureSet_EnforceNamingStyle_name[int32((*m.EnforceNamingStyle))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.EnforceNamingStyle)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.DefaultSymbolVisibility != nil {
+		b = append(b, "\"defaultSymbolVisibility\":"...)
+		if s, ok := FeatureSet_VisibilityFeature_DefaultSymbolVisibility_name[int32((*m.DefaultSymbolVisibility))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.DefaultSymbolVisibility)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.EnforceProtoLimits != nil {
+		b = append(b, "\"enforceProtoLimits\":"...)
+		if s, ok := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_name[int32((*m.EnforceProtoLimits))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.EnforceProtoLimits)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FeatureSet) UnmarshalJSON(b []byte) error {
+	*m = FeatureSet{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FeatureSet: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FeatureSet: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [9]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "fieldPresence", "field_presence":
+			f = 0
+		case "enumType", "enum_type":
+			f = 1
+		case "repeatedFieldEncoding", "repeated_field_encoding":
+			f = 2
+		case "utf8Validation", "utf8_validation":
+			f = 3
+		case "messageEncoding", "message_encoding":
+			f = 4
+		case "jsonFormat", "json_format":
+			f = 5
+		case "enforceNamingStyle", "enforce_naming_style":
+			f = 6
+		case "defaultSymbolVisibility", "default_symbol_visibility":
+			f = 7
+		case "enforceProtoLimits", "enforce_proto_limits":
+			f = 8
+		default:
+			return errors.New("proto: google.protobuf.FeatureSet: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FeatureSet: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSet: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FeatureSet: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FeatureSet: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FeatureSet: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			var ev FeatureSet_FieldPresence
+			switch class {
+			case 5:
+				n, ok := FeatureSet_FieldPresence_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.FieldPresence: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_FieldPresence(n)
+			case 1:
+				ev = FeatureSet_FieldPresence(iv)
+			}
+			x := ev
+			m.FieldPresence = &x
+		case 1:
+			var ev FeatureSet_EnumType
+			switch class {
+			case 5:
+				n, ok := FeatureSet_EnumType_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.EnumType: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_EnumType(n)
+			case 1:
+				ev = FeatureSet_EnumType(iv)
+			}
+			x := ev
+			m.EnumType = &x
+		case 2:
+			var ev FeatureSet_RepeatedFieldEncoding
+			switch class {
+			case 5:
+				n, ok := FeatureSet_RepeatedFieldEncoding_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.RepeatedFieldEncoding: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_RepeatedFieldEncoding(n)
+			case 1:
+				ev = FeatureSet_RepeatedFieldEncoding(iv)
+			}
+			x := ev
+			m.RepeatedFieldEncoding = &x
+		case 3:
+			var ev FeatureSet_Utf8Validation
+			switch class {
+			case 5:
+				n, ok := FeatureSet_Utf8Validation_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.Utf8Validation: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_Utf8Validation(n)
+			case 1:
+				ev = FeatureSet_Utf8Validation(iv)
+			}
+			x := ev
+			m.Utf8Validation = &x
+		case 4:
+			var ev FeatureSet_MessageEncoding
+			switch class {
+			case 5:
+				n, ok := FeatureSet_MessageEncoding_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.MessageEncoding: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_MessageEncoding(n)
+			case 1:
+				ev = FeatureSet_MessageEncoding(iv)
+			}
+			x := ev
+			m.MessageEncoding = &x
+		case 5:
+			var ev FeatureSet_JsonFormat
+			switch class {
+			case 5:
+				n, ok := FeatureSet_JsonFormat_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.JsonFormat: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_JsonFormat(n)
+			case 1:
+				ev = FeatureSet_JsonFormat(iv)
+			}
+			x := ev
+			m.JsonFormat = &x
+		case 6:
+			var ev FeatureSet_EnforceNamingStyle
+			switch class {
+			case 5:
+				n, ok := FeatureSet_EnforceNamingStyle_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.EnforceNamingStyle: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_EnforceNamingStyle(n)
+			case 1:
+				ev = FeatureSet_EnforceNamingStyle(iv)
+			}
+			x := ev
+			m.EnforceNamingStyle = &x
+		case 7:
+			var ev FeatureSet_VisibilityFeature_DefaultSymbolVisibility
+			switch class {
+			case 5:
+				n, ok := FeatureSet_VisibilityFeature_DefaultSymbolVisibility_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_VisibilityFeature_DefaultSymbolVisibility(n)
+			case 1:
+				ev = FeatureSet_VisibilityFeature_DefaultSymbolVisibility(iv)
+			}
+			x := ev
+			m.DefaultSymbolVisibility = &x
+		case 8:
+			var ev FeatureSet_ProtoLimitsFeature_EnforceProtoLimits
+			switch class {
+			case 5:
+				n, ok := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits: " + strconv.Quote(sv))
+				}
+				ev = FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(n)
+			case 1:
+				ev = FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(iv)
+			}
+			x := ev
+			m.EnforceProtoLimits = &x
+		}
+	}
+	return nil
+}
+
 type FeatureSet_VisibilityFeature struct {
 	unknownFields []byte
 }
@@ -13333,6 +20655,66 @@ func (m *FeatureSet_VisibilityFeature) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FeatureSet_VisibilityFeature) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FeatureSet_VisibilityFeature) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FeatureSet_VisibilityFeature) UnmarshalJSON(b []byte) error {
+	*m = FeatureSet_VisibilityFeature{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FeatureSet_VisibilityFeature) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: expected a JSON object")
+	}
+	if d.More() {
+		tok, _ := d.Token()
+		key, _ := tok.(string)
+		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unknown field " + strconv.Quote(key))
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value")
+	}
+	return nil
+}
+
 type FeatureSet_ProtoLimitsFeature struct {
 	unknownFields []byte
 }
@@ -13504,6 +20886,66 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FeatureSet_ProtoLimitsFeature) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FeatureSet_ProtoLimitsFeature) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FeatureSet_ProtoLimitsFeature) UnmarshalJSON(b []byte) error {
+	*m = FeatureSet_ProtoLimitsFeature{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: expected a JSON object")
+	}
+	if d.More() {
+		tok, _ := d.Token()
+		key, _ := tok.(string)
+		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unknown field " + strconv.Quote(key))
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value")
+	}
 	return nil
 }
 
@@ -13817,6 +21259,249 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *FeatureSetDefaults) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FeatureSetDefaults) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FeatureSetDefaults) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Defaults) > 0 {
+		b = append(b, "\"defaults\":["...)
+		for j := range m.Defaults {
+			{
+				var err error
+				if b, err = m.Defaults[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.MinimumEdition != nil {
+		b = append(b, "\"minimumEdition\":"...)
+		if s, ok := Edition_name[int32((*m.MinimumEdition))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.MinimumEdition)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.MaximumEdition != nil {
+		b = append(b, "\"maximumEdition\":"...)
+		if s, ok := Edition_name[int32((*m.MaximumEdition))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.MaximumEdition)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FeatureSetDefaults) UnmarshalJSON(b []byte) error {
+	*m = FeatureSetDefaults{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "defaults":
+			f = 0
+		case "minimumEdition", "minimum_edition":
+			f = 1
+		case "maximumEdition", "maximum_edition":
+			f = 2
+		default:
+			return errors.New("proto: google.protobuf.FeatureSetDefaults: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FeatureSetDefaults: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 1, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 0:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 1, 2:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			mv := &FeatureSetDefaults_FeatureSetEditionDefault{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Defaults = append(m.Defaults, mv)
+		case 1:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.MinimumEdition = &x
+		case 2:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.MaximumEdition = &x
+		}
+	}
 	return nil
 }
 
@@ -14147,6 +21832,219 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoCheckInitialized() er
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.Edition != nil {
+		b = append(b, "\"edition\":"...)
+		if s, ok := Edition_name[int32((*m.Edition))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Edition)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.OverridableFeatures != nil {
+		b = append(b, "\"overridableFeatures\":"...)
+		{
+			var err error
+			if b, err = m.OverridableFeatures.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.FixedFeatures != nil {
+		b = append(b, "\"fixedFeatures\":"...)
+		{
+			var err error
+			if b, err = m.FixedFeatures.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) UnmarshalJSON(b []byte) error {
+	*m = FeatureSetDefaults_FeatureSetEditionDefault{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "edition":
+			f = 0
+		case "overridableFeatures", "overridable_features":
+			f = 1
+		case "fixedFeatures", "fixed_features":
+			f = 2
+		default:
+			return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			var ev Edition
+			switch class {
+			case 5:
+				n, ok := Edition_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+				}
+				ev = Edition(n)
+			case 1:
+				ev = Edition(iv)
+			}
+			x := ev
+			m.Edition = &x
+		case 1:
+			if m.OverridableFeatures == nil {
+				m.OverridableFeatures = &FeatureSet{}
+			}
+			if err := m.OverridableFeatures.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 2:
+			if m.FixedFeatures == nil {
+				m.FixedFeatures = &FeatureSet{}
+			}
+			if err := m.FixedFeatures.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // Encapsulates information about the original source file from which a
 // FileDescriptorProto was generated.
 type SourceCodeInfo struct {
@@ -14416,6 +22314,137 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *SourceCodeInfo) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *SourceCodeInfo) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *SourceCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Location) > 0 {
+		b = append(b, "\"location\":["...)
+		for j := range m.Location {
+			{
+				var err error
+				if b, err = m.Location[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *SourceCodeInfo) UnmarshalJSON(b []byte) error {
+	*m = SourceCodeInfo{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *SourceCodeInfo) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [1]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "location":
+			f = 0
+		default:
+			return errors.New("proto: google.protobuf.SourceCodeInfo: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.SourceCodeInfo: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.SourceCodeInfo: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		switch jb.f {
+		case 0:
+			mv := &SourceCodeInfo_Location{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Location = append(m.Location, mv)
+		}
+	}
 	return nil
 }
 
@@ -14934,6 +22963,269 @@ func (m *SourceCodeInfo_Location) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *SourceCodeInfo_Location) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *SourceCodeInfo_Location) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Path) > 0 {
+		b = append(b, "\"path\":["...)
+		for j := range m.Path {
+			b = strconv.AppendInt(b, int64(m.Path[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.Span) > 0 {
+		b = append(b, "\"span\":["...)
+		for j := range m.Span {
+			b = strconv.AppendInt(b, int64(m.Span[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.LeadingComments != nil {
+		b = append(b, "\"leadingComments\":"...)
+		if !utf8.ValidString((*m.LeadingComments)) {
+			return nil, errors.New("proto: google.protobuf.SourceCodeInfo.Location.leading_comments contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.LeadingComments)); ci++ {
+			switch c := (*m.LeadingComments)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.TrailingComments != nil {
+		b = append(b, "\"trailingComments\":"...)
+		if !utf8.ValidString((*m.TrailingComments)) {
+			return nil, errors.New("proto: google.protobuf.SourceCodeInfo.Location.trailing_comments contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.TrailingComments)); ci++ {
+			switch c := (*m.TrailingComments)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if len(m.LeadingDetachedComments) > 0 {
+		b = append(b, "\"leadingDetachedComments\":["...)
+		for j := range m.LeadingDetachedComments {
+			if !utf8.ValidString(m.LeadingDetachedComments[j]) {
+				return nil, errors.New("proto: google.protobuf.SourceCodeInfo.Location.leading_detached_comments contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(m.LeadingDetachedComments[j]); ci++ {
+				switch c := m.LeadingDetachedComments[j][ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *SourceCodeInfo_Location) UnmarshalJSON(b []byte) error {
+	*m = SourceCodeInfo_Location{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [5]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "path":
+			f = 0
+		case "span":
+			f = 1
+		case "leadingComments", "leading_comments":
+			f = 2
+		case "trailingComments", "trailing_comments":
+			f = 3
+		case "leadingDetachedComments", "leading_detached_comments":
+			f = 4
+		default:
+			return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.SourceCodeInfo.Location: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 2, 3:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 0, 1, 4:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0, 1:
+			class, bits = 1, 32
+		case 2, 3, 4:
+			class = 5
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			m.Path = append(m.Path, int32(iv))
+		case 1:
+			m.Span = append(m.Span, int32(iv))
+		case 2:
+			x := sv
+			m.LeadingComments = &x
+		case 3:
+			x := sv
+			m.TrailingComments = &x
+		case 4:
+			m.LeadingDetachedComments = append(m.LeadingDetachedComments, sv)
+		}
+	}
+	return nil
+}
+
 // Describes the relationship between generated code and its original source
 // file. A GeneratedCodeInfo message is associated with only one generated
 // source file, but may contain references to different source .proto files.
@@ -15163,6 +23455,137 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *GeneratedCodeInfo) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *GeneratedCodeInfo) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *GeneratedCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Annotation) > 0 {
+		b = append(b, "\"annotation\":["...)
+		for j := range m.Annotation {
+			{
+				var err error
+				if b, err = m.Annotation[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *GeneratedCodeInfo) UnmarshalJSON(b []byte) error {
+	*m = GeneratedCodeInfo{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *GeneratedCodeInfo) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [1]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "annotation":
+			f = 0
+		default:
+			return errors.New("proto: google.protobuf.GeneratedCodeInfo: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.GeneratedCodeInfo: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		switch jb.f {
+		case 0:
+			mv := &GeneratedCodeInfo_Annotation{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.Annotation = append(m.Annotation, mv)
+		}
+	}
 	return nil
 }
 
@@ -15560,5 +23983,260 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *GeneratedCodeInfo_Annotation) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *GeneratedCodeInfo_Annotation) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *GeneratedCodeInfo_Annotation) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if len(m.Path) > 0 {
+		b = append(b, "\"path\":["...)
+		for j := range m.Path {
+			b = strconv.AppendInt(b, int64(m.Path[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.SourceFile != nil {
+		b = append(b, "\"sourceFile\":"...)
+		if !utf8.ValidString((*m.SourceFile)) {
+			return nil, errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation.source_file contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.SourceFile)); ci++ {
+			switch c := (*m.SourceFile)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Begin != nil {
+		b = append(b, "\"begin\":"...)
+		b = strconv.AppendInt(b, int64((*m.Begin)), 10)
+		b = append(b, ',')
+	}
+	if m.End != nil {
+		b = append(b, "\"end\":"...)
+		b = strconv.AppendInt(b, int64((*m.End)), 10)
+		b = append(b, ',')
+	}
+	if m.Semantic != nil {
+		b = append(b, "\"semantic\":"...)
+		if s, ok := GeneratedCodeInfo_Annotation_Semantic_name[int32((*m.Semantic))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.Semantic)), 10)
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *GeneratedCodeInfo_Annotation) UnmarshalJSON(b []byte) error {
+	*m = GeneratedCodeInfo_Annotation{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [5]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "path":
+			f = 0
+		case "sourceFile", "source_file":
+			f = 1
+		case "begin":
+			f = 2
+		case "end":
+			f = 3
+		case "semantic":
+			f = 4
+		default:
+			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 1, 2, 3, 4:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 0:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0, 2, 3:
+			class, bits = 1, 32
+		case 1:
+			class = 5
+		case 4:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			m.Path = append(m.Path, int32(iv))
+		case 1:
+			x := sv
+			m.SourceFile = &x
+		case 2:
+			x := int32(iv)
+			m.Begin = &x
+		case 3:
+			x := int32(iv)
+			m.End = &x
+		case 4:
+			var ev GeneratedCodeInfo_Annotation_Semantic
+			switch class {
+			case 5:
+				n, ok := GeneratedCodeInfo_Annotation_Semantic_value[sv]
+				if !ok {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid value for enum google.protobuf.GeneratedCodeInfo.Annotation.Semantic: " + strconv.Quote(sv))
+				}
+				ev = GeneratedCodeInfo_Annotation_Semantic(n)
+			case 1:
+				ev = GeneratedCodeInfo_Annotation_Semantic(iv)
+			}
+			x := ev
+			m.Semantic = &x
+		}
+	}
 	return nil
 }

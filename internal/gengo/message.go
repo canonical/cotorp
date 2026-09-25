@@ -175,6 +175,7 @@ func (fg *fileGen) genMessage(mi *messageInfo) {
 	fg.genMarshal(mi)
 	fg.genUnmarshal(mi)
 	fg.genCheckInitialized(mi)
+	fg.genJSON(mi)
 }
 
 func (fg *fileGen) genDefaults(mi *messageInfo) {

@@ -125,6 +125,11 @@ func TestInvalid(t *testing.T) {
 		{"map closed enum", `syntax = "proto2"; enum E { A = 1; } message M { map<int32, E> m = 1; }`, nil, "0 as the first value"},
 		{"map_entry explicit", `syntax = "proto3"; message M { option map_entry = true; }`, nil, "map_entry"},
 		{"repeated default", `syntax = "proto2"; message M { repeated int32 a = 1 [default = 1]; }`, nil, "default"},
+		{"json name conflict proto3", `syntax = "proto3"; message M { int32 foo_bar = 1; int32 fooBar = 2; }`, nil, "JSON name"},
+		{"json name conflict editions", `edition = "2023"; message M { int32 foo_bar = 1; int32 fooBar = 2; }`, nil, "JSON name"},
+		{"custom json name conflict proto2", `syntax = "proto2"; message M { optional int32 a = 1 [json_name = "x"]; optional int32 b = 2 [json_name = "x"]; }`, nil, "JSON name"},
+		{"custom vs default json name", `syntax = "proto3"; message M { int32 a = 1 [json_name = "b"]; int32 b = 2; }`, nil, "JSON name"},
+		{"json_name on extension", `syntax = "proto2"; message M { extensions 1 to 5; } extend M { optional int32 x = 1 [json_name = "y"]; }`, nil, "json_name is not allowed"},
 		{"lowercase group", `syntax = "proto2"; message M { optional group foo = 1 {} }`, nil, "capital"},
 	}
 	for _, tc := range cases {
@@ -194,6 +199,9 @@ func TestValid(t *testing.T) {
 			export message M { local enum E { A = 0; } E e = 1; }`, nil},
 		{"proto3 optional", `syntax = "proto3"; message M { optional int32 a = 1; optional M m = 2; }`, nil},
 		{"json_name and deprecated", `syntax = "proto3"; message M { int32 a = 1 [json_name = "b", deprecated = true]; } enum E { option deprecated = true; A = 0 [deprecated = true]; }`, nil},
+		{"json name default conflict proto2", `syntax = "proto2"; message M { optional int32 foo_bar = 1; optional int32 fooBar = 2; }`, nil},
+		{"json name legacy editions", `edition = "2023"; message M { option features.json_format = LEGACY_BEST_EFFORT; int32 foo_bar = 1; int32 fooBar = 2; }`, nil},
+		{"json name case differs", `syntax = "proto3"; message M { int32 foo = 1; int32 Foo = 2; }`, nil},
 		{"message set", `syntax = "proto2"; message MS { option message_set_wire_format = true; extensions 4 to max; } message X { extend MS { optional X ext = 2147483646; } }`, nil},
 	}
 	for _, tc := range cases {

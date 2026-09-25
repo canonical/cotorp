@@ -4,11 +4,16 @@
 package editionspb
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"io"
+	"math/big"
 	"math/bits"
 	"slices"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -1289,6 +1294,554 @@ func (m *Features) ProtoCheckInitialized() error {
 	return nil
 }
 
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *Features) MarshalJSON() ([]byte, error) {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return nil, err
+	}
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *Features) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.ExplicitInt != nil {
+		b = append(b, "\"explicitInt\":"...)
+		b = strconv.AppendInt(b, int64((*m.ExplicitInt)), 10)
+		b = append(b, ',')
+	}
+	if m.ImplicitInt != 0 {
+		b = append(b, "\"implicitInt\":"...)
+		b = strconv.AppendInt(b, int64(m.ImplicitInt), 10)
+		b = append(b, ',')
+	}
+	if m.RequiredInt != nil {
+		b = append(b, "\"requiredInt\":"...)
+		b = strconv.AppendInt(b, int64((*m.RequiredInt)), 10)
+		b = append(b, ',')
+	}
+	if len(m.PackedInts) > 0 {
+		b = append(b, "\"packedInts\":["...)
+		for j := range m.PackedInts {
+			b = strconv.AppendInt(b, int64(m.PackedInts[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if len(m.ExpandedInts) > 0 {
+		b = append(b, "\"expandedInts\":["...)
+		for j := range m.ExpandedInts {
+			b = strconv.AppendInt(b, int64(m.ExpandedInts[j]), 10)
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.Verified != nil {
+		b = append(b, "\"verified\":"...)
+		if !utf8.ValidString((*m.Verified)) {
+			return nil, errors.New("proto: cotorp.test.editions.Features.verified contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Verified)); ci++ {
+			switch c := (*m.Verified)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Unverified != nil {
+		b = append(b, "\"unverified\":"...)
+		if !utf8.ValidString((*m.Unverified)) {
+			return nil, errors.New("proto: cotorp.test.editions.Features.unverified contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.Unverified)); ci++ {
+			switch c := (*m.Unverified)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.Delimited != nil {
+		b = append(b, "\"delimited\":"...)
+		{
+			var err error
+			if b, err = m.Delimited.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if len(m.DelimitedList) > 0 {
+		b = append(b, "\"delimitedList\":["...)
+		for j := range m.DelimitedList {
+			{
+				var err error
+				if b, err = m.DelimitedList[j].ProtoAppendJSON(b); err != nil {
+					return nil, err
+				}
+			}
+			b = append(b, ',')
+		}
+		b[len(b)-1] = ']'
+		b = append(b, ',')
+	}
+	if m.LengthPrefixed != nil {
+		b = append(b, "\"lengthPrefixed\":"...)
+		{
+			var err error
+			if b, err = m.LengthPrefixed.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if m.OpenEnum != nil {
+		b = append(b, "\"openEnum\":"...)
+		if s, ok := OpenEnum_name[int32((*m.OpenEnum))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.OpenEnum)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.ClosedEnum != nil {
+		b = append(b, "\"closedEnum\":"...)
+		if s, ok := ClosedEnum_name[int32((*m.ClosedEnum))]; ok {
+			b = append(b, '"')
+			b = append(b, s...)
+			b = append(b, '"')
+		} else {
+			b = strconv.AppendInt(b, int64((*m.ClosedEnum)), 10)
+		}
+		b = append(b, ',')
+	}
+	if m.WithDefault != nil {
+		b = append(b, "\"withDefault\":"...)
+		if !utf8.ValidString((*m.WithDefault)) {
+			return nil, errors.New("proto: cotorp.test.editions.Features.with_default contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len((*m.WithDefault)); ci++ {
+			switch c := (*m.WithDefault)[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if len(m.VerifiedMap) > 0 {
+		b = append(b, "\"verifiedMap\":{"...)
+		keys := make([]string, 0, len(m.VerifiedMap))
+		for k := range m.VerifiedMap {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
+			v := m.VerifiedMap[k]
+			if !utf8.ValidString(k) {
+				return nil, errors.New("proto: cotorp.test.editions.Features.verified_map contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(k); ci++ {
+				switch c := k[ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ':')
+			if !utf8.ValidString(v) {
+				return nil, errors.New("proto: cotorp.test.editions.Features.VerifiedMapEntry.value contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(v); ci++ {
+				switch c := v[ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = '}'
+		b = append(b, ',')
+	}
+	if len(m.UnverifiedMap) > 0 {
+		b = append(b, "\"unverifiedMap\":{"...)
+		keys := make([]string, 0, len(m.UnverifiedMap))
+		for k := range m.UnverifiedMap {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
+			v := m.UnverifiedMap[k]
+			if !utf8.ValidString(k) {
+				return nil, errors.New("proto: cotorp.test.editions.Features.unverified_map contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(k); ci++ {
+				switch c := k[ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ':')
+			if !utf8.ValidString(v) {
+				return nil, errors.New("proto: cotorp.test.editions.Features.UnverifiedMapEntry.value contains invalid UTF-8")
+			}
+			b = append(b, '"')
+			for ci := 0; ci < len(v); ci++ {
+				switch c := v[ci]; {
+				case c == '"' || c == '\\':
+					b = append(b, '\\', c)
+				case c < 0x20:
+					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				default:
+					b = append(b, c)
+				}
+			}
+			b = append(b, '"')
+			b = append(b, ',')
+		}
+		b[len(b)-1] = '}'
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *Features) UnmarshalJSON(b []byte) error {
+	*m = Features{}
+	if err := m.ProtoMergeJSON(b); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *Features) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: cotorp.test.editions.Features: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: cotorp.test.editions.Features: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [15]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "explicitInt", "explicit_int":
+			f = 0
+		case "implicitInt", "implicit_int":
+			f = 1
+		case "requiredInt", "required_int":
+			f = 2
+		case "packedInts", "packed_ints":
+			f = 3
+		case "expandedInts", "expanded_ints":
+			f = 4
+		case "verified":
+			f = 5
+		case "unverified":
+			f = 6
+		case "delimited":
+			f = 7
+		case "delimitedList", "delimited_list":
+			f = 8
+		case "lengthPrefixed", "length_prefixed":
+			f = 9
+		case "openEnum", "open_enum":
+			f = 10
+		case "closedEnum", "closed_enum":
+			f = 11
+		case "withDefault", "with_default":
+			f = 12
+		case "verifiedMap", "verified_map":
+			f = 13
+		case "unverifiedMap", "unverified_map":
+			f = 14
+		default:
+			return errors.New("proto: cotorp.test.editions.Features: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: cotorp.test.editions.Features: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2, 5, 6, 7, 9, 10, 11, 12:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		case 3, 4, 8:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
+				return errors.New("proto: cotorp.test.editions.Features: expected a JSON array")
+			}
+			for ad.More() {
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: cotorp.test.editions.Features: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, raw: e})
+			}
+		case 13, 14:
+			if null {
+				continue
+			}
+			ad := json.NewDecoder(bytes.NewReader(raw))
+			ad.UseNumber()
+			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
+				return errors.New("proto: cotorp.test.editions.Features: expected a JSON object")
+			}
+			for ad.More() {
+				kt, err := ad.Token()
+				if err != nil {
+					return err
+				}
+				ks, _ := kt.(string)
+				var e json.RawMessage
+				if err := ad.Decode(&e); err != nil {
+					return err
+				}
+				if string(e) == "null" {
+					return errors.New("proto: cotorp.test.editions.Features: null is not allowed in repeated fields or map values")
+				}
+				jobs = append(jobs, job{f: f, key: ks, raw: e})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: cotorp.test.editions.Features: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0, 1, 2, 3, 4:
+			class, bits = 1, 32
+		case 5, 6, 12, 13, 14:
+			class = 5
+		case 10, 11:
+			switch {
+			case string(raw) == "null":
+				class = 0
+			case raw[0] == '"':
+				class = 5
+			default:
+				class, bits = 1, 32
+			}
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: cotorp.test.editions.Features: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: cotorp.test.editions.Features: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: cotorp.test.editions.Features: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: cotorp.test.editions.Features: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: cotorp.test.editions.Features: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.ExplicitInt = &x
+		case 1:
+			m.ImplicitInt = int32(iv)
+		case 2:
+			x := int32(iv)
+			m.RequiredInt = &x
+		case 3:
+			m.PackedInts = append(m.PackedInts, int32(iv))
+		case 4:
+			m.ExpandedInts = append(m.ExpandedInts, int32(iv))
+		case 5:
+			x := sv
+			m.Verified = &x
+		case 6:
+			x := sv
+			m.Unverified = &x
+		case 7:
+			if m.Delimited == nil {
+				m.Delimited = &Features_Child{}
+			}
+			if err := m.Delimited.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 8:
+			mv := &Features_Child{}
+			if err := mv.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+			m.DelimitedList = append(m.DelimitedList, mv)
+		case 9:
+			if m.LengthPrefixed == nil {
+				m.LengthPrefixed = &Features_Child{}
+			}
+			if err := m.LengthPrefixed.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		case 10:
+			var ev OpenEnum
+			switch class {
+			case 5:
+				n, ok := OpenEnum_value[sv]
+				if !ok {
+					return errors.New("proto: cotorp.test.editions.Features: invalid value for enum cotorp.test.editions.OpenEnum: " + strconv.Quote(sv))
+				}
+				ev = OpenEnum(n)
+			case 1:
+				ev = OpenEnum(iv)
+			}
+			x := ev
+			m.OpenEnum = &x
+		case 11:
+			var ev ClosedEnum
+			switch class {
+			case 5:
+				n, ok := ClosedEnum_value[sv]
+				if !ok {
+					return errors.New("proto: cotorp.test.editions.Features: invalid value for enum cotorp.test.editions.ClosedEnum: " + strconv.Quote(sv))
+				}
+				ev = ClosedEnum(n)
+			case 1:
+				ev = ClosedEnum(iv)
+			}
+			x := ev
+			m.ClosedEnum = &x
+		case 12:
+			x := sv
+			m.WithDefault = &x
+		case 13:
+			k := jb.key
+			if m.VerifiedMap == nil {
+				m.VerifiedMap = make(map[string]string)
+			}
+			m.VerifiedMap[k] = sv
+		case 14:
+			k := jb.key
+			if m.UnverifiedMap == nil {
+				m.UnverifiedMap = make(map[string]string)
+			}
+			m.UnverifiedMap[k] = sv
+		}
+	}
+	return nil
+}
+
 type Features_Child struct {
 	X *int32
 
@@ -1498,6 +2051,149 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *Features_Child) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *Features_Child) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *Features_Child) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.X != nil {
+		b = append(b, "\"x\":"...)
+		b = strconv.AppendInt(b, int64((*m.X)), 10)
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *Features_Child) UnmarshalJSON(b []byte) error {
+	*m = Features_Child{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *Features_Child) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: cotorp.test.editions.Features.Child: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: cotorp.test.editions.Features.Child: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [1]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "x":
+			f = 0
+		default:
+			return errors.New("proto: cotorp.test.editions.Features.Child: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: cotorp.test.editions.Features.Child: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: cotorp.test.editions.Features.Child: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		switch jb.f {
+		case 0:
+			class, bits = 1, 32
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: cotorp.test.editions.Features.Child: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: cotorp.test.editions.Features.Child: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: cotorp.test.editions.Features.Child: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: cotorp.test.editions.Features.Child: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		}
+		switch jb.f {
+		case 0:
+			x := int32(iv)
+			m.X = &x
+		}
+	}
 	return nil
 }
 
@@ -1803,5 +2499,199 @@ errDepth:
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
 func (m *ImplicitMessage) ProtoCheckInitialized() error {
+	return nil
+}
+
+// MarshalJSON returns the ProtoJSON encoding of m.
+func (m *ImplicitMessage) MarshalJSON() ([]byte, error) {
+	return m.ProtoAppendJSON(nil)
+}
+
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
+// check required fields.
+func (m *ImplicitMessage) ProtoAppendJSON(b []byte) ([]byte, error) {
+	if m == nil {
+		return append(b, "{}"...), nil
+	}
+	b = append(b, '{')
+	if m.A != 0 {
+		b = append(b, "\"a\":"...)
+		b = strconv.AppendInt(b, int64(m.A), 10)
+		b = append(b, ',')
+	}
+	if len(m.B) > 0 {
+		b = append(b, "\"b\":"...)
+		if !utf8.ValidString(m.B) {
+			return nil, errors.New("proto: cotorp.test.editions.ImplicitMessage.b contains invalid UTF-8")
+		}
+		b = append(b, '"')
+		for ci := 0; ci < len(m.B); ci++ {
+			switch c := m.B[ci]; {
+			case c == '"' || c == '\\':
+				b = append(b, '\\', c)
+			case c < 0x20:
+				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			default:
+				b = append(b, c)
+			}
+		}
+		b = append(b, '"')
+		b = append(b, ',')
+	}
+	if m.C != nil {
+		b = append(b, "\"c\":"...)
+		{
+			var err error
+			if b, err = m.C.ProtoAppendJSON(b); err != nil {
+				return nil, err
+			}
+		}
+		b = append(b, ',')
+	}
+	if b[len(b)-1] == ',' {
+		b[len(b)-1] = '}'
+	} else {
+		b = append(b, '}')
+	}
+	return b, nil
+}
+
+// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
+// value in b.
+func (m *ImplicitMessage) UnmarshalJSON(b []byte) error {
+	*m = ImplicitMessage{}
+	return m.ProtoMergeJSON(b)
+}
+
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
+// It does not check required fields.
+func (m *ImplicitMessage) ProtoMergeJSON(b []byte) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	tok, err := d.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		// JSON null leaves the message unchanged.
+		if _, err := d.Token(); err != io.EOF {
+			return errors.New("proto: cotorp.test.editions.ImplicitMessage: unexpected data after JSON value")
+		}
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return errors.New("proto: cotorp.test.editions.ImplicitMessage: expected a JSON object")
+	}
+	type job struct {
+		f   int
+		key string
+		raw []byte
+	}
+	var jobs []job
+	var seen [3]bool
+	for d.More() {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := tok.(string)
+		var raw json.RawMessage
+		if err := d.Decode(&raw); err != nil {
+			return err
+		}
+		f := -1
+		switch key {
+		case "a":
+			f = 0
+		case "b":
+			f = 1
+		case "c":
+			f = 2
+		default:
+			return errors.New("proto: cotorp.test.editions.ImplicitMessage: unknown field " + strconv.Quote(key))
+		}
+		if seen[f] {
+			return errors.New("proto: cotorp.test.editions.ImplicitMessage: duplicate field " + strconv.Quote(key))
+		}
+		seen[f] = true
+		null := string(raw) == "null"
+		switch f {
+		case 0, 1, 2:
+			if !null {
+				jobs = append(jobs, job{f: f, raw: raw})
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return errors.New("proto: cotorp.test.editions.ImplicitMessage: unexpected data after JSON value")
+	}
+	for _, jb := range jobs {
+		raw := jb.raw
+		class := 0
+		bits := 64
+		var iv int64
+		var sv string
+		switch jb.f {
+		case 0:
+			class, bits = 1, 32
+		case 1:
+			class = 5
+		}
+		switch class {
+		case 1:
+			s := string(raw)
+			if raw[0] == '"' {
+				if err := json.Unmarshal(raw, &s); err != nil {
+					return err
+				}
+			}
+			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
+				return errors.New("proto: cotorp.test.editions.ImplicitMessage: invalid number " + string(raw))
+			}
+			var err error
+			iv, err = strconv.ParseInt(s, 10, bits)
+			if err != nil {
+				// Accept exponent and fraction forms that denote an exact integer,
+				// bounding the exponent so that exact arithmetic stays cheap.
+				if i := strings.IndexAny(s, "eE"); i >= 0 {
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
+						return errors.New("proto: cotorp.test.editions.ImplicitMessage: invalid integer " + string(raw))
+					}
+				}
+				r, ok := new(big.Rat).SetString(s)
+				if !ok || !r.IsInt() {
+					return errors.New("proto: cotorp.test.editions.ImplicitMessage: invalid integer " + string(raw))
+				}
+				n := r.Num()
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
+					return errors.New("proto: cotorp.test.editions.ImplicitMessage: invalid integer " + string(raw))
+				}
+				iv = n.Int64()
+			}
+		case 5:
+			if raw[0] != '"' || !utf8.Valid(raw) {
+				return errors.New("proto: cotorp.test.editions.ImplicitMessage: invalid string " + string(raw))
+			}
+			if err := json.Unmarshal(raw, &sv); err != nil {
+				return err
+			}
+		}
+		switch jb.f {
+		case 0:
+			m.A = int32(iv)
+		case 1:
+			m.B = sv
+		case 2:
+			if m.C == nil {
+				m.C = &Features_Child{}
+			}
+			if err := m.C.ProtoMergeJSON(raw); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

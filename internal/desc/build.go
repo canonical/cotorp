@@ -571,7 +571,19 @@ func (b *builder) buildField(af *parser.Field, parent, owner *Message, scope str
 			}
 		case "deprecated":
 			fd.Deprecated = b.boolOption(o)
+		case "json_name":
+			if isExt {
+				b.errorf(o.Pos, "option json_name is not allowed on extension fields")
+			} else if o.Value.Kind != parser.ValueString {
+				b.errorf(o.Pos, "json_name must be a string")
+			} else {
+				fd.JSONName = o.Value.Str
+				fd.CustomJSONName = true
+			}
 		}
+	}
+	if !fd.CustomJSONName {
+		fd.JSONName = JSONName(af.Name)
 	}
 	switch f.Edition {
 	case EditionProto2:
@@ -888,6 +900,7 @@ func (b *builder) validateMessage(m *Message) {
 			}
 		}
 	}
+	b.checkJSONNames(m)
 	checkRanges := func(rs []*parser.Range, what string) {
 		for _, r := range rs {
 			if r.Start < 1 || r.End > MaxFieldNumber || r.Start > r.End {
@@ -949,5 +962,53 @@ func (b *builder) validateEnum(e *Enum) {
 	}
 	if allowAlias && !aliased {
 		b.errorf(ae.Pos, "enum %q declares 'option allow_alias = true;' but has no aliases", e.FullName)
+	}
+}
+
+// JSONName returns the default ProtoJSON name of a field, matching protoc:
+// underscores are removed and the following character is upper-cased.
+func JSONName(name string) string {
+	var sb strings.Builder
+	upper := false
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c == '_':
+			upper = true
+		case upper:
+			if c >= 'a' && c <= 'z' {
+				c -= 'a' - 'A'
+			}
+			sb.WriteByte(c)
+			upper = false
+		default:
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
+}
+
+// checkJSONNames reports JSON name conflicts the way protoc does: always
+// when a custom json_name is involved, and for default names only when the
+// message's json_format feature is ALLOW.
+func (b *builder) checkJSONNames(m *Message) {
+	seen := map[string]*Field{}
+	for _, fd := range m.Fields {
+		prev, ok := seen[fd.JSONName]
+		if !ok {
+			seen[fd.JSONName] = fd
+			continue
+		}
+		if !fd.CustomJSONName && !prev.CustomJSONName && m.Features.JSONFormat != JSONAllow {
+			continue
+		}
+		kind := func(f *Field) string {
+			if f.CustomJSONName {
+				return "custom"
+			}
+			return "default"
+		}
+		b.errorf(fd.AST.Pos, "the %s JSON name of field %q (%q) conflicts with the %s JSON name of field %q",
+			kind(fd), fd.Name, fd.JSONName, kind(prev), prev.Name)
 	}
 }
