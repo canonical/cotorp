@@ -1,0 +1,45 @@
+edition = "2023";
+
+package cotorp.test.editions;
+
+option go_package = "github.com/canonical/cotorp/internal/testprotos/editions;editionspb";
+option features.field_presence = EXPLICIT;
+
+enum OpenEnum {
+  OPEN_ZERO = 0;
+  OPEN_ONE = 1;
+}
+
+enum ClosedEnum {
+  option features.enum_type = CLOSED;
+  CLOSED_ONE = 1;
+  CLOSED_TWO = 2;
+}
+
+message Features {
+  int32 explicit_int = 1;
+  int32 implicit_int = 2 [features.field_presence = IMPLICIT];
+  int32 required_int = 3 [features.field_presence = LEGACY_REQUIRED];
+  repeated int32 packed_ints = 4;
+  repeated int32 expanded_ints = 5 [features.repeated_field_encoding = EXPANDED];
+  string verified = 6;
+  string unverified = 7 [features.utf8_validation = NONE];
+  Child delimited = 8 [features.message_encoding = DELIMITED];
+  repeated Child delimited_list = 9 [features.message_encoding = DELIMITED];
+  Child length_prefixed = 10;
+  OpenEnum open_enum = 11;
+  ClosedEnum closed_enum = 12;
+  string with_default = 13 [default = "dflt"];
+  map<string, string> verified_map = 14;
+  map<string, string> unverified_map = 15 [features.utf8_validation = NONE];
+
+  message Child {
+    int32 x = 1;
+  }
+}
+
+message ImplicitMessage {
+  int32 a = 1 [features.field_presence = IMPLICIT];
+  string b = 2 [features.field_presence = IMPLICIT];
+  Features.Child c = 3;
+}

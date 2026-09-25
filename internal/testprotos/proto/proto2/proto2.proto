@@ -1,0 +1,115 @@
+syntax = "proto2";
+
+package cotorp.test.proto2;
+
+import "common/common.proto";
+
+option go_package = "github.com/canonical/cotorp/internal/testprotos/proto2;proto2pb";
+
+enum Closed {
+  CLOSED_ONE = 1;
+  CLOSED_TWO = 2;
+  CLOSED_TEN = 10;
+}
+
+message Defaults {
+  optional int32 d_int32 = 1 [default = -42];
+  optional int64 d_int64 = 2 [default = -9223372036854775808];
+  optional uint32 d_uint32 = 3 [default = 4294967295];
+  optional uint64 d_uint64 = 4 [default = 0xffffffffffffffff];
+  optional sint32 d_sint32 = 5 [default = -7];
+  optional sint64 d_sint64 = 6 [default = 7];
+  optional fixed32 d_fixed32 = 7 [default = 0777];
+  optional fixed64 d_fixed64 = 8 [default = 12345678901234];
+  optional sfixed32 d_sfixed32 = 9 [default = -2147483648];
+  optional sfixed64 d_sfixed64 = 10 [default = -1];
+  optional float d_float = 11 [default = 1.5e3];
+  optional double d_double = 12 [default = -inf];
+  optional double d_nan = 13 [default = nan];
+  optional bool d_bool = 14 [default = true];
+  optional string d_string = 15 [default = "h\"i\x01é"];
+  optional bytes d_bytes = 16 [default = "\000\001\377"];
+  optional Closed d_enum = 17 [default = CLOSED_TEN];
+  optional Closed d_enum_nodefault = 18;
+  optional float d_float_neg_zero = 19 [default = -0.0];
+  optional double d_double_int = 20 [default = 10];
+}
+
+message Required {
+  required int32 req_int32 = 1;
+  required string req_string = 2;
+  optional Inner inner = 3;
+  repeated Inner inners = 4;
+  map<string, Inner> inner_map = 5;
+  oneof o {
+    Inner inner_oneof = 6;
+  }
+
+  message Inner {
+    required bool flag = 1;
+  }
+}
+
+message Groups {
+  optional group OptGroup = 1 {
+    optional int32 a = 2;
+    optional string b = 3;
+  }
+  repeated group RepGroup = 4 {
+    optional int32 c = 5;
+    optional group Deep = 6 {
+      optional int64 d = 7;
+    }
+  }
+  optional int32 after = 8;
+}
+
+enum ClosedZero {
+  CLOSED_ZERO_ZERO = 0;
+  CLOSED_ZERO_ONE = 1;
+}
+
+message ClosedEnums {
+  optional Closed single = 1;
+  repeated Closed rep = 2;
+  repeated Closed packed = 3 [packed = true];
+  map<int32, ClosedZero> by_key = 4;
+  oneof o {
+    Closed in_oneof = 5;
+  }
+}
+
+message Packed {
+  repeated int32 p_int32 = 1 [packed = true];
+  repeated sint64 p_sint64 = 2 [packed = true];
+  repeated fixed32 p_fixed32 = 3 [packed = true];
+  repeated double p_double = 4 [packed = true];
+  repeated bool p_bool = 5 [packed = true];
+  repeated int32 u_int32 = 6;
+}
+
+message Extendable {
+  optional int32 known = 1;
+  extensions 100 to 199;
+  extensions 1000 to max;
+}
+
+extend Extendable {
+  optional int32 ext_int32 = 100;
+  optional group ExtGroup = 101 {
+    optional int32 g = 1;
+  }
+}
+
+message Scope {
+  extend Extendable {
+    optional string ext_string = 1000;
+  }
+}
+
+message Proto2Strings {
+  // proto2 strings are not validated for UTF-8.
+  optional string s = 1;
+  repeated string rs = 2;
+  optional cotorp.test.common.Shared shared = 3;
+}

@@ -1,0 +1,13 @@
+edition = "2024";
+
+package cotorp.test.editions2024;
+
+option go_package = "github.com/canonical/cotorp/internal/testprotos/editions2024;editions2024pb";
+
+export message Visible {
+  int32 a = 1;
+  local message Hidden {
+    string s = 1;
+  }
+  Hidden hidden = 2;
+}
