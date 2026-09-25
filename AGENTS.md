@@ -90,6 +90,13 @@ proves little. CI installs protoc 36.1 and fails if it is missing
     that reads them is in use, or the unused-variable check fails.
   - Build error messages with dynamic parts using `fg.errConcat`.
   - Well-known types are selected by full name in `genJSON`.
+  - The `-json_*` flags arrive as `gengo.Options` (`JSONEnumNumbers`, `JSONHex`,
+    `JSONDiscardUnknown`) and are read at generation time. Generated code has
+    no runtime options.
+    - `JSONHex` names are validated in `checkJSONHex`.
+    - Hex fields use their own parse class, `classHex`.
+    - `internal/testprotos/otlp` is generated with all three flags by the
+      second `go:generate` line in `gen.go`, and is tested by `otlp_test.go`.
 
 ## Rules for changing the parser or linker
 

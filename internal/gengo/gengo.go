@@ -30,6 +30,17 @@ type Options struct {
 	// go_package (like protoc-gen-go's M flags). A value may be of the form
 	// "import/path;name".
 	ImportMap map[string]string
+
+	// JSONEnumNumbers writes enum values as numbers instead of names in
+	// ProtoJSON output. Decoding accepts both regardless.
+	JSONEnumNumbers bool
+	// JSONHex lists fully-qualified names of bytes fields (for example
+	// "pkg.Msg.trace_id") whose ProtoJSON form is a hex string instead of
+	// base64. Output is lowercase; decoding accepts either case.
+	JSONHex []string
+	// JSONDiscardUnknown makes ProtoJSON decoding skip unrecognized keys
+	// instead of rejecting them.
+	JSONDiscardUnknown bool
 }
 
 // OutputFile is a generated file.
@@ -41,6 +52,7 @@ type OutputFile struct {
 // Generator holds naming state shared across files.
 type Generator struct {
 	opts     Options
+	jsonHex  map[string]bool
 	pkgs     map[*desc.File]goPackage
 	msgNames map[*desc.Message]string
 	enmNames map[*desc.Enum]string
@@ -117,6 +129,9 @@ func (g *Generator) Generate(files []*desc.File) ([]OutputFile, error) {
 			return nil, err
 		}
 	}
+	if err := g.checkJSONHex(seen); err != nil {
+		return nil, err
+	}
 
 	var out []OutputFile
 	dirs := map[string]string{} // output dir -> package name
@@ -142,6 +157,45 @@ func (g *Generator) Generate(files []*desc.File) ([]OutputFile, error) {
 		out = append(out, OutputFile{Name: name, Content: content})
 	}
 	return out, nil
+}
+
+// checkJSONHex validates the JSONHex field names against the loaded files.
+func (g *Generator) checkJSONHex(files map[*desc.File]bool) error {
+	g.jsonHex = map[string]bool{}
+	if len(g.opts.JSONHex) == 0 {
+		return nil
+	}
+	fields := map[string]*desc.Field{}
+	for f := range files {
+		for _, m := range f.AllMessages {
+			for _, fd := range m.Fields {
+				fields[fd.FullName] = fd
+			}
+		}
+	}
+	for _, name := range g.opts.JSONHex {
+		fd, ok := fields[name]
+		switch {
+		case !ok:
+			return fmt.Errorf("-json_hex %s: no such field", name)
+		case fd.IsMap || fd.Kind != desc.KindBytes:
+			return fmt.Errorf("-json_hex %s: field must be a bytes field (singular or repeated), not %s", name, describeField(fd))
+		}
+		g.jsonHex[name] = true
+	}
+	return nil
+}
+
+func describeField(fd *desc.Field) string {
+	switch {
+	case fd.IsMap:
+		return "a map"
+	case fd.Kind == desc.KindMessage:
+		return "message " + fd.MessageType.FullName
+	case fd.Kind == desc.KindEnum:
+		return "enum " + fd.EnumType.FullName
+	}
+	return fd.Kind.String()
 }
 
 func (g *Generator) outputName(f *desc.File, pkg goPackage) (string, error) {

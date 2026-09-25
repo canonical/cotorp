@@ -17,30 +17,33 @@ import (
 )
 
 // TestGeneratedUpToDate regenerates the checked-in packages using the
-// go:generate directive in gen.go and checks that nothing changed.
+// go:generate directives in gen.go and checks that nothing changed.
 func TestGeneratedUpToDate(t *testing.T) {
 	src, err := os.ReadFile("gen.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var args []string
-	for _, line := range strings.Split(string(src), "\n") {
-		if rest, ok := strings.CutPrefix(line, "//go:generate go run ../../cmd/cotorp "); ok {
-			args = strings.Fields(rest)
-		}
-	}
-	if args == nil {
-		t.Fatal("go:generate directive not found")
-	}
 	out := t.TempDir()
-	for i, a := range args {
-		if a == "-go_out" {
-			args[i+1] = out
+	runs := 0
+	for _, line := range strings.Split(string(src), "\n") {
+		rest, ok := strings.CutPrefix(line, "//go:generate go run ../../cmd/cotorp ")
+		if !ok {
+			continue
 		}
+		args := strings.Fields(rest)
+		for i, a := range args {
+			if a == "-go_out" {
+				args[i+1] = out
+			}
+		}
+		cmd := exec.Command("go", append([]string{"run", "../../cmd/cotorp"}, args...)...)
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("cotorp: %v\n%s", err, b)
+		}
+		runs++
 	}
-	cmd := exec.Command("go", append([]string{"run", "../../cmd/cotorp"}, args...)...)
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("cotorp: %v\n%s", err, b)
+	if runs == 0 {
+		t.Fatal("go:generate directive not found")
 	}
 	n := 0
 	filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {

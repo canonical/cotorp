@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+// A reduced schema shaped like OTLP traces, generated with
+// -json_enum_numbers, -json_discard_unknown and -json_hex for the ID fields.
+package cotorp.test.otlp;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/canonical/cotorp/internal/testprotos/otlp;otlppb";
+
+message Span {
+  bytes trace_id = 1;
+  bytes span_id = 2;
+  string trace_state = 3;
+  bytes parent_span_id = 4;
+  string name = 5;
+
+  enum SpanKind {
+    SPAN_KIND_UNSPECIFIED = 0;
+    SPAN_KIND_INTERNAL = 1;
+    SPAN_KIND_SERVER = 2;
+    SPAN_KIND_CLIENT = 3;
+  }
+  SpanKind kind = 6;
+  fixed64 start_time_unix_nano = 7;
+
+  message Link {
+    bytes trace_id = 1;
+    bytes span_id = 2;
+  }
+  repeated Link links = 13;
+  Status status = 15;
+
+  // Not OTLP: exercise repeated hex fields, base64 fields left alone, and
+  // NullValue (always null) under -json_enum_numbers.
+  repeated bytes hex_list = 100;
+  bytes plain = 101;
+  optional google.protobuf.NullValue null_value = 102;
+  map<string, Status.StatusCode> codes = 103;
+}
+
+message Status {
+  string message = 2;
+  enum StatusCode {
+    STATUS_CODE_UNSET = 0;
+    STATUS_CODE_OK = 1;
+    STATUS_CODE_ERROR = 2;
+  }
+  StatusCode code = 3;
+}
+
+message AnyValue {
+  oneof value {
+    string string_value = 1;
+    bytes bytes_value = 7;
+  }
+}
+
+message Nothing {}

@@ -31,6 +31,7 @@ const (
 	classBool     = 4
 	classString   = 5
 	classBytes    = 6
+	classHex      = 7 // bytes fields selected with Options.JSONHex
 )
 
 // jsonQuote returns the JSON encoding of s as a Go string literal.
@@ -129,6 +130,17 @@ func (fg *fileGen) jsonAppendValue(f *desc.Field, v string) {
 	case desc.KindString:
 		fg.jsonAppendString(v, f.FullName)
 	case desc.KindBytes:
+		if fg.g.jsonHex[f.FullName] {
+			hx := fg.std("encoding/hex")
+			fg.P("{")
+			fg.P("b = append(b, '\"')")
+			fg.P("l := len(b)")
+			fg.P("b = ", fg.std("slices"), ".Grow(b, ", hx, ".EncodedLen(len(", v, ")))[:l+", hx, ".EncodedLen(len(", v, "))]")
+			fg.P(hx, ".Encode(b[l:], ", v, ")")
+			fg.P("b = append(b, '\"')")
+			fg.P("}")
+			return
+		}
 		b64 := fg.std("encoding/base64")
 		fg.P("{")
 		fg.P("n := ", b64, ".StdEncoding.EncodedLen(len(", v, "))")
@@ -141,6 +153,10 @@ func (fg *fileGen) jsonAppendValue(f *desc.Field, v string) {
 	case desc.KindEnum:
 		if f.EnumType.FullName == "google.protobuf.NullValue" {
 			fg.P("b = append(b, \"null\"...)")
+			return
+		}
+		if fg.g.opts.JSONEnumNumbers {
+			fg.P("b = ", conv, ".AppendInt(b, int64(", v, "), 10)")
 			return
 		}
 		fg.P("if s, ok := ", fg.qualify(f.EnumType.File, fg.g.enmNames[f.EnumType]+"_name"), "[int32(", v, ")]; ok {")
@@ -374,11 +390,23 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	fg.P("return ", fg.jsonErr(name+": expected a JSON object"))
 	fg.P("}")
 	if len(mi.fields) == 0 {
-		fg.P("if d.More() {")
-		fg.P("tok, _ := d.Token()")
-		fg.P("key, _ := tok.(string)")
-		fg.P("return ", fg.errConcat("proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
-		fg.P("}")
+		if fg.g.opts.JSONDiscardUnknown {
+			fg.P("for d.More() {")
+			fg.P("if _, err := d.Token(); err != nil {")
+			fg.P("return err")
+			fg.P("}")
+			fg.P("var raw ", jsonPkg, ".RawMessage")
+			fg.P("if err := d.Decode(&raw); err != nil {")
+			fg.P("return err")
+			fg.P("}")
+			fg.P("}")
+		} else {
+			fg.P("if d.More() {")
+			fg.P("tok, _ := d.Token()")
+			fg.P("key, _ := tok.(string)")
+			fg.P("return ", fg.errConcat("proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
+			fg.P("}")
+		}
 		fg.jsonCheckEnd(name)
 		fg.P("return nil")
 		return
@@ -432,7 +460,11 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 		}
 	}
 	fg.P("default:")
-	fg.P("return ", fg.errConcat("proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
+	if fg.g.opts.JSONDiscardUnknown {
+		fg.P("continue // unknown keys are ignored (-json_discard_unknown)")
+	} else {
+		fg.P("return ", fg.errConcat("proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
+	}
 	fg.P("}")
 	fg.P("if seen[f] {")
 	fg.P("return ", fg.errConcat("proto: "+name+": duplicate field ", fg.std("strconv")+".Quote(key)"))
@@ -620,6 +652,15 @@ func joinOr(v string, xs []int) string {
 	return s
 }
 
+// fieldClass is scalarClass, except that bytes fields selected with
+// Options.JSONHex parse as hex.
+func (fg *fileGen) fieldClass(f *desc.Field) (int, int) {
+	if f.Kind == desc.KindBytes && fg.g.jsonHex[f.FullName] {
+		return classHex, 0
+	}
+	return scalarClass(f.Kind)
+}
+
 // scalarClass returns the phase-two parse class and bit size for a
 // non-message, non-enum kind.
 func scalarClass(k desc.Kind) (int, int) {
@@ -669,7 +710,7 @@ func (fg *fileGen) jsonPhase2(mi *messageInfo, idxs []int) {
 			used[classString] = true
 			used[classSigned] = true
 		default:
-			c, _ := scalarClass(vf.Kind)
+			c, _ := fg.fieldClass(vf)
 			used[c] = true
 		}
 	}
@@ -683,11 +724,14 @@ func (fg *fileGen) jsonPhase2(mi *messageInfo, idxs []int) {
 		if numeric {
 			fg.P("bits := 64")
 		}
-		scratch := map[int]string{classSigned: "iv int64", classUnsigned: "uv uint64", classFloat: "fv float64", classBool: "bv bool", classString: "sv string", classBytes: "by []byte"}
-		for _, c := range []int{classSigned, classUnsigned, classFloat, classBool, classString, classBytes} {
+		scratch := map[int]string{classSigned: "iv int64", classUnsigned: "uv uint64", classFloat: "fv float64", classBool: "bv bool", classString: "sv string"}
+		for _, c := range []int{classSigned, classUnsigned, classFloat, classBool, classString} {
 			if used[c] {
 				fg.P("var ", scratch[c])
 			}
+		}
+		if used[classBytes] || used[classHex] {
+			fg.P("var by []byte")
 		}
 		// Select the parse class for the job's field.
 		groups := map[[2]int][]int{}
@@ -699,7 +743,7 @@ func (fg *fileGen) jsonPhase2(mi *messageInfo, idxs []int) {
 			case desc.KindEnum:
 				enums = append(enums, i)
 			default:
-				c, bits := scalarClass(vf.Kind)
+				c, bits := fg.fieldClass(vf)
 				groups[[2]int{c, bits}] = append(groups[[2]int{c, bits}], i)
 			}
 		}
@@ -895,6 +939,21 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 		fg.P("var err error")
 		fg.P("if by, err = enc.DecodeString(s); err != nil {")
 		invalid("bytes")
+		fg.P("}")
+	}
+	if used[classHex] {
+		fg.P("case ", classHex, ":")
+		fg.P("var s string")
+		fg.P("if raw[0] != '\"' {")
+		invalid("hex bytes")
+		fg.P("}")
+		fg.P("if err := ", jsonPkg, ".Unmarshal(raw, &s); err != nil {")
+		fg.P("return err")
+		fg.P("}")
+		fg.P("// Either case is accepted.")
+		fg.P("var err error")
+		fg.P("if by, err = ", fg.std("encoding/hex"), ".DecodeString(s); err != nil {")
+		invalid("hex bytes")
 		fg.P("}")
 	}
 	fg.P("}")

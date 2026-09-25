@@ -29,6 +29,9 @@ cotorp -I proto -go_out gen -paths source_relative foo/bar.proto
 | `-paths import\|source_relative` | Place files by Go import path (default) or next to the `.proto` path. |
 | `-module prefix` | In `import` mode, strip this module path prefix from output paths. |
 | `-M file.proto=import/path[;name]` | Set the Go package for a `.proto` file, overriding `go_package`. |
+| `-json_enum_numbers` | Write enum values as numbers instead of names in JSON output. |
+| `-json_hex pkg.Msg.field` | Write this bytes field as a lowercase hex string instead of base64 in JSON (repeatable). |
+| `-json_discard_unknown` | Ignore unrecognized keys when decoding JSON instead of rejecting them. |
 
 The Go package of each file comes from `-M` or `option go_package`. Files whose
 `go_package` points at `google.golang.org/protobuf/...` (such as the well-known
@@ -124,11 +127,36 @@ have pointer receivers.
   `Duration` (`"1.5s"`), the wrapper types, `Struct`, `Value`, `ListValue`,
   `FieldMask` and `Empty`. Generate these types with cotorp (see
   *Usage*).
+* **Generator options** change the JSON behaviour of the code they generate.
+  They are fixed at generation time; there are no runtime options.
+  * `-json_enum_numbers` writes enums as numbers. `google.protobuf.NullValue`
+    is still written as `null`.
+  * `-json_hex` names individual bytes fields, singular or repeated, to write
+    as lowercase hex. Decoding those fields accepts hex in either case, and
+    only hex. All other bytes fields keep base64.
+  * `-json_discard_unknown` makes decoding skip unknown keys, whatever their
+    values, at every level of the generated messages.
+
+  For example, OTLP/JSON needs:
+
+  ```sh
+  cotorp ... -json_enum_numbers -json_discard_unknown \
+    -json_hex opentelemetry.proto.trace.v1.Span.trace_id \
+    -json_hex opentelemetry.proto.trace.v1.Span.span_id \
+    -json_hex opentelemetry.proto.trace.v1.Span.parent_span_id \
+    -json_hex opentelemetry.proto.trace.v1.Span.Link.trace_id \
+    -json_hex opentelemetry.proto.trace.v1.Span.Link.span_id \
+    ...
+  ```
+
+  Decoding already accepts enum names and numbers whichever options are
+  set. The options apply only to the files generated in that run, so
+  generate every package that needs them with the same flags.
 * **Not supported:** `google.protobuf.Any` returns an error in both
   directions, because resolving `@type` needs a global type registry, which
   would need shared runtime code. Unknown fields and extensions are dropped
-  from JSON output. There are no options (such as `EmitUnpopulated` or
-  `DiscardUnknown`).
+  from JSON output. Beyond the generator options above, there are
+  no protojson-style options (such as `EmitUnpopulated`).
 * **Deliberate deviation:** a top-level `null` passed to `UnmarshalJSON` is a
   no-op, following the `encoding/json` convention for `Unmarshaler`s;
   protojson rejects it.

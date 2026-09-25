@@ -92,6 +92,7 @@ var stdPackages = map[string]string{
 	"bytes":           "bytes",
 	"encoding/base64": "base64",
 	"encoding/binary": "binary",
+	"encoding/hex":    "hex",
 	"encoding/json":   "json",
 	"io":              "io",
 	"math/big":        "big",

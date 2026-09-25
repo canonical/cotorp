@@ -246,3 +246,31 @@ func TestValid(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONHexValidation(t *testing.T) {
+	dir := writeFiles(t, []testFile{{"test.proto", `syntax = "proto3"; package p; option go_package = "example.com/p";
+		message M { bytes id = 1; repeated bytes ids = 2; string s = 3; map<string, bytes> m = 4; M sub = 5; }`}})
+	c := New([]string{dir})
+	f, err := c.Load("test.proto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := func(names ...string) error {
+		_, err := gengo.New(gengo.Options{JSONHex: names}).Generate([]*desc.File{f})
+		return err
+	}
+	if err := gen("p.M.id", "p.M.ids"); err != nil {
+		t.Errorf("valid fields rejected: %v", err)
+	}
+	for name, want := range map[string]string{
+		"p.M.nope": "no such field",
+		"M.id":     "no such field",
+		"p.M.s":    "must be a bytes field",
+		"p.M.m":    "must be a bytes field",
+		"p.M.sub":  "must be a bytes field",
+	} {
+		if err := gen(name); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("-json_hex %s: error %v, want %q", name, err, want)
+		}
+	}
+}

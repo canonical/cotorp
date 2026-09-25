@@ -45,7 +45,11 @@ func run(args []string) error {
 		out         = fs.String("go_out", "", "output directory for generated Go files (required)")
 		paths       = fs.String("paths", "import", `output layout: "import" (by Go import path) or "source_relative"`)
 		module      = fs.String("module", "", "Go module path prefix to strip from output paths in import mode")
+		jsonNumbers = fs.Bool("json_enum_numbers", false, "write enum values as numbers instead of names in JSON output")
+		jsonDiscard = fs.Bool("json_discard_unknown", false, "ignore unknown keys when decoding JSON instead of rejecting them")
+		jsonHex     listFlag
 	)
+	fs.Var(&jsonHex, "json_hex", "encode this bytes field as hex instead of base64 in JSON, e.g. -json_hex pkg.Msg.trace_id (repeatable)")
 	fs.Var(&importPaths, "I", "directory to search for imports (repeatable; default \".\")")
 	fs.Var(&importPaths, "proto_path", "alias for -I")
 	fs.Var(&mappings, "M", "map a .proto file to a Go import path: -M foo/bar.proto=example.com/bar[;name] (repeatable)")
@@ -94,7 +98,14 @@ func run(args []string) error {
 		files = append(files, f)
 	}
 
-	g := gengo.New(gengo.Options{Paths: *paths, Module: *module, ImportMap: importMap})
+	g := gengo.New(gengo.Options{
+		Paths:              *paths,
+		Module:             *module,
+		ImportMap:          importMap,
+		JSONEnumNumbers:    *jsonNumbers,
+		JSONHex:            jsonHex,
+		JSONDiscardUnknown: *jsonDiscard,
+	})
 	outs, err := g.Generate(files)
 	if err != nil {
 		return err

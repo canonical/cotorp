@@ -10,6 +10,7 @@ import (
 	"github.com/canonical/cotorp/internal/testprotos/descriptorpb"
 	editionspb "github.com/canonical/cotorp/internal/testprotos/editions"
 	jsontestpb "github.com/canonical/cotorp/internal/testprotos/jsontest"
+	otlppb "github.com/canonical/cotorp/internal/testprotos/otlp"
 	proto2pb "github.com/canonical/cotorp/internal/testprotos/proto2"
 	proto3pb "github.com/canonical/cotorp/internal/testprotos/proto3"
 )
@@ -24,6 +25,7 @@ func fuzzMessages() []message {
 		&editionspb.Features{}, &editionspb.ImplicitMessage{},
 		&descriptorpb.FileDescriptorSet{},
 		&jsontestpb.WellKnown{}, &jsontestpb.Names{},
+		&otlppb.Span{}, &otlppb.AnyValue{},
 	}
 }
 
@@ -110,6 +112,7 @@ func FuzzJSON(f *testing.F) {
 		`{"cNested": {"a": 1}}`, `{"optgroup": {"a": 1}}`,
 		`{"ts": "1970-01-01T00:00:00Z", "dur": "-1.5s", "val": {"a": [null, true, 1, "s"]}}`,
 		`{"mask": "a.bC", "i64": "5", "st": {"k": {}}, "renamed": 1, "byS32": {"-1": "Ag=="}}`,
+		`{"traceId": "5B8e", "kind": 2, "links": [{"spanId": "ff", "x": 1}], "status": {"code": "STATUS_CODE_OK"}}`,
 	} {
 		f.Add([]byte(s))
 	}
