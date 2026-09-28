@@ -16,56 +16,31 @@ import (
 	"time"
 )
 
-// Wire types.
 const (
-	timestampWireVarint     = 0
-	timestampWireFixed64    = 1
-	timestampWireBytes      = 2
-	timestampWireStartGroup = 3
-	timestampWireEndGroup   = 4
-	timestampWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	timestampTagTypeBits    = 3
-	timestampTagTypeMask    = 1<<3 - 1
-	timestampMaxFieldNumber = 1<<29 - 1
-)
-
-// Encoded sizes.
-const (
-	timestampFixed32Size       = 4
-	timestampFixed64Size       = 8
-	timestampVarintPayloadBits = 7    // value bits per varint byte
-	timestampVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	timestampMaxDepth      = 10000 // maximum message and group nesting
-	timestampSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON limits.
-const (
-	timestampMinTimestampSeconds = -62135596800 // 0001-01-01T00:00:00Z
-	timestampMaxTimestampSeconds = 253402300799 // 9999-12-31T23:59:59Z
-)
-
-// Time units.
-const (
-	timestampNanosPerSecond  = 1000000000
-	timestampNanosPerMilli   = 1000000
-	timestampNanosPerMicro   = 1000
-	timestampMicrosPerSecond = 1000000
-	timestampMillisPerSecond = 1000
-)
-
-// Error messages used more than once.
-const (
-	timestampErrParse               = "proto: cannot parse invalid wire-format data"
+	timestampWireVarint             = 0
+	timestampWireFixed64            = 1
+	timestampWireBytes              = 2
+	timestampWireStartGroup         = 3
+	timestampWireEndGroup           = 4
+	timestampWireFixed32            = 5
+	timestampTagTypeBits            = 3
+	timestampTagTypeMask            = 1<<3 - 1
+	timestampMaxFieldNumber         = 1<<29 - 1
+	timestampFixed32Size            = 4
+	timestampFixed64Size            = 8
+	timestampVarintPayloadBits      = 7
+	timestampVarintContBit          = 0x80
+	timestampMaxDepth               = 10000
+	timestampSkipStackSize          = 16
+	timestampMinTimestampSeconds    = -62135596800
+	timestampMaxTimestampSeconds    = 253402300799
+	timestampNanosPerSecond         = 1000000000
+	timestampNanosPerMilli          = 1000000
+	timestampNanosPerMicro          = 1000
+	timestampMicrosPerSecond        = 1000000
+	timestampMillisPerSecond        = 1000
 	timestampErrDepth               = "proto: exceeded maximum recursion depth"
+	timestampErrParse               = "proto: cannot parse invalid wire-format data"
 	timestampTimestampErrOutOfRange = "proto: google.protobuf.Timestamp: timestamp out of range"
 )
 
@@ -177,26 +152,16 @@ type Timestamp struct {
 func (m *Timestamp) Reset() { *m = Timestamp{} }
 
 func (m *Timestamp) GetSeconds() int64 {
-	if m != nil {
-		return m.Seconds
-	}
-	return 0
+	return timestampGet(m, func(m *Timestamp) int64 { return m.Seconds })
 }
-
 func (m *Timestamp) GetNanos() int32 {
-	if m != nil {
-		return m.Nanos
-	}
-	return 0
+	return timestampGet(m, func(m *Timestamp) int32 { return m.Nanos })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Timestamp) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return timestampGet(m, func(m *Timestamp) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -234,8 +199,7 @@ func (m *Timestamp) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Nanos != 0 {
 		i = timestampPutVarint(b, timestampPutVarint(b, i, uint64(int64(m.Nanos))), 2<<timestampTagTypeBits|timestampWireVarint)
@@ -260,7 +224,7 @@ func (m *Timestamp) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= timestampMaxDepth {
-		goto errDepth
+		return errors.New(timestampErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -283,7 +247,6 @@ func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Nanos = b[n:], int32(x)
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := timestampSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -295,8 +258,6 @@ func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(timestampErrParse)
-errDepth:
-	return errors.New(timestampErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -376,7 +337,6 @@ func (m *Timestamp) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		return err
 	}
 	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
 		return nil
 	}
 	if tok.Kind() != jsontext.KindString {
@@ -395,8 +355,6 @@ func (m *Timestamp) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-// timestampPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func timestampPutVarint(b []byte, i int, u uint64) int {
 	if u < timestampVarintContBit {
 		b[i-1] = byte(u)
@@ -407,8 +365,6 @@ func timestampPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// timestampReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func timestampReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -417,8 +373,6 @@ func timestampReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// timestampSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func timestampSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & timestampTagTypeMask {
 	case timestampWireVarint:
@@ -443,9 +397,6 @@ func timestampSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(timestampErrParse)
 }
 
-// timestampSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func timestampSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [timestampSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -478,8 +429,6 @@ func timestampSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// timestampAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func timestampAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -490,8 +439,13 @@ func timestampAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// timestampWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func timestampGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
 func timestampWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -499,8 +453,6 @@ func timestampWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// timestampEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func timestampEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -511,9 +463,6 @@ func timestampEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// timestampStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func timestampStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -525,7 +474,6 @@ func timestampStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// timestampJSONError returns an error about the ProtoJSON value of message name.
 func timestampJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

@@ -168,9 +168,9 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 	fg.P("return 0, nil")
 	fg.P("}")
 	fg.P("i := len(b)")
+	// Guarded, because copy is not free when there is nothing to copy.
 	fg.P("if len(m.unknownFields) > 0 {")
-	fg.P("i -= len(m.unknownFields)")
-	fg.P("copy(b[i:], m.unknownFields)")
+	fg.P("i -= copy(b[i-len(m.unknownFields):], m.unknownFields)")
 	fg.P("}")
 	fg.buf.WriteString(body)
 	fg.P("return len(b) - i, nil")
@@ -281,10 +281,7 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 	fg.P("func (m *", name, ") UnmarshalBinary(b []byte) error {")
 	fg.P("*m = ", name, "{}")
 	if mi.m.HasRequired() {
-		fg.P("if err := m.ProtoMergeDepth(b, 0); err != nil {")
-		fg.P("return err")
-		fg.P("}")
-		fg.P("return m.ProtoCheckInitialized()")
+		fg.P("return ", fg.std("cmp"), ".Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())")
 	} else {
 		fg.P("return m.ProtoMergeDepth(b, 0)")
 	}
@@ -297,7 +294,7 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 	fg.P("// ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.")
 	fg.P("func (m *", name, ") ProtoMergeDepth(b []byte, depth int) error {")
 	fg.P("if depth >= ", fg.c("MaxDepth"), " {")
-	fg.P("goto errDepth")
+	fg.P("return ", fg.errExpr("ErrDepth", errDepthMsg))
 	fg.P("}")
 	fg.P("for len(b) > 0 {")
 	fg.P("t, n := ", fg.std("encoding/binary"), ".Uvarint(b)")
@@ -311,7 +308,6 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 		}
 		fg.P("default:")
 	}
-	fg.P("// Unknown field, or a known field with an unexpected wire type.")
 	fg.P("n, err := ", fg.fn("SkipField"), "(b, t, depth)")
 	fg.P("if err != nil {")
 	fg.P("return err")
@@ -325,8 +321,6 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 	fg.P("return nil")
 	fg.P("errParse:")
 	fg.P("return ", fg.errExpr("ErrParse", errParseMsg))
-	fg.P("errDepth:")
-	fg.P("return ", fg.errExpr("ErrDepth", errDepthMsg))
 	fg.P("}")
 	fg.P()
 }
@@ -370,10 +364,7 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 				fg.P("mv := &", fg.msgType(f.MessageType), "{}")
 				fg.P(fv, " = append(", fv, ", mv)")
 			default:
-				fg.P("if ", fv, " == nil {")
-				fg.P(fv, " = &", fg.msgType(f.MessageType), "{}")
-				fg.P("}")
-				mv = fv
+				mv = fg.fn("Alloc") + "(&" + fv + ")"
 			}
 		}
 		if f.Delimited {
@@ -490,10 +481,7 @@ func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 	fg.P("case ", fg.tagExpr(fg.fieldNum(val), wireType(val)), ":")
 	if val.Kind == desc.KindMessage {
 		fg.decBytes("x", "v")
-		fg.P("if mv == nil {")
-		fg.P("mv = &", fg.msgType(val.MessageType), "{}")
-		fg.P("}")
-		fg.P("if err := mv.ProtoMergeDepth(x, depth+1); err != nil {")
+		fg.P("if err := ", fg.fn("Alloc"), "(&mv).ProtoMergeDepth(x, depth+1); err != nil {")
 		fg.P("return err")
 		fg.P("}")
 		fg.P("v = v[n:]")
@@ -510,9 +498,7 @@ func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 	fg.P("}")
 	fg.P("}")
 	if val.Kind == desc.KindMessage {
-		fg.P("if mv == nil {")
-		fg.P("mv = &", fg.msgType(val.MessageType), "{}")
-		fg.P("}")
+		fg.P(fg.fn("Alloc"), "(&mv)")
 	}
 	if isClosedEnum(val) {
 		fg.P("if !mv.IsValid() {")
@@ -539,10 +525,12 @@ func (fg *fileGen) genCheckInitialized(mi *messageInfo) {
 	fg.P("if m == nil {")
 	fg.P("return nil")
 	fg.P("}")
+	last := "" // the call in the last check emitted, if it can be returned
 	for _, fi := range mi.byNum {
 		f := fi.f
 		fv := "m." + fi.goName
 		if f.Required {
+			last = ""
 			fg.P("if ", fv, " == nil {")
 			fg.P("return ", fg.errExpr(fg.owner(f.FullName)+"ErrRequired", fmt.Sprintf(errRequiredFmt, f.FullName)))
 			fg.P("}")
@@ -570,12 +558,21 @@ func (fg *fileGen) genCheckInitialized(mi *messageInfo) {
 			fg.P("}")
 			fg.P("}")
 		default:
-			fg.P("if err := ", fv, ".ProtoCheckInitialized(); err != nil {")
+			last = fv + ".ProtoCheckInitialized()"
+			fg.P("if err := ", last, "; err != nil {")
 			fg.P("return err")
 			fg.P("}")
+			continue
 		}
+		last = ""
 	}
-	fg.P("return nil")
+	if last != "" {
+		// The final check's result is the method's result.
+		fg.buf.Truncate(fg.buf.Len() - len("if err := "+last+"; err != nil {\nreturn err\n}\n"))
+		fg.P("return ", last)
+	} else {
+		fg.P("return nil")
+	}
 	fg.P("}")
 	fg.P()
 }

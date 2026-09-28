@@ -24,64 +24,35 @@ import (
 	wktpb "github.com/canonical/cotorp/internal/testprotos/wkt"
 )
 
-// Wire types.
 const (
-	jsonWireVarint     = 0
-	jsonWireFixed64    = 1
-	jsonWireBytes      = 2
-	jsonWireStartGroup = 3
-	jsonWireEndGroup   = 4
-	jsonWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	jsonTagTypeBits    = 3
-	jsonTagTypeMask    = 1<<3 - 1
-	jsonMaxFieldNumber = 1<<29 - 1
-)
-
-// Map entries are encoded as messages with these field numbers.
-const (
-	jsonMapKeyField   = 1
-	jsonMapValueField = 2
-)
-
-// Encoded sizes.
-const (
-	jsonFixed32Size       = 4
-	jsonFixed64Size       = 8
-	jsonVarintPayloadBits = 7    // value bits per varint byte
-	jsonVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	jsonMaxDepth      = 10000 // maximum message and group nesting
-	jsonSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON scalar parse classes.
-const (
-	jsonClassNone   = 0
-	jsonClassSigned = 1
-	jsonClassString = 5
-	jsonClassBytes  = 6
-	jsonClassEnum   = 8
-)
-
-// ProtoJSON limits.
-const (
-	jsonMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
-	jsonBase64Quantum   = 4   // base64 characters per padded block
-)
-
-// Error messages used more than once.
-const (
+	jsonWireVarint                     = 0
+	jsonWireFixed64                    = 1
+	jsonWireBytes                      = 2
+	jsonWireStartGroup                 = 3
+	jsonWireEndGroup                   = 4
+	jsonWireFixed32                    = 5
+	jsonTagTypeBits                    = 3
+	jsonTagTypeMask                    = 1<<3 - 1
+	jsonMaxFieldNumber                 = 1<<29 - 1
+	jsonMapKeyField                    = 1
+	jsonMapValueField                  = 2
+	jsonFixed32Size                    = 4
+	jsonFixed64Size                    = 8
+	jsonVarintPayloadBits              = 7
+	jsonVarintContBit                  = 0x80
+	jsonMaxDepth                       = 10000
+	jsonSkipStackSize                  = 16
+	jsonClassNone                      = 0
+	jsonClassSigned                    = 1
+	jsonClassString                    = 5
+	jsonClassBytes                     = 6
+	jsonClassEnum                      = 8
+	jsonMaxJSONExponent                = 100
+	jsonBase64Quantum                  = 4
 	jsonWellKnownOStrErrUTF8           = "proto: field cotorp.test.json.WellKnown.o_str contains invalid UTF-8"
 	jsonWellKnownValMapEntryKeyErrUTF8 = "proto: field cotorp.test.json.WellKnown.ValMapEntry.key contains invalid UTF-8"
-	jsonErrParse                       = "proto: cannot parse invalid wire-format data"
 	jsonErrDepth                       = "proto: exceeded maximum recursion depth"
+	jsonErrParse                       = "proto: cannot parse invalid wire-format data"
 	jsonNamesByBoolEntryValueErrUTF8   = "proto: field cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8"
 	jsonErrInvalidKey                  = "invalid map key for field "
 )
@@ -124,224 +95,110 @@ type WellKnown struct {
 func (m *WellKnown) Reset() { *m = WellKnown{} }
 
 func (m *WellKnown) GetTs() *wktpb.Timestamp {
-	if m != nil {
-		return m.Ts
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Timestamp { return m.Ts })
 }
-
 func (m *WellKnown) GetDur() *wktpb.Duration {
-	if m != nil {
-		return m.Dur
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Duration { return m.Dur })
 }
-
 func (m *WellKnown) GetDbl() *wktpb.DoubleValue {
-	if m != nil {
-		return m.Dbl
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.DoubleValue { return m.Dbl })
 }
-
 func (m *WellKnown) GetFlt() *wktpb.FloatValue {
-	if m != nil {
-		return m.Flt
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.FloatValue { return m.Flt })
 }
-
 func (m *WellKnown) GetI64() *wktpb.Int64Value {
-	if m != nil {
-		return m.I64
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Int64Value { return m.I64 })
 }
-
 func (m *WellKnown) GetU64() *wktpb.UInt64Value {
-	if m != nil {
-		return m.U64
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.UInt64Value { return m.U64 })
 }
-
 func (m *WellKnown) GetI32() *wktpb.Int32Value {
-	if m != nil {
-		return m.I32
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Int32Value { return m.I32 })
 }
-
 func (m *WellKnown) GetU32() *wktpb.UInt32Value {
-	if m != nil {
-		return m.U32
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.UInt32Value { return m.U32 })
 }
-
 func (m *WellKnown) GetBool() *wktpb.BoolValue {
-	if m != nil {
-		return m.Bool
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.BoolValue { return m.Bool })
 }
-
 func (m *WellKnown) GetStr() *wktpb.StringValue {
-	if m != nil {
-		return m.Str
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.StringValue { return m.Str })
 }
-
 func (m *WellKnown) GetBytes() *wktpb.BytesValue {
-	if m != nil {
-		return m.Bytes
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.BytesValue { return m.Bytes })
 }
-
 func (m *WellKnown) GetSt() *wktpb.Struct {
-	if m != nil {
-		return m.St
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Struct { return m.St })
 }
-
 func (m *WellKnown) GetVal() *wktpb.Value {
-	if m != nil {
-		return m.Val
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Value { return m.Val })
 }
-
 func (m *WellKnown) GetLst() *wktpb.ListValue {
-	if m != nil {
-		return m.Lst
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.ListValue { return m.Lst })
 }
-
 func (m *WellKnown) GetMask() *wktpb.FieldMask {
-	if m != nil {
-		return m.Mask
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.FieldMask { return m.Mask })
 }
-
 func (m *WellKnown) GetEmpty() *wktpb.Empty {
-	if m != nil {
-		return m.Empty
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Empty { return m.Empty })
 }
-
 func (m *WellKnown) GetNullValue() wktpb.NullValue {
-	if m != nil {
-		return m.NullValue
-	}
-	return wktpb.NullValue_NULL_VALUE
+	return jsonGet(m, func(m *WellKnown) wktpb.NullValue { return m.NullValue })
 }
-
 func (m *WellKnown) GetVals() []*wktpb.Value {
-	if m != nil {
-		return m.Vals
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) []*wktpb.Value { return m.Vals })
 }
-
 func (m *WellKnown) GetValMap() map[string]*wktpb.Value {
-	if m != nil {
-		return m.ValMap
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) map[string]*wktpb.Value { return m.ValMap })
 }
-
 func (m *WellKnown) GetOptNull() wktpb.NullValue {
-	if m != nil && m.OptNull != nil {
-		return *m.OptNull
-	}
-	return wktpb.NullValue_NULL_VALUE
+	return jsonGetOr(m, func(m *WellKnown) *wktpb.NullValue { return m.OptNull }, wktpb.NullValue_NULL_VALUE)
 }
-
 func (m *WellKnown) GetO() isWellKnown_O {
-	if m != nil {
-		return m.O
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) isWellKnown_O { return m.O })
 }
-
 func (m *WellKnown) GetOVal() *wktpb.Value {
 	if x, ok := m.GetO().(*WellKnown_OVal); ok {
 		return x.OVal
 	}
 	return nil
 }
-
 func (m *WellKnown) GetONull() wktpb.NullValue {
 	if x, ok := m.GetO().(*WellKnown_ONull); ok {
 		return x.ONull
 	}
 	return wktpb.NullValue_NULL_VALUE
 }
-
 func (m *WellKnown) GetOStr() string {
 	if x, ok := m.GetO().(*WellKnown_OStr); ok {
 		return x.OStr
 	}
 	return ""
 }
-
 func (m *WellKnown) GetAny() *wktpb.Any {
-	if m != nil {
-		return m.Any
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) *wktpb.Any { return m.Any })
 }
-
 func (m *WellKnown) GetTss() []*wktpb.Timestamp {
-	if m != nil {
-		return m.Tss
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) []*wktpb.Timestamp { return m.Tss })
 }
-
 func (m *WellKnown) GetDurs() map[int32]*wktpb.Duration {
-	if m != nil {
-		return m.Durs
-	}
-	return nil
+	return jsonGet(m, func(m *WellKnown) map[int32]*wktpb.Duration { return m.Durs })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *WellKnown) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return jsonGet(m, func(m *WellKnown) []byte { return m.unknownFields })
 }
 
-type isWellKnown_O interface {
-	isWellKnown_O()
-}
+type isWellKnown_O interface{ isWellKnown_O() }
+type WellKnown_OVal struct{ OVal *wktpb.Value }
+type WellKnown_ONull struct{ ONull wktpb.NullValue }
+type WellKnown_OStr struct{ OStr string }
 
-type WellKnown_OVal struct {
-	OVal *wktpb.Value
-}
-
-func (*WellKnown_OVal) isWellKnown_O() {}
-
-type WellKnown_ONull struct {
-	ONull wktpb.NullValue
-}
-
+func (*WellKnown_OVal) isWellKnown_O()  {}
 func (*WellKnown_ONull) isWellKnown_O() {}
-
-type WellKnown_OStr struct {
-	OStr string
-}
-
-func (*WellKnown_OStr) isWellKnown_O() {}
+func (*WellKnown_OStr) isWellKnown_O()  {}
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *WellKnown) ProtoSize() (n int) {
@@ -449,8 +306,7 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if len(m.Durs) > 0 {
 		for _, k := range slices.Backward(jsonSortedKeys(m.Durs, make([]int32, 0, len(m.Durs)))) {
@@ -483,9 +339,7 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if !utf8.ValidString(o.OStr) {
 			return 0, errors.New(jsonWellKnownOStrErrUTF8)
 		}
-		i -= len(o.OStr)
-		copy(b[i:], o.OStr)
-		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(o.OStr))), 23<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-copy(b[i-len(o.OStr):], o.OStr), uint64(len(o.OStr))), 23<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if o, ok := m.O.(*WellKnown_ONull); ok {
 		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(o.ONull))), 22<<jsonTagTypeBits|jsonWireVarint)
@@ -512,9 +366,7 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if !utf8.ValidString(k) {
 				return 0, errors.New(jsonWellKnownValMapEntryKeyErrUTF8)
 			}
-			i -= len(k)
-			copy(b[i:], k)
-			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(k))), jsonMapKeyField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), jsonMapKeyField<<jsonTagTypeBits|jsonWireBytes)
 			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 19<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
@@ -657,7 +509,7 @@ func (m *WellKnown) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= jsonMaxDepth {
-		goto errDepth
+		return errors.New(jsonErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -672,10 +524,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Ts == nil {
-				m.Ts = &wktpb.Timestamp{}
-			}
-			if err := m.Ts.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Ts).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -684,10 +533,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Dur == nil {
-				m.Dur = &wktpb.Duration{}
-			}
-			if err := m.Dur.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Dur).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -696,10 +542,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Dbl == nil {
-				m.Dbl = &wktpb.DoubleValue{}
-			}
-			if err := m.Dbl.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Dbl).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -708,10 +551,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Flt == nil {
-				m.Flt = &wktpb.FloatValue{}
-			}
-			if err := m.Flt.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Flt).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -720,10 +560,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.I64 == nil {
-				m.I64 = &wktpb.Int64Value{}
-			}
-			if err := m.I64.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.I64).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -732,10 +569,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.U64 == nil {
-				m.U64 = &wktpb.UInt64Value{}
-			}
-			if err := m.U64.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.U64).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -744,10 +578,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.I32 == nil {
-				m.I32 = &wktpb.Int32Value{}
-			}
-			if err := m.I32.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.I32).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -756,10 +587,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.U32 == nil {
-				m.U32 = &wktpb.UInt32Value{}
-			}
-			if err := m.U32.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.U32).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -768,10 +596,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Bool == nil {
-				m.Bool = &wktpb.BoolValue{}
-			}
-			if err := m.Bool.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Bool).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -780,10 +605,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Str == nil {
-				m.Str = &wktpb.StringValue{}
-			}
-			if err := m.Str.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Str).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -792,10 +614,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Bytes == nil {
-				m.Bytes = &wktpb.BytesValue{}
-			}
-			if err := m.Bytes.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Bytes).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -804,10 +623,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.St == nil {
-				m.St = &wktpb.Struct{}
-			}
-			if err := m.St.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.St).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -816,10 +632,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Val == nil {
-				m.Val = &wktpb.Value{}
-			}
-			if err := m.Val.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Val).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -828,10 +641,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Lst == nil {
-				m.Lst = &wktpb.ListValue{}
-			}
-			if err := m.Lst.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Lst).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -840,10 +650,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Mask == nil {
-				m.Mask = &wktpb.FieldMask{}
-			}
-			if err := m.Mask.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Mask).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -852,10 +659,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Empty == nil {
-				m.Empty = &wktpb.Empty{}
-			}
-			if err := m.Empty.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Empty).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -903,10 +707,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					if n < 0 {
 						goto errParse
 					}
-					if mv == nil {
-						mv = &wktpb.Value{}
-					}
-					if err := mv.ProtoMergeDepth(x, depth+1); err != nil {
+					if err := jsonAlloc(&mv).ProtoMergeDepth(x, depth+1); err != nil {
 						return err
 					}
 					v = v[n:]
@@ -918,9 +719,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if mv == nil {
-				mv = &wktpb.Value{}
-			}
+			jsonAlloc(&mv)
 			jsonMapSet(&m.ValMap, mk, mv)
 			b = b[n:]
 		case 20<<jsonTagTypeBits | jsonWireVarint:
@@ -965,10 +764,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Any == nil {
-				m.Any = &wktpb.Any{}
-			}
-			if err := m.Any.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := jsonAlloc(&m.Any).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -1007,10 +803,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					if n < 0 {
 						goto errParse
 					}
-					if mv == nil {
-						mv = &wktpb.Duration{}
-					}
-					if err := mv.ProtoMergeDepth(x, depth+1); err != nil {
+					if err := jsonAlloc(&mv).ProtoMergeDepth(x, depth+1); err != nil {
 						return err
 					}
 					v = v[n:]
@@ -1022,13 +815,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if mv == nil {
-				mv = &wktpb.Duration{}
-			}
+			jsonAlloc(&mv)
 			jsonMapSet(&m.Durs, mk, mv)
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := jsonSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -1040,8 +830,6 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(jsonErrParse)
-errDepth:
-	return errors.New(jsonErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1252,20 +1040,11 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [26]bool
-	var oneofs [1]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var mk string
-	var f int
+	seen, oneofs, in, mk, f := [26]bool{}, [1]bool{}, jsontext.KindInvalid, "", 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := jsonNextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -1330,7 +1109,6 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull && f != 12 && f != 16 && f != 19 && f != 20 && f != 21 {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -1374,13 +1152,7 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.json.WellKnown: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, sv, tok := jsonClassNone, 64, int64(0), "", jsontext.Token{}
-		switch f {
-		case 22:
-			class = jsonClassString
-		case 16, 19, 21:
-			class = jsonClassEnum
-		}
+		class, bits, iv, sv, tok := jsonWellKnownJSONClasses[f][0], jsonWellKnownJSONClasses[f][1], int64(0), "", jsontext.Token{}
 		if class != jsonClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1400,115 +1172,67 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch f {
 		case 0:
-			if m.Ts == nil {
-				m.Ts = &wktpb.Timestamp{}
-			}
-			if err := m.Ts.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Ts).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 1:
-			if m.Dur == nil {
-				m.Dur = &wktpb.Duration{}
-			}
-			if err := m.Dur.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Dur).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 2:
-			if m.Dbl == nil {
-				m.Dbl = &wktpb.DoubleValue{}
-			}
-			if err := m.Dbl.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Dbl).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
-			if m.Flt == nil {
-				m.Flt = &wktpb.FloatValue{}
-			}
-			if err := m.Flt.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Flt).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 4:
-			if m.I64 == nil {
-				m.I64 = &wktpb.Int64Value{}
-			}
-			if err := m.I64.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.I64).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 5:
-			if m.U64 == nil {
-				m.U64 = &wktpb.UInt64Value{}
-			}
-			if err := m.U64.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.U64).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 6:
-			if m.I32 == nil {
-				m.I32 = &wktpb.Int32Value{}
-			}
-			if err := m.I32.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.I32).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 7:
-			if m.U32 == nil {
-				m.U32 = &wktpb.UInt32Value{}
-			}
-			if err := m.U32.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.U32).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 8:
-			if m.Bool == nil {
-				m.Bool = &wktpb.BoolValue{}
-			}
-			if err := m.Bool.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Bool).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 9:
-			if m.Str == nil {
-				m.Str = &wktpb.StringValue{}
-			}
-			if err := m.Str.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Str).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 10:
-			if m.Bytes == nil {
-				m.Bytes = &wktpb.BytesValue{}
-			}
-			if err := m.Bytes.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Bytes).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 11:
-			if m.St == nil {
-				m.St = &wktpb.Struct{}
-			}
-			if err := m.St.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.St).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 12:
-			if m.Val == nil {
-				m.Val = &wktpb.Value{}
-			}
-			if err := m.Val.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Val).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 13:
-			if m.Lst == nil {
-				m.Lst = &wktpb.ListValue{}
-			}
-			if err := m.Lst.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Lst).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 14:
-			if m.Mask == nil {
-				m.Mask = &wktpb.FieldMask{}
-			}
-			if err := m.Mask.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Mask).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 15:
-			if m.Empty == nil {
-				m.Empty = &wktpb.Empty{}
-			}
-			if err := m.Empty.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Empty).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 16:
@@ -1550,10 +1274,7 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 22:
 			m.O = &WellKnown_OStr{OStr: sv}
 		case 23:
-			if m.Any == nil {
-				m.Any = &wktpb.Any{}
-			}
-			if err := m.Any.ProtoMergeJSONFrom(d); err != nil {
+			if err := jsonAlloc(&m.Any).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 24:
@@ -1574,9 +1295,9 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			jsonMapSet(&m.Durs, int32(k), mv)
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var jsonWellKnownJSONClasses = [26][2]int{{jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassEnum, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassEnum, 64}, {jsonClassNone, 64}, {jsonClassEnum, 64}, {jsonClassString, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}, {jsonClassNone, 64}}
 
 type Names struct {
 	Custom         int32
@@ -1594,69 +1315,31 @@ type Names struct {
 // Reset clears all fields of m.
 func (m *Names) Reset() { *m = Names{} }
 
-func (m *Names) GetCustom() int32 {
-	if m != nil {
-		return m.Custom
-	}
-	return 0
-}
-
+func (m *Names) GetCustom() int32 { return jsonGet(m, func(m *Names) int32 { return m.Custom }) }
 func (m *Names) GetSnakeCaseField() int32 {
-	if m != nil {
-		return m.SnakeCaseField
-	}
-	return 0
+	return jsonGet(m, func(m *Names) int32 { return m.SnakeCaseField })
 }
-
-func (m *Names) GetXLeading() int32 {
-	if m != nil {
-		return m.XLeading
-	}
-	return 0
-}
-
+func (m *Names) GetXLeading() int32 { return jsonGet(m, func(m *Names) int32 { return m.XLeading }) }
 func (m *Names) GetWith_2Digits() int32 {
-	if m != nil {
-		return m.With_2Digits
-	}
-	return 0
+	return jsonGet(m, func(m *Names) int32 { return m.With_2Digits })
 }
-
 func (m *Names) GetColor() commonpb.Color {
-	if m != nil {
-		return m.Color
-	}
-	return commonpb.Color_COLOR_UNSPECIFIED
+	return jsonGet(m, func(m *Names) commonpb.Color { return m.Color })
 }
-
 func (m *Names) GetByBool() map[bool]string {
-	if m != nil {
-		return m.ByBool
-	}
-	return nil
+	return jsonGet(m, func(m *Names) map[bool]string { return m.ByBool })
 }
-
 func (m *Names) GetByU64() map[uint64]int32 {
-	if m != nil {
-		return m.ByU64
-	}
-	return nil
+	return jsonGet(m, func(m *Names) map[uint64]int32 { return m.ByU64 })
 }
-
 func (m *Names) GetByS32() map[int32][]byte {
-	if m != nil {
-		return m.ByS32
-	}
-	return nil
+	return jsonGet(m, func(m *Names) map[int32][]byte { return m.ByS32 })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Names) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return jsonGet(m, func(m *Names) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -1712,16 +1395,13 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if len(m.ByS32) > 0 {
 		for _, k := range slices.Backward(jsonSortedKeys(m.ByS32, make([]int32, 0, len(m.ByS32)))) {
 			v := m.ByS32[k]
 			start := i
-			i -= len(v)
-			copy(b[i:], v)
-			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(uint32((k)<<1)^uint32((k)>>31))), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
 			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 8<<jsonTagTypeBits|jsonWireBytes)
 		}
@@ -1745,9 +1425,7 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if !utf8.ValidString(v) {
 				return 0, errors.New(jsonNamesByBoolEntryValueErrUTF8)
 			}
-			i -= len(v)
-			copy(b[i:], v)
-			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			i = jsonPutVarint(b, jsonPutBool(b, i, k), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
 			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 6<<jsonTagTypeBits|jsonWireBytes)
 		}
@@ -1784,7 +1462,7 @@ func (m *Names) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= jsonMaxDepth {
-		goto errDepth
+		return errors.New(jsonErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -1933,7 +1611,6 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			jsonMapSet(&m.ByS32, mk, mv)
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := jsonSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -1945,8 +1622,6 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(jsonErrParse)
-errDepth:
-	return errors.New(jsonErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2055,19 +1730,11 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [8]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var mk string
-	var f int
+	seen, in, mk, f := [8]bool{}, jsontext.KindInvalid, "", 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := jsonNextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -2096,7 +1763,6 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -2129,17 +1795,7 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.json.Names: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, sv, by, tok := jsonClassNone, 64, int64(0), "", []byte(nil), jsontext.Token{}
-		switch f {
-		case 0, 1, 2, 3, 6:
-			class, bits = jsonClassSigned, 32
-		case 5:
-			class = jsonClassString
-		case 7:
-			class = jsonClassBytes
-		case 4:
-			class = jsonClassEnum
-		}
+		class, bits, iv, sv, by, tok := jsonNamesJSONClasses[f][0], jsonNamesJSONClasses[f][1], int64(0), "", []byte(nil), jsontext.Token{}
 		if class != jsonClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -2194,12 +1850,10 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			jsonMapSet(&m.ByS32, int32(k), by)
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
-// jsonPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
+var jsonNamesJSONClasses = [8][2]int{{jsonClassSigned, 32}, {jsonClassSigned, 32}, {jsonClassSigned, 32}, {jsonClassSigned, 32}, {jsonClassEnum, 64}, {jsonClassString, 64}, {jsonClassSigned, 32}, {jsonClassBytes, 64}}
+
 func jsonPutVarint(b []byte, i int, u uint64) int {
 	if u < jsonVarintContBit {
 		b[i-1] = byte(u)
@@ -2210,8 +1864,6 @@ func jsonPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// jsonPutBool writes v as a one-byte varint ending at b[i] and returns its
-// index.
 func jsonPutBool(b []byte, i int, v bool) int {
 	b[i-1] = 0
 	if v {
@@ -2220,14 +1872,10 @@ func jsonPutBool(b []byte, i int, v bool) int {
 	return i - 1
 }
 
-// jsonSizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func jsonSizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
 }
 
-// jsonReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func jsonReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -2236,8 +1884,6 @@ func jsonReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// jsonSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func jsonSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & jsonTagTypeMask {
 	case jsonWireVarint:
@@ -2262,9 +1908,6 @@ func jsonSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(jsonErrParse)
 }
 
-// jsonSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func jsonSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [jsonSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -2297,8 +1940,6 @@ func jsonSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// jsonAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func jsonAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -2309,8 +1950,6 @@ func jsonAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// jsonSortedKeys appends the keys of m to keys, which should be empty, and
-// sorts them. The caller allocates keys, so that it can stay on the stack.
 func jsonSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	for k := range m {
 		keys = append(keys, k)
@@ -2319,7 +1958,29 @@ func jsonSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	return keys
 }
 
-// jsonMapSet sets (*m)[k] to v, allocating *m if it is nil.
+func jsonGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
+func jsonGetOr[M, T any](m *M, f func(*M) *T, def T) T {
+	if m != nil {
+		if p := f(m); p != nil {
+			return *p
+		}
+	}
+	return def
+}
+
+func jsonAlloc[T any](p **T) *T {
+	if *p == nil {
+		*p = new(T)
+	}
+	return *p
+}
+
 func jsonMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -2327,8 +1988,6 @@ func jsonMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	(*m)[k] = v
 }
 
-// jsonWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
 func jsonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -2336,8 +1995,6 @@ func jsonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// jsonAppendEnum appends enum value v as its name in names, or as a number
-// if it has none.
 func jsonAppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	if s, ok := names[v]; ok {
 		b = append(b, '"')
@@ -2347,9 +2004,6 @@ func jsonAppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	return strconv.AppendInt(b, int64(v), 10)
 }
 
-// jsonCloseObject finishes a JSON object whose members were appended to b from
-// index start, each preceded by a comma: the first comma becomes the
-// opening brace.
 func jsonCloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -2358,8 +2012,6 @@ func jsonCloseObject(b []byte, start int) []byte {
 	return append(b, '}')
 }
 
-// jsonEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func jsonEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -2370,9 +2022,6 @@ func jsonEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// jsonStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func jsonStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -2384,9 +2033,6 @@ func jsonStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// jsonOpenJSON reads the first token of the value of message name, which
-// must be of the given kind. It reports false if the value is null, which
-// leaves the message unchanged, or on error.
 func jsonOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
 	if d.PeekKind() == jsontext.KindNull {
 		return false, d.SkipValue()
@@ -2395,7 +2041,6 @@ func jsonOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (b
 	return err == nil, err
 }
 
-// jsonExpectJSON reads a token of the given kind, a JSON what, in message name.
 func jsonExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -2407,9 +2052,15 @@ func jsonExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) 
 	return nil
 }
 
-// jsonEnumClass returns the parse class and bit size for an enum value of
-// the given token kind: nothing to parse for null, a number, or a name,
-// which stays in the token until it is looked up.
+func jsonNextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
+	if d.PeekKind() == jsontext.KindEndObject {
+		_, err := d.ReadToken()
+		return jsontext.Token{}, false, err
+	}
+	tok, err := d.ReadToken()
+	return tok, err == nil, err
+}
+
 func jsonEnumClass(k jsontext.Kind) (int, int) {
 	switch k {
 	case jsontext.KindNull:
@@ -2420,8 +2071,6 @@ func jsonEnumClass(k jsontext.Kind) (int, int) {
 	return jsonClassSigned, 32
 }
 
-// jsonParseInt parses tok, a number or a quoted number, as a signed integer
-// of the given bit size, for a field of message name.
 func jsonParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := jsonJSONNumber(tok, name)
 	if err != nil {
@@ -2437,9 +2086,6 @@ func jsonParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	return n.Int64(), nil
 }
 
-// jsonExactInt returns the integer that JSON number s denotes exactly, in an
-// exponent or fraction form, or nil. The exponent is bounded so that exact
-// arithmetic stays cheap.
 func jsonExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > jsonMaxJSONExponent || e < -jsonMaxJSONExponent {
@@ -2453,8 +2099,6 @@ func jsonExactInt(s string) *big.Int {
 	return r.Num()
 }
 
-// jsonJSONNumber returns the text of tok, which must be a number or a string
-// holding a JSON number, for a field of message name.
 func jsonJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -2463,7 +2107,6 @@ func jsonJSONNumber(tok jsontext.Token, name string) (string, error) {
 	return s, nil
 }
 
-// jsonParseString parses tok as a string for a field of message name.
 func jsonParseString(tok jsontext.Token, name string) (string, error) {
 	if tok.Kind() != jsontext.KindString {
 		return "", jsonJSONError(name, "invalid string "+tok.String())
@@ -2471,8 +2114,6 @@ func jsonParseString(tok jsontext.Token, name string) (string, error) {
 	return tok.String(), nil
 }
 
-// jsonParseBytes parses tok as base64 bytes for a field of message name,
-// accepting standard and URL-safe alphabets, with or without padding.
 func jsonParseBytes(tok jsontext.Token, name string) ([]byte, error) {
 	s := tok.String()
 	if tok.Kind() == jsontext.KindString {
@@ -2490,8 +2131,6 @@ func jsonParseBytes(tok jsontext.Token, name string) ([]byte, error) {
 	return nil, jsonJSONError(name, "invalid bytes "+s)
 }
 
-// jsonParseEnum converts an enum value read with the given class, a name in
-// tok or a number in iv, to E. values maps names to numbers.
 func jsonParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
 	switch class {
 	case jsonClassEnum:
@@ -2507,8 +2146,6 @@ func jsonParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map
 	return 0, nil
 }
 
-// jsonParseIntKey parses JSON object key s as a signed integer of the given bit
-// size, for map field field of message name.
 func jsonParseIntKey(s string, bits int, name, field string) (int64, error) {
 	k, err := strconv.ParseInt(s, 10, bits)
 	if err != nil {
@@ -2517,8 +2154,6 @@ func jsonParseIntKey(s string, bits int, name, field string) (int64, error) {
 	return k, nil
 }
 
-// jsonParseUintKey parses JSON object key s as an unsigned integer of the given
-// bit size, for map field field of message name.
 func jsonParseUintKey(s string, bits int, name, field string) (uint64, error) {
 	k, err := strconv.ParseUint(s, 10, bits)
 	if err != nil {
@@ -2527,8 +2162,6 @@ func jsonParseUintKey(s string, bits int, name, field string) (uint64, error) {
 	return k, nil
 }
 
-// jsonParseBoolKey parses JSON object key s as a boolean, for map field field of
-// message name.
 func jsonParseBoolKey(s, name, field string) (bool, error) {
 	switch s {
 	case "true":
@@ -2539,7 +2172,6 @@ func jsonParseBoolKey(s, name, field string) (bool, error) {
 	return false, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
 }
 
-// jsonJSONError returns an error about the ProtoJSON value of message name.
 func jsonJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

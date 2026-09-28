@@ -4,7 +4,9 @@
 package gengo
 
 import (
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/canonical/cotorp/internal/desc"
 )
@@ -24,43 +26,62 @@ func (fg *fileGen) genEnum(e *desc.Enum) {
 	fg.P("// ", name, "_name maps ", name, " numbers to their names.")
 	fg.P("var ", name, "_name = map[int32]string{")
 	seen := map[int32]bool{}
-	var distinct []string // one value name per number
+	var numbers []int32 // distinct, in declaration order
 	for _, v := range e.Values {
 		if !seen[v.Number] {
 			seen[v.Number] = true
-			distinct = append(distinct, fg.g.valNames[v])
+			numbers = append(numbers, v.Number)
 			fg.P(v.Number, ": ", strconv.Quote(v.Name), ",")
 		}
 	}
 	fg.P("}")
 	fg.P()
 	fg.P("// ", name, "_value maps ", name, " names to their numbers.")
-	fg.P("var ", name, "_value = map[string]int32{")
-	for _, v := range e.Values {
-		fg.P(strconv.Quote(v.Name), ": ", v.Number, ",")
+	if len(numbers) == len(e.Values) {
+		// Without aliases, the names map inverts exactly.
+		fg.P("var ", name, "_value = ", fg.fn("Invert"), "(", name, "_name)")
+	} else {
+		fg.P("var ", name, "_value = map[string]int32{")
+		for _, v := range e.Values {
+			fg.P(strconv.Quote(v.Name), ": ", v.Number, ",")
+		}
+		fg.P("}")
 	}
-	fg.P("}")
 	fg.P()
 	fg.P("// Enum returns a pointer to a copy of x.")
 	fg.P("func (x ", name, ") Enum() *", name, " { return &x }")
 	fg.P()
 	fg.P("// String returns the name of x, or its number if it has no name.")
-	fg.P("func (x ", name, ") String() string {")
-	fg.P("if s, ok := ", name, "_name[int32(x)]; ok {")
-	fg.P("return s")
-	fg.P("}")
-	fg.P("return ", fg.std("strconv"), ".Itoa(int(x))")
-	fg.P("}")
+	fg.P("func (x ", name, ") String() string { return ", fg.fn("EnumString"), "(", name, "_name, int32(x)) }")
 	fg.P()
 	fg.P("// IsValid reports whether x is a declared value of ", name, ".")
-	fg.P("func (x ", name, ") IsValid() bool {")
-	fg.P("switch x {")
-	fg.P("case ", joinComma(distinct), ":")
-	fg.P("return true")
-	fg.P("}")
-	fg.P("return false")
-	fg.P("}")
+	fg.P("func (x ", name, ") IsValid() bool { return ", validExpr(numbers), " }")
 	fg.P()
+}
+
+// validExpr returns a condition that is true when x is one of numbers,
+// testing runs of consecutive numbers as ranges.
+func validExpr(numbers []int32) string {
+	sorted := slices.Clone(numbers)
+	slices.Sort(sorted)
+	var terms []string
+	for i := 0; i < len(sorted); {
+		j := i
+		for j+1 < len(sorted) && sorted[j+1] == sorted[j]+1 {
+			j++
+		}
+		lo, hi := strconv.Itoa(int(sorted[i])), strconv.Itoa(int(sorted[j]))
+		switch {
+		case i == j:
+			terms = append(terms, "x == "+lo)
+		case len(terms) == 0 && j == len(sorted)-1:
+			terms = append(terms, "x >= "+lo+" && x <= "+hi)
+		default:
+			terms = append(terms, "(x >= "+lo+" && x <= "+hi+")")
+		}
+		i = j + 1
+	}
+	return strings.Join(terms, " || ")
 }
 
 // fieldType returns the Go type of a struct field (or oneof wrapper field).
@@ -126,42 +147,34 @@ func (fg *fileGen) genMessage(mi *messageInfo) {
 	for _, fi := range mi.fields {
 		if fi.oneof != nil && fi.oneof.fields[0] == fi {
 			oi := fi.oneof
-			fg.P("func (m *", name, ") ", oi.getter, "() ", oi.iface, " {")
-			fg.P("if m != nil {")
-			fg.P("return m.", oi.goName)
-			fg.P("}")
-			fg.P("return nil")
-			fg.P("}")
-			fg.P()
+			fg.P("func (m *", name, ") ", oi.getter, "() ", oi.iface, " { return ", fg.getVia(name, oi.iface, "m."+oi.goName), " }")
 		}
 		fg.genGetter(mi, fi)
 	}
+	fg.P()
 
 	fg.P("// ProtoUnknownFields returns the raw bytes of fields that were not")
 	fg.P("// recognized when m was decoded.")
-	fg.P("func (m *", name, ") ProtoUnknownFields() []byte {")
-	fg.P("if m == nil {")
-	fg.P("return nil")
-	fg.P("}")
-	fg.P("return m.unknownFields")
-	fg.P("}")
+	fg.P("func (m *", name, ") ProtoUnknownFields() []byte { return ", fg.getVia(name, "[]byte", "m.unknownFields"), " }")
 	fg.P()
 
-	// Oneof types.
+	// Oneof types, then their marker methods: gofmt separates declarations
+	// only where one has a doc comment or the kind changes.
 	for _, oi := range mi.oneofs {
-		fg.P("type ", oi.iface, " interface {")
-		fg.P(oi.iface, "()")
-		fg.P("}")
-		fg.P()
+		fg.P("type ", oi.iface, " interface{ ", oi.iface, "() }")
 		for _, fi := range oi.fields {
 			fg.comments(fi.f.Comments, fi.f.Deprecated)
-			fg.P("type ", fi.wrapper, " struct {")
-			fg.P(fi.goName, " ", fg.fieldType(fi))
-			fg.P("}")
-			fg.P()
-			fg.P("func (*", fi.wrapper, ") ", oi.iface, "() {}")
-			fg.P()
+			fg.P("type ", fi.wrapper, " struct{ ", fi.goName, " ", fg.fieldType(fi), " }")
 		}
+	}
+	if len(mi.oneofs) > 0 {
+		fg.P()
+		for _, oi := range mi.oneofs {
+			for _, fi := range oi.fields {
+				fg.P("func (*", fi.wrapper, ") ", oi.iface, "() {}")
+			}
+		}
+		fg.P()
 	}
 
 	fg.genSize(mi)
@@ -236,42 +249,49 @@ func (fg *fileGen) defaultExpr(fi *fieldInfo) string {
 	return fg.zeroExpr(fi.f)
 }
 
+// getVia returns an expression for field expression v of message type msg,
+// or the zero value of type typ if m is nil. The Get helper and the function
+// literal are inlined.
+func (fg *fileGen) getVia(msg, typ, v string) string {
+	return fg.fn("Get") + "(m, func(m *" + msg + ") " + typ + " { return " + v + " })"
+}
+
 func (fg *fileGen) genGetter(mi *messageInfo, fi *fieldInfo) {
 	f := fi.f
 	typ := fg.fieldType(fi)
-	fg.P("func (m *", mi.goName, ") ", fi.getter, "() ", func() string {
-		if fi.oneof == nil && f.HasPresence && f.Kind != desc.KindMessage && f.Kind != desc.KindBytes {
-			return typ[1:] // strip pointer
-		}
-		return typ
-	}(), " {")
+	sig := "func (m *" + mi.goName + ") " + fi.getter + "() "
+	fv := "m." + fi.goName
+	zeroDefault := f.Kind != desc.KindEnum || len(f.EnumType.Values) == 0 || f.EnumType.Values[0].Number == 0
 	switch {
 	case fi.oneof != nil:
+		// A generic helper would assert the type through a dictionary,
+		// which is measurably slower.
+		fg.P(sig, typ, " {")
 		fg.P("if x, ok := m.", fi.oneof.getter, "().(*", fi.wrapper, "); ok {")
 		fg.P("return x.", fi.goName)
 		fg.P("}")
 		fg.P("return ", fg.defaultExpr(fi))
-	case f.Repeated || f.Kind == desc.KindMessage:
-		fg.P("if m != nil {")
-		fg.P("return m.", fi.goName)
 		fg.P("}")
-		fg.P("return nil")
+	case f.Repeated || f.Kind == desc.KindMessage,
+		f.HasPresence && f.Kind == desc.KindBytes && fi.defName == "",
+		!f.HasPresence && zeroDefault:
+		fg.P(sig, typ, " { return ", fg.getVia(mi.goName, typ, fv), " }")
 	case f.HasPresence && f.Kind == desc.KindBytes:
-		fg.P("if m != nil && m.", fi.goName, " != nil {")
-		fg.P("return m.", fi.goName)
+		// The default is copied, so it must not be evaluated when unused.
+		fg.P(sig, typ, " {")
+		fg.P("if m != nil && ", fv, " != nil {")
+		fg.P("return ", fv)
 		fg.P("}")
 		fg.P("return ", fg.defaultExpr(fi))
+		fg.P("}")
 	case f.HasPresence:
-		fg.P("if m != nil && m.", fi.goName, " != nil {")
-		fg.P("return *m.", fi.goName)
-		fg.P("}")
-		fg.P("return ", fg.defaultExpr(fi))
+		fg.P(sig, typ[1:], " { return ", fg.fn("GetOr"), "(m, func(m *", mi.goName, ") ", typ, " { return ", fv, " }, ", fg.defaultExpr(fi), ") }")
 	default:
+		fg.P(sig, typ, " {")
 		fg.P("if m != nil {")
-		fg.P("return m.", fi.goName)
+		fg.P("return ", fv)
 		fg.P("}")
 		fg.P("return ", fg.zeroExpr(f))
+		fg.P("}")
 	}
-	fg.P("}")
-	fg.P()
 }

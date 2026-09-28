@@ -19,51 +19,28 @@ import (
 	"unicode/utf8"
 )
 
-// Wire types.
 const (
-	editions2024WireVarint     = 0
-	editions2024WireFixed64    = 1
-	editions2024WireBytes      = 2
-	editions2024WireStartGroup = 3
-	editions2024WireEndGroup   = 4
-	editions2024WireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	editions2024TagTypeBits    = 3
-	editions2024TagTypeMask    = 1<<3 - 1
-	editions2024MaxFieldNumber = 1<<29 - 1
-)
-
-// Encoded sizes.
-const (
-	editions2024Fixed32Size       = 4
-	editions2024Fixed64Size       = 8
-	editions2024VarintPayloadBits = 7    // value bits per varint byte
-	editions2024VarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	editions2024MaxDepth      = 10000 // maximum message and group nesting
-	editions2024SkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON scalar parse classes.
-const (
-	editions2024ClassNone   = 0
-	editions2024ClassSigned = 1
-	editions2024ClassString = 5
-)
-
-// ProtoJSON limits.
-const editions2024MaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
-
-// Error messages used more than once.
-const (
-	editions2024ErrParse              = "proto: cannot parse invalid wire-format data"
+	editions2024WireVarint            = 0
+	editions2024WireFixed64           = 1
+	editions2024WireBytes             = 2
+	editions2024WireStartGroup        = 3
+	editions2024WireEndGroup          = 4
+	editions2024WireFixed32           = 5
+	editions2024TagTypeBits           = 3
+	editions2024TagTypeMask           = 1<<3 - 1
+	editions2024MaxFieldNumber        = 1<<29 - 1
+	editions2024Fixed32Size           = 4
+	editions2024Fixed64Size           = 8
+	editions2024VarintPayloadBits     = 7
+	editions2024VarintContBit         = 0x80
+	editions2024MaxDepth              = 10000
+	editions2024SkipStackSize         = 16
+	editions2024ClassNone             = 0
+	editions2024ClassSigned           = 1
+	editions2024ClassString           = 5
+	editions2024MaxJSONExponent       = 100
 	editions2024ErrDepth              = "proto: exceeded maximum recursion depth"
+	editions2024ErrParse              = "proto: cannot parse invalid wire-format data"
 	editions2024VisibleHiddenSErrUTF8 = "proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8"
 )
 
@@ -78,26 +55,16 @@ type Visible struct {
 func (m *Visible) Reset() { *m = Visible{} }
 
 func (m *Visible) GetA() int32 {
-	if m != nil && m.A != nil {
-		return *m.A
-	}
-	return 0
+	return editions2024GetOr(m, func(m *Visible) *int32 { return m.A }, 0)
 }
-
 func (m *Visible) GetHidden() *Visible_Hidden {
-	if m != nil {
-		return m.Hidden
-	}
-	return nil
+	return editions2024Get(m, func(m *Visible) *Visible_Hidden { return m.Hidden })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Visible) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return editions2024Get(m, func(m *Visible) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -135,8 +102,7 @@ func (m *Visible) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Hidden != nil {
 		n, err := m.Hidden.ProtoMarshalToSizedBuffer(b[:i])
@@ -165,7 +131,7 @@ func (m *Visible) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= editions2024MaxDepth {
-		goto errDepth
+		return errors.New(editions2024ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -186,15 +152,11 @@ func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Hidden == nil {
-				m.Hidden = &Visible_Hidden{}
-			}
-			if err := m.Hidden.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := editions2024Alloc(&m.Hidden).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := editions2024SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -206,8 +168,6 @@ func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(editions2024ErrParse)
-errDepth:
-	return errors.New(editions2024ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -276,14 +236,10 @@ func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [2]bool
-	var f int
+	seen, f := [2]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := editions2024NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -300,17 +256,12 @@ func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
 			continue
 		}
-		class, bits, iv, tok := editions2024ClassNone, 64, int64(0), jsontext.Token{}
-		switch f {
-		case 0:
-			class, bits = editions2024ClassSigned, 32
-		}
+		class, bits, iv, tok := editions2024VisibleJSONClasses[f][0], editions2024VisibleJSONClasses[f][1], int64(0), jsontext.Token{}
 		if class != editions2024ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -327,17 +278,14 @@ func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 0:
 			m.A = new(int32(iv))
 		case 1:
-			if m.Hidden == nil {
-				m.Hidden = &Visible_Hidden{}
-			}
-			if err := m.Hidden.ProtoMergeJSONFrom(d); err != nil {
+			if err := editions2024Alloc(&m.Hidden).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var editions2024VisibleJSONClasses = [2][2]int{{editions2024ClassSigned, 32}, {editions2024ClassNone, 64}}
 
 type Visible_Hidden struct {
 	S *string
@@ -349,19 +297,13 @@ type Visible_Hidden struct {
 func (m *Visible_Hidden) Reset() { *m = Visible_Hidden{} }
 
 func (m *Visible_Hidden) GetS() string {
-	if m != nil && m.S != nil {
-		return *m.S
-	}
-	return ""
+	return editions2024GetOr(m, func(m *Visible_Hidden) *string { return m.S }, "")
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Visible_Hidden) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return editions2024Get(m, func(m *Visible_Hidden) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -396,16 +338,13 @@ func (m *Visible_Hidden) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.S != nil {
 		if !utf8.ValidString((*m.S)) {
 			return 0, errors.New(editions2024VisibleHiddenSErrUTF8)
 		}
-		i -= len((*m.S))
-		copy(b[i:], (*m.S))
-		i = editions2024PutVarint(b, editions2024PutVarint(b, i, uint64(len((*m.S)))), 1<<editions2024TagTypeBits|editions2024WireBytes)
+		i = editions2024PutVarint(b, editions2024PutVarint(b, i-copy(b[i-len((*m.S)):], (*m.S)), uint64(len((*m.S)))), 1<<editions2024TagTypeBits|editions2024WireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -424,7 +363,7 @@ func (m *Visible_Hidden) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= editions2024MaxDepth {
-		goto errDepth
+		return errors.New(editions2024ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -444,7 +383,6 @@ func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.S = b[n:], new(string(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := editions2024SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -456,8 +394,6 @@ func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(editions2024ErrParse)
-errDepth:
-	return errors.New(editions2024ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -523,14 +459,10 @@ func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [1]bool
-	var f int
+	seen, f := [1]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := editions2024NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -545,7 +477,6 @@ func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
@@ -565,12 +496,8 @@ func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.S = new(sv)
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
-// editions2024PutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func editions2024PutVarint(b []byte, i int, u uint64) int {
 	if u < editions2024VarintContBit {
 		b[i-1] = byte(u)
@@ -581,14 +508,10 @@ func editions2024PutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// editions2024SizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func editions2024SizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
 }
 
-// editions2024ReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func editions2024ReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -597,8 +520,6 @@ func editions2024ReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// editions2024SkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func editions2024SkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & editions2024TagTypeMask {
 	case editions2024WireVarint:
@@ -623,9 +544,6 @@ func editions2024SkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(editions2024ErrParse)
 }
 
-// editions2024SkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func editions2024SkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [editions2024SkipStackSize]int32
 	open := append(stk[:0], num)
@@ -658,8 +576,6 @@ func editions2024SkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// editions2024Appended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func editions2024Appended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -670,8 +586,29 @@ func editions2024Appended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// editions2024WriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func editions2024Get[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
+func editions2024GetOr[M, T any](m *M, f func(*M) *T, def T) T {
+	if m != nil {
+		if p := f(m); p != nil {
+			return *p
+		}
+	}
+	return def
+}
+
+func editions2024Alloc[T any](p **T) *T {
+	if *p == nil {
+		*p = new(T)
+	}
+	return *p
+}
+
 func editions2024WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -679,9 +616,6 @@ func editions2024WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// editions2024CloseObject finishes a JSON object whose members were appended to b from
-// index start, each preceded by a comma: the first comma becomes the
-// opening brace.
 func editions2024CloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -690,8 +624,6 @@ func editions2024CloseObject(b []byte, start int) []byte {
 	return append(b, '}')
 }
 
-// editions2024EndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func editions2024EndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -702,9 +634,6 @@ func editions2024EndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// editions2024StrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func editions2024StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -716,9 +645,6 @@ func editions2024StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// editions2024OpenJSON reads the first token of the value of message name, which
-// must be of the given kind. It reports false if the value is null, which
-// leaves the message unchanged, or on error.
 func editions2024OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
 	if d.PeekKind() == jsontext.KindNull {
 		return false, d.SkipValue()
@@ -727,7 +653,6 @@ func editions2024OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what st
 	return err == nil, err
 }
 
-// editions2024ExpectJSON reads a token of the given kind, a JSON what, in message name.
 func editions2024ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -739,8 +664,15 @@ func editions2024ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what 
 	return nil
 }
 
-// editions2024ParseInt parses tok, a number or a quoted number, as a signed integer
-// of the given bit size, for a field of message name.
+func editions2024NextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
+	if d.PeekKind() == jsontext.KindEndObject {
+		_, err := d.ReadToken()
+		return jsontext.Token{}, false, err
+	}
+	tok, err := d.ReadToken()
+	return tok, err == nil, err
+}
+
 func editions2024ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := editions2024JSONNumber(tok, name)
 	if err != nil {
@@ -756,9 +688,6 @@ func editions2024ParseInt(tok jsontext.Token, bits int, name string) (int64, err
 	return n.Int64(), nil
 }
 
-// editions2024ExactInt returns the integer that JSON number s denotes exactly, in an
-// exponent or fraction form, or nil. The exponent is bounded so that exact
-// arithmetic stays cheap.
 func editions2024ExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > editions2024MaxJSONExponent || e < -editions2024MaxJSONExponent {
@@ -772,8 +701,6 @@ func editions2024ExactInt(s string) *big.Int {
 	return r.Num()
 }
 
-// editions2024JSONNumber returns the text of tok, which must be a number or a string
-// holding a JSON number, for a field of message name.
 func editions2024JSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -782,7 +709,6 @@ func editions2024JSONNumber(tok jsontext.Token, name string) (string, error) {
 	return s, nil
 }
 
-// editions2024ParseString parses tok as a string for a field of message name.
 func editions2024ParseString(tok jsontext.Token, name string) (string, error) {
 	if tok.Kind() != jsontext.KindString {
 		return "", editions2024JSONError(name, "invalid string "+tok.String())
@@ -790,7 +716,6 @@ func editions2024ParseString(tok jsontext.Token, name string) (string, error) {
 	return tok.String(), nil
 }
 
-// editions2024JSONError returns an error about the ProtoJSON value of message name.
 func editions2024JSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

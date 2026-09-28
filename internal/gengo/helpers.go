@@ -30,7 +30,12 @@ var helperDefs = []helperDef{
 	{"SkipGroup", genSkipGroup},
 	{"Appended", genAppended},
 	{"SortedKeys", genSortedKeys},
+	{"Get", genGet},
+	{"GetOr", genGetOr},
+	{"Alloc", genAlloc},
 	{"MapSet", genMapSet},
+	{"Invert", genInvert},
+	{"EnumString", genEnumString},
 	{"WriteJSON", genWriteJSON},
 	{"AppendEnum", genAppendEnum},
 	{"AppendFloat", genAppendFloat},
@@ -39,6 +44,7 @@ var helperDefs = []helperDef{
 	{"StrictDecoder", genStrictDecoder},
 	{"OpenJSON", genOpenJSON},
 	{"ExpectJSON", genExpectJSON},
+	{"NextKey", genNextKey},
 	{"EnumClass", genEnumClass},
 	{"ParseInt", genParseInt},
 	{"ParseUint", genParseUint},
@@ -105,8 +111,6 @@ func (fg *fileGen) jsonErrorf(name, hint, msg string, parts ...string) string {
 
 func genPutVarint(fg *fileGen, name string) {
 	pb := fg.c("VarintPayloadBits")
-	fg.P("// ", name, " writes u as a varint ending at b[i] and returns the index of")
-	fg.P("// its first byte.")
 	fg.P("func ", name, "(b []byte, i int, u uint64) int {")
 	fg.P("if u < ", fg.c("VarintContBit"), " {")
 	fg.P("b[i-1] = byte(u)")
@@ -121,8 +125,6 @@ func genPutVarint(fg *fileGen, name string) {
 
 func genPutFixed32(fg *fileGen, name string) {
 	fs := fg.c("Fixed32Size")
-	fg.P("// ", name, " writes u in 4 little-endian bytes ending at b[i] and returns")
-	fg.P("// the index of the first.")
 	fg.P("func ", name, "(b []byte, i int, u uint32) int {")
 	fg.P(fg.std("encoding/binary"), ".LittleEndian.PutUint32(b[i-", fs, ":], u)")
 	fg.P("return i - ", fs)
@@ -132,8 +134,6 @@ func genPutFixed32(fg *fileGen, name string) {
 
 func genPutFixed64(fg *fileGen, name string) {
 	fs := fg.c("Fixed64Size")
-	fg.P("// ", name, " writes u in 8 little-endian bytes ending at b[i] and returns")
-	fg.P("// the index of the first.")
 	fg.P("func ", name, "(b []byte, i int, u uint64) int {")
 	fg.P(fg.std("encoding/binary"), ".LittleEndian.PutUint64(b[i-", fs, ":], u)")
 	fg.P("return i - ", fs)
@@ -142,8 +142,6 @@ func genPutFixed64(fg *fileGen, name string) {
 }
 
 func genPutBool(fg *fileGen, name string) {
-	fg.P("// ", name, " writes v as a one-byte varint ending at b[i] and returns its")
-	fg.P("// index.")
 	fg.P("func ", name, "(b []byte, i int, v bool) int {")
 	fg.P("b[i-1] = 0")
 	fg.P("if v {")
@@ -155,8 +153,6 @@ func genPutBool(fg *fileGen, name string) {
 }
 
 func genSizeLen(fg *fileGen, name string) {
-	fg.P("// ", name, " returns the size of a length-delimited value of l bytes,")
-	fg.P("// including its length prefix.")
 	fg.P("func ", name, "(l int) int {")
 	fg.P("return l + ", fg.sizeVarint("uint64(l)"))
 	fg.P("}")
@@ -164,8 +160,6 @@ func genSizeLen(fg *fileGen, name string) {
 }
 
 func genReadBytes(fg *fileGen, name string) {
-	fg.P("// ", name, " returns the length-delimited value at the start of b and the")
-	fg.P("// number of bytes it occupies, or n < 0 if it is malformed.")
 	fg.P("func ", name, "(b []byte) (v []byte, n int) {")
 	fg.P("ln, k := ", fg.std("encoding/binary"), ".Uvarint(b)")
 	fg.P("if k <= 0 || ln > uint64(len(b)-k) {")
@@ -178,8 +172,6 @@ func genReadBytes(fg *fileGen, name string) {
 
 func genSkipField(fg *fileGen, name string) {
 	bin := fg.std("encoding/binary")
-	fg.P("// ", name, " returns the length of the value at the start of b of a field")
-	fg.P("// with tag t, in a message nested depth levels deep.")
 	fg.P("func ", name, "(b []byte, t uint64, depth int) (int, error) {")
 	fg.P("switch t & ", fg.c("TagTypeMask"), " {")
 	fg.P("case ", fg.wire(wireVarint), ":")
@@ -208,9 +200,6 @@ func genSkipField(fg *fileGen, name string) {
 
 func genSkipGroup(fg *fileGen, name string) {
 	tb := fg.c("TagTypeBits")
-	fg.P("// ", name, " returns the length of the body of group num at the start of")
-	fg.P("// b, including its end-group tag, in a message nested depth levels deep.")
-	fg.P("// Nested groups are tracked with a small stack.")
 	fg.P("func ", name, "(b []byte, num int32, depth int) (int, error) {")
 	fg.P("var stk [", fg.c("SkipStackSize"), "]int32")
 	fg.P("open := append(stk[:0], num)")
@@ -246,8 +235,6 @@ func genSkipGroup(fg *fileGen, name string) {
 }
 
 func genAppended(fg *fileGen, name string) {
-	fg.P("// ", name, " finishes AppendBinary: b has capacity for size more bytes,")
-	fg.P("// of which ProtoMarshalToSizedBuffer wrote n or failed with err.")
 	fg.P("func ", name, "(b []byte, size, n int, err error) ([]byte, error) {")
 	fg.P("if err == nil && n != size {")
 	fg.P("err = ", fg.errExpr("ErrSizeChanged", errSizeMsg))
@@ -261,8 +248,6 @@ func genAppended(fg *fileGen, name string) {
 }
 
 func genSortedKeys(fg *fileGen, name string) {
-	fg.P("// ", name, " appends the keys of m to keys, which should be empty, and")
-	fg.P("// sorts them. The caller allocates keys, so that it can stay on the stack.")
 	fg.P("func ", name, "[K ", fg.std("cmp"), ".Ordered, V any](m map[K]V, keys []K) []K {")
 	fg.P("for k := range m {")
 	fg.P("keys = append(keys, k)")
@@ -273,8 +258,39 @@ func genSortedKeys(fg *fileGen, name string) {
 	fg.P()
 }
 
+func genGet(fg *fileGen, name string) {
+	fg.P("func ", name, "[M, T any](m *M, f func(*M) T) (t T) {")
+	fg.P("if m != nil {")
+	fg.P("t = f(m)")
+	fg.P("}")
+	fg.P("return t")
+	fg.P("}")
+	fg.P()
+}
+
+func genGetOr(fg *fileGen, name string) {
+	fg.P("func ", name, "[M, T any](m *M, f func(*M) *T, def T) T {")
+	fg.P("if m != nil {")
+	fg.P("if p := f(m); p != nil {")
+	fg.P("return *p")
+	fg.P("}")
+	fg.P("}")
+	fg.P("return def")
+	fg.P("}")
+	fg.P()
+}
+
+func genAlloc(fg *fileGen, name string) {
+	fg.P("func ", name, "[T any](p **T) *T {")
+	fg.P("if *p == nil {")
+	fg.P("*p = new(T)")
+	fg.P("}")
+	fg.P("return *p")
+	fg.P("}")
+	fg.P()
+}
+
 func genMapSet(fg *fileGen, name string) {
-	fg.P("// ", name, " sets (*m)[k] to v, allocating *m if it is nil.")
 	fg.P("func ", name, "[K comparable, V any](m *map[K]V, k K, v V) {")
 	fg.P("if *m == nil {")
 	fg.P("*m = make(map[K]V)")
@@ -284,11 +300,30 @@ func genMapSet(fg *fileGen, name string) {
 	fg.P()
 }
 
+func genInvert(fg *fileGen, name string) {
+	fg.P("func ", name, "[K, V comparable](m map[K]V) map[V]K {")
+	fg.P("r := make(map[V]K, len(m))")
+	fg.P("for k, v := range m {")
+	fg.P("r[v] = k")
+	fg.P("}")
+	fg.P("return r")
+	fg.P("}")
+	fg.P()
+}
+
+func genEnumString(fg *fileGen, name string) {
+	fg.P("func ", name, "(names map[int32]string, v int32) string {")
+	fg.P("if s, ok := names[v]; ok {")
+	fg.P("return s")
+	fg.P("}")
+	fg.P("return ", fg.std("strconv"), ".Itoa(int(v))")
+	fg.P("}")
+	fg.P()
+}
+
 // --- JSON marshal -----------------------------------------------------------
 
 func genWriteJSON(fg *fileGen, name string) {
-	fg.P("// ", name, " finishes MarshalJSONTo: it writes the JSON value b to e,")
-	fg.P("// unless producing b failed with err.")
 	fg.P("func ", name, "(e *", fg.std("encoding/json/jsontext"), ".Encoder, b []byte, err error) error {")
 	fg.P("if err != nil {")
 	fg.P("return err")
@@ -299,8 +334,6 @@ func genWriteJSON(fg *fileGen, name string) {
 }
 
 func genAppendEnum(fg *fileGen, name string) {
-	fg.P("// ", name, " appends enum value v as its name in names, or as a number")
-	fg.P("// if it has none.")
 	fg.P("func ", name, "(b []byte, v int32, names map[int32]string) []byte {")
 	fg.P("if s, ok := names[v]; ok {")
 	fg.P("b = append(b, '\"')")
@@ -314,8 +347,6 @@ func genAppendEnum(fg *fileGen, name string) {
 
 func genAppendFloat(fg *fileGen, name string) {
 	m := fg.std("math")
-	fg.P("// ", name, " appends f, a float of the given bit size, as a JSON number or")
-	fg.P("// as \"NaN\", \"Infinity\" or \"-Infinity\".")
 	fg.P("func ", name, "(b []byte, f float64, bits int) []byte {")
 	fg.P("switch {")
 	fg.P("case ", m, ".IsNaN(f):")
@@ -331,9 +362,6 @@ func genAppendFloat(fg *fileGen, name string) {
 }
 
 func genCloseObject(fg *fileGen, name string) {
-	fg.P("// ", name, " finishes a JSON object whose members were appended to b from")
-	fg.P("// index start, each preceded by a comma: the first comma becomes the")
-	fg.P("// opening brace.")
 	fg.P("func ", name, "(b []byte, start int) []byte {")
 	fg.P("if len(b) == start {")
 	fg.P("return append(b, \"{}\"...)")
@@ -347,8 +375,6 @@ func genCloseObject(fg *fileGen, name string) {
 // --- JSON unmarshal ---------------------------------------------------------
 
 func genEndJSON(fg *fileGen, name string) {
-	fg.P("// ", name, " finishes ProtoMergeJSON for message name: decoding one value")
-	fg.P("// from d failed with err, or d must have no more data.")
 	fg.P("func ", name, "(d *", fg.std("encoding/json/jsontext"), ".Decoder, err error, name string) error {")
 	fg.P("if err != nil {")
 	fg.P("return err")
@@ -363,9 +389,6 @@ func genEndJSON(fg *fileGen, name string) {
 
 func genStrictDecoder(fg *fileGen, name string) {
 	jt := fg.std("encoding/json/jsontext")
-	fg.P("// ", name, " returns d, or a strict decoder for the next value of d if d")
-	fg.P("// replaces invalid UTF-8 (as encoding/json's decoder does), which")
-	fg.P("// ProtoJSON rejects.")
 	fg.P("func ", name, "(d *", jt, ".Decoder) (*", jt, ".Decoder, error) {")
 	fg.P("if lax, _ := ", fg.std("encoding/json/v2"), ".GetOption(d.Options(), ", jt, ".AllowInvalidUTF8); !lax {")
 	fg.P("return d, nil")
@@ -381,9 +404,6 @@ func genStrictDecoder(fg *fileGen, name string) {
 
 func genOpenJSON(fg *fileGen, name string) {
 	jt := fg.std("encoding/json/jsontext")
-	fg.P("// ", name, " reads the first token of the value of message name, which")
-	fg.P("// must be of the given kind. It reports false if the value is null, which")
-	fg.P("// leaves the message unchanged, or on error.")
 	fg.P("func ", name, "(d *", jt, ".Decoder, kind ", jt, ".Kind, name, what string) (bool, error) {")
 	fg.P("if d.PeekKind() == ", fg.kind("Null"), " {")
 	fg.P("return false, d.SkipValue()")
@@ -396,7 +416,6 @@ func genOpenJSON(fg *fileGen, name string) {
 
 func genExpectJSON(fg *fileGen, name string) {
 	jt := fg.std("encoding/json/jsontext")
-	fg.P("// ", name, " reads a token of the given kind, a JSON what, in message name.")
 	fg.P("func ", name, "(d *", jt, ".Decoder, kind ", jt, ".Kind, name, what string) error {")
 	fg.P("tok, err := d.ReadToken()")
 	fg.P("if err != nil {")
@@ -410,10 +429,20 @@ func genExpectJSON(fg *fileGen, name string) {
 	fg.P()
 }
 
+func genNextKey(fg *fileGen, name string) {
+	jt := fg.std("encoding/json/jsontext")
+	fg.P("func ", name, "(d *", jt, ".Decoder) (", jt, ".Token, bool, error) {")
+	fg.P("if d.PeekKind() == ", fg.kind("EndObject"), " {")
+	fg.P("_, err := d.ReadToken()")
+	fg.P("return ", jt, ".Token{}, false, err")
+	fg.P("}")
+	fg.P("tok, err := d.ReadToken()")
+	fg.P("return tok, err == nil, err")
+	fg.P("}")
+	fg.P()
+}
+
 func genEnumClass(fg *fileGen, name string) {
-	fg.P("// ", name, " returns the parse class and bit size for an enum value of")
-	fg.P("// the given token kind: nothing to parse for null, a number, or a name,")
-	fg.P("// which stays in the token until it is looked up.")
 	fg.P("func ", name, "(k ", fg.std("encoding/json/jsontext"), ".Kind) (int, int) {")
 	fg.P("switch k {")
 	fg.P("case ", fg.kind("Null"), ":")
@@ -428,8 +457,6 @@ func genEnumClass(fg *fileGen, name string) {
 
 func genParseInt(fg *fileGen, name string) {
 	m := fg.std("math")
-	fg.P("// ", name, " parses tok, a number or a quoted number, as a signed integer")
-	fg.P("// of the given bit size, for a field of message name.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, bits int, name string) (int64, error) {")
 	fg.P("s, err := ", fg.fn("JSONNumber"), "(tok, name)")
 	fg.P("if err != nil {")
@@ -448,8 +475,6 @@ func genParseInt(fg *fileGen, name string) {
 }
 
 func genParseUint(fg *fileGen, name string) {
-	fg.P("// ", name, " parses tok, a number or a quoted number, as an unsigned")
-	fg.P("// integer of the given bit size, for a field of message name.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, bits int, name string) (uint64, error) {")
 	fg.P("s, err := ", fg.fn("JSONNumber"), "(tok, name)")
 	fg.P("if err != nil {")
@@ -470,9 +495,6 @@ func genParseUint(fg *fileGen, name string) {
 func genExactInt(fg *fileGen, name string) {
 	conv := fg.std("strconv")
 	max := fg.c("MaxJSONExponent")
-	fg.P("// ", name, " returns the integer that JSON number s denotes exactly, in an")
-	fg.P("// exponent or fraction form, or nil. The exponent is bounded so that exact")
-	fg.P("// arithmetic stays cheap.")
 	fg.P("func ", name, "(s string) *", fg.std("math/big"), ".Int {")
 	fg.P("if i := ", fg.std("strings"), ".IndexAny(s, \"eE\"); i >= 0 {")
 	fg.P("if e, err := ", conv, ".Atoi(s[i+1:]); err != nil || e > ", max, " || e < -", max, " {")
@@ -490,9 +512,6 @@ func genExactInt(fg *fileGen, name string) {
 
 func genParseFloat(fg *fileGen, name string) {
 	m := fg.std("math")
-	fg.P("// ", name, " parses tok, a number, a quoted number, or \"NaN\", \"Infinity\"")
-	fg.P("// or \"-Infinity\", as a float of the given bit size, for a field of")
-	fg.P("// message name.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, bits int, name string) (float64, error) {")
 	fg.P("if tok.Kind() == ", fg.kind("String"), " {")
 	fg.P("switch tok.String() {")
@@ -519,8 +538,6 @@ func genParseFloat(fg *fileGen, name string) {
 
 func genJSONNumber(fg *fileGen, name string) {
 	jt := fg.std("encoding/json/jsontext")
-	fg.P("// ", name, " returns the text of tok, which must be a number or a string")
-	fg.P("// holding a JSON number, for a field of message name.")
 	fg.P("func ", name, "(tok ", jt, ".Token, name string) (string, error) {")
 	fg.P("s := tok.String()")
 	fg.P("if k := tok.Kind(); k != ", fg.kind("Number"), " && (k != ", fg.kind("String"), " || s == \"\" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !", jt, ".Value(s).IsValid()) {")
@@ -532,7 +549,6 @@ func genJSONNumber(fg *fileGen, name string) {
 }
 
 func genParseBool(fg *fileGen, name string) {
-	fg.P("// ", name, " parses tok as a boolean for a field of message name.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, name string) (bool, error) {")
 	fg.P("switch tok.Kind() {")
 	fg.P("case ", fg.kind("True"), ":")
@@ -546,7 +562,6 @@ func genParseBool(fg *fileGen, name string) {
 }
 
 func genParseString(fg *fileGen, name string) {
-	fg.P("// ", name, " parses tok as a string for a field of message name.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, name string) (string, error) {")
 	fg.P("if tok.Kind() != ", fg.kind("String"), " {")
 	fg.P("return \"\", ", fg.jsonErrorf("name", "ErrInvalidString", "invalid string ", "tok.String()"))
@@ -558,8 +573,6 @@ func genParseString(fg *fileGen, name string) {
 
 func genParseBytes(fg *fileGen, name string) {
 	b64 := fg.std("encoding/base64")
-	fg.P("// ", name, " parses tok as base64 bytes for a field of message name,")
-	fg.P("// accepting standard and URL-safe alphabets, with or without padding.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, name string) ([]byte, error) {")
 	fg.P("s := tok.String()")
 	fg.P("if tok.Kind() == ", fg.kind("String"), " {")
@@ -580,8 +593,6 @@ func genParseBytes(fg *fileGen, name string) {
 }
 
 func genParseHex(fg *fileGen, name string) {
-	fg.P("// ", name, " parses tok as hex bytes, in either case, for a field of")
-	fg.P("// message name.")
 	fg.P("func ", name, "(tok ", fg.std("encoding/json/jsontext"), ".Token, name string) ([]byte, error) {")
 	fg.P("s := tok.String()")
 	fg.P("if tok.Kind() == ", fg.kind("String"), " {")
@@ -595,8 +606,6 @@ func genParseHex(fg *fileGen, name string) {
 }
 
 func genParseEnum(fg *fileGen, name string) {
-	fg.P("// ", name, " converts an enum value read with the given class, a name in")
-	fg.P("// tok or a number in iv, to E. values maps names to numbers.")
 	fg.P("func ", name, "[E ~int32](class int, tok ", fg.std("encoding/json/jsontext"), ".Token, iv int64, values map[string]int32, name, enum string) (E, error) {")
 	fg.P("switch class {")
 	fg.P("case ", fg.class(classEnum), ":")
@@ -615,8 +624,6 @@ func genParseEnum(fg *fileGen, name string) {
 }
 
 func genParseIntKey(fg *fileGen, name string) {
-	fg.P("// ", name, " parses JSON object key s as a signed integer of the given bit")
-	fg.P("// size, for map field field of message name.")
 	fg.P("func ", name, "(s string, bits int, name, field string) (int64, error) {")
 	fg.P("k, err := ", fg.std("strconv"), ".ParseInt(s, 10, bits)")
 	fg.P("if err != nil {")
@@ -628,8 +635,6 @@ func genParseIntKey(fg *fileGen, name string) {
 }
 
 func genParseUintKey(fg *fileGen, name string) {
-	fg.P("// ", name, " parses JSON object key s as an unsigned integer of the given")
-	fg.P("// bit size, for map field field of message name.")
 	fg.P("func ", name, "(s string, bits int, name, field string) (uint64, error) {")
 	fg.P("k, err := ", fg.std("strconv"), ".ParseUint(s, 10, bits)")
 	fg.P("if err != nil {")
@@ -641,8 +646,6 @@ func genParseUintKey(fg *fileGen, name string) {
 }
 
 func genParseBoolKey(fg *fileGen, name string) {
-	fg.P("// ", name, " parses JSON object key s as a boolean, for map field field of")
-	fg.P("// message name.")
 	fg.P("func ", name, "(s, name, field string) (bool, error) {")
 	fg.P("switch s {")
 	fg.P("case \"true\":")
@@ -656,7 +659,6 @@ func genParseBoolKey(fg *fileGen, name string) {
 }
 
 func genJSONError(fg *fileGen, name string) {
-	fg.P("// ", name, " returns an error about the ProtoJSON value of message name.")
 	fg.P("func ", name, "(name, msg string) error {")
 	fg.P("return ", fg.std("errors"), ".New(\"proto: \" + name + \": \" + msg)")
 	fg.P("}")

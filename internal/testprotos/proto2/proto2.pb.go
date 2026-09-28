@@ -22,65 +22,36 @@ import (
 	commonpb "github.com/canonical/cotorp/internal/testprotos/common"
 )
 
-// Wire types.
 const (
-	proto2WireVarint     = 0
-	proto2WireFixed64    = 1
-	proto2WireBytes      = 2
-	proto2WireStartGroup = 3
-	proto2WireEndGroup   = 4
-	proto2WireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	proto2TagTypeBits    = 3
-	proto2TagTypeMask    = 1<<3 - 1
-	proto2MaxFieldNumber = 1<<29 - 1
-)
-
-// Map entries are encoded as messages with these field numbers.
-const (
-	proto2MapKeyField   = 1
-	proto2MapValueField = 2
-)
-
-// Encoded sizes.
-const (
+	proto2WireVarint        = 0
+	proto2WireFixed64       = 1
+	proto2WireBytes         = 2
+	proto2WireStartGroup    = 3
+	proto2WireEndGroup      = 4
+	proto2WireFixed32       = 5
+	proto2TagTypeBits       = 3
+	proto2TagTypeMask       = 1<<3 - 1
+	proto2MaxFieldNumber    = 1<<29 - 1
+	proto2MapKeyField       = 1
+	proto2MapValueField     = 2
 	proto2Fixed32Size       = 4
 	proto2Fixed64Size       = 8
-	proto2VarintPayloadBits = 7    // value bits per varint byte
-	proto2VarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	proto2MaxDepth      = 10000 // maximum message and group nesting
-	proto2SkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON scalar parse classes.
-const (
-	proto2ClassNone     = 0
-	proto2ClassSigned   = 1
-	proto2ClassUnsigned = 2
-	proto2ClassFloat    = 3
-	proto2ClassBool     = 4
-	proto2ClassString   = 5
-	proto2ClassBytes    = 6
-	proto2ClassEnum     = 8
-)
-
-// ProtoJSON limits.
-const (
-	proto2MaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
-	proto2Base64Quantum   = 4   // base64 characters per padded block
-)
-
-// Error messages used more than once.
-const (
-	proto2ErrParse          = "proto: cannot parse invalid wire-format data"
+	proto2VarintPayloadBits = 7
+	proto2VarintContBit     = 0x80
+	proto2MaxDepth          = 10000
+	proto2SkipStackSize     = 16
+	proto2ClassNone         = 0
+	proto2ClassSigned       = 1
+	proto2ClassUnsigned     = 2
+	proto2ClassFloat        = 3
+	proto2ClassBool         = 4
+	proto2ClassString       = 5
+	proto2ClassBytes        = 6
+	proto2ClassEnum         = 8
+	proto2MaxJSONExponent   = 100
+	proto2Base64Quantum     = 4
 	proto2ErrDepth          = "proto: exceeded maximum recursion depth"
+	proto2ErrParse          = "proto: cannot parse invalid wire-format data"
 	proto2ErrInvalidInteger = "invalid integer "
 	proto2ErrInvalidNumber  = "invalid number "
 )
@@ -101,31 +72,16 @@ var Closed_name = map[int32]string{
 }
 
 // Closed_value maps Closed names to their numbers.
-var Closed_value = map[string]int32{
-	"CLOSED_ONE": 1,
-	"CLOSED_TWO": 2,
-	"CLOSED_TEN": 10,
-}
+var Closed_value = proto2Invert(Closed_name)
 
 // Enum returns a pointer to a copy of x.
 func (x Closed) Enum() *Closed { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x Closed) String() string {
-	if s, ok := Closed_name[int32(x)]; ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
+func (x Closed) String() string { return proto2EnumString(Closed_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of Closed.
-func (x Closed) IsValid() bool {
-	switch x {
-	case Closed_CLOSED_ONE, Closed_CLOSED_TWO, Closed_CLOSED_TEN:
-		return true
-	}
-	return false
-}
+func (x Closed) IsValid() bool { return (x >= 1 && x <= 2) || x == 10 }
 
 type ClosedZero int32
 
@@ -141,30 +97,16 @@ var ClosedZero_name = map[int32]string{
 }
 
 // ClosedZero_value maps ClosedZero names to their numbers.
-var ClosedZero_value = map[string]int32{
-	"CLOSED_ZERO_ZERO": 0,
-	"CLOSED_ZERO_ONE":  1,
-}
+var ClosedZero_value = proto2Invert(ClosedZero_name)
 
 // Enum returns a pointer to a copy of x.
 func (x ClosedZero) Enum() *ClosedZero { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x ClosedZero) String() string {
-	if s, ok := ClosedZero_name[int32(x)]; ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
+func (x ClosedZero) String() string { return proto2EnumString(ClosedZero_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of ClosedZero.
-func (x ClosedZero) IsValid() bool {
-	switch x {
-	case ClosedZero_CLOSED_ZERO_ZERO, ClosedZero_CLOSED_ZERO_ONE:
-		return true
-	}
-	return false
-}
+func (x ClosedZero) IsValid() bool { return x >= 0 && x <= 1 }
 
 type Defaults struct {
 	DInt32         *int32
@@ -222,152 +164,73 @@ var (
 func (m *Defaults) Reset() { *m = Defaults{} }
 
 func (m *Defaults) GetDInt32() int32 {
-	if m != nil && m.DInt32 != nil {
-		return *m.DInt32
-	}
-	return Default_Defaults_DInt32
+	return proto2GetOr(m, func(m *Defaults) *int32 { return m.DInt32 }, Default_Defaults_DInt32)
 }
-
 func (m *Defaults) GetDInt64() int64 {
-	if m != nil && m.DInt64 != nil {
-		return *m.DInt64
-	}
-	return Default_Defaults_DInt64
+	return proto2GetOr(m, func(m *Defaults) *int64 { return m.DInt64 }, Default_Defaults_DInt64)
 }
-
 func (m *Defaults) GetDUint32() uint32 {
-	if m != nil && m.DUint32 != nil {
-		return *m.DUint32
-	}
-	return Default_Defaults_DUint32
+	return proto2GetOr(m, func(m *Defaults) *uint32 { return m.DUint32 }, Default_Defaults_DUint32)
 }
-
 func (m *Defaults) GetDUint64() uint64 {
-	if m != nil && m.DUint64 != nil {
-		return *m.DUint64
-	}
-	return Default_Defaults_DUint64
+	return proto2GetOr(m, func(m *Defaults) *uint64 { return m.DUint64 }, Default_Defaults_DUint64)
 }
-
 func (m *Defaults) GetDSint32() int32 {
-	if m != nil && m.DSint32 != nil {
-		return *m.DSint32
-	}
-	return Default_Defaults_DSint32
+	return proto2GetOr(m, func(m *Defaults) *int32 { return m.DSint32 }, Default_Defaults_DSint32)
 }
-
 func (m *Defaults) GetDSint64() int64 {
-	if m != nil && m.DSint64 != nil {
-		return *m.DSint64
-	}
-	return Default_Defaults_DSint64
+	return proto2GetOr(m, func(m *Defaults) *int64 { return m.DSint64 }, Default_Defaults_DSint64)
 }
-
 func (m *Defaults) GetDFixed32() uint32 {
-	if m != nil && m.DFixed32 != nil {
-		return *m.DFixed32
-	}
-	return Default_Defaults_DFixed32
+	return proto2GetOr(m, func(m *Defaults) *uint32 { return m.DFixed32 }, Default_Defaults_DFixed32)
 }
-
 func (m *Defaults) GetDFixed64() uint64 {
-	if m != nil && m.DFixed64 != nil {
-		return *m.DFixed64
-	}
-	return Default_Defaults_DFixed64
+	return proto2GetOr(m, func(m *Defaults) *uint64 { return m.DFixed64 }, Default_Defaults_DFixed64)
 }
-
 func (m *Defaults) GetDSfixed32() int32 {
-	if m != nil && m.DSfixed32 != nil {
-		return *m.DSfixed32
-	}
-	return Default_Defaults_DSfixed32
+	return proto2GetOr(m, func(m *Defaults) *int32 { return m.DSfixed32 }, Default_Defaults_DSfixed32)
 }
-
 func (m *Defaults) GetDSfixed64() int64 {
-	if m != nil && m.DSfixed64 != nil {
-		return *m.DSfixed64
-	}
-	return Default_Defaults_DSfixed64
+	return proto2GetOr(m, func(m *Defaults) *int64 { return m.DSfixed64 }, Default_Defaults_DSfixed64)
 }
-
 func (m *Defaults) GetDFloat() float32 {
-	if m != nil && m.DFloat != nil {
-		return *m.DFloat
-	}
-	return Default_Defaults_DFloat
+	return proto2GetOr(m, func(m *Defaults) *float32 { return m.DFloat }, Default_Defaults_DFloat)
 }
-
 func (m *Defaults) GetDDouble() float64 {
-	if m != nil && m.DDouble != nil {
-		return *m.DDouble
-	}
-	return Default_Defaults_DDouble
+	return proto2GetOr(m, func(m *Defaults) *float64 { return m.DDouble }, Default_Defaults_DDouble)
 }
-
 func (m *Defaults) GetDNan() float64 {
-	if m != nil && m.DNan != nil {
-		return *m.DNan
-	}
-	return Default_Defaults_DNan
+	return proto2GetOr(m, func(m *Defaults) *float64 { return m.DNan }, Default_Defaults_DNan)
 }
-
 func (m *Defaults) GetDBool() bool {
-	if m != nil && m.DBool != nil {
-		return *m.DBool
-	}
-	return Default_Defaults_DBool
+	return proto2GetOr(m, func(m *Defaults) *bool { return m.DBool }, Default_Defaults_DBool)
 }
-
 func (m *Defaults) GetDString() string {
-	if m != nil && m.DString != nil {
-		return *m.DString
-	}
-	return Default_Defaults_DString
+	return proto2GetOr(m, func(m *Defaults) *string { return m.DString }, Default_Defaults_DString)
 }
-
 func (m *Defaults) GetDBytes() []byte {
 	if m != nil && m.DBytes != nil {
 		return m.DBytes
 	}
 	return append([]byte(nil), Default_Defaults_DBytes...)
 }
-
 func (m *Defaults) GetDEnum() Closed {
-	if m != nil && m.DEnum != nil {
-		return *m.DEnum
-	}
-	return Default_Defaults_DEnum
+	return proto2GetOr(m, func(m *Defaults) *Closed { return m.DEnum }, Default_Defaults_DEnum)
 }
-
 func (m *Defaults) GetDEnumNodefault() Closed {
-	if m != nil && m.DEnumNodefault != nil {
-		return *m.DEnumNodefault
-	}
-	return Closed_CLOSED_ONE
+	return proto2GetOr(m, func(m *Defaults) *Closed { return m.DEnumNodefault }, Closed_CLOSED_ONE)
 }
-
 func (m *Defaults) GetDFloatNegZero() float32 {
-	if m != nil && m.DFloatNegZero != nil {
-		return *m.DFloatNegZero
-	}
-	return Default_Defaults_DFloatNegZero
+	return proto2GetOr(m, func(m *Defaults) *float32 { return m.DFloatNegZero }, Default_Defaults_DFloatNegZero)
 }
-
 func (m *Defaults) GetDDoubleInt() float64 {
-	if m != nil && m.DDoubleInt != nil {
-		return *m.DDoubleInt
-	}
-	return Default_Defaults_DDoubleInt
+	return proto2GetOr(m, func(m *Defaults) *float64 { return m.DDoubleInt }, Default_Defaults_DDoubleInt)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Defaults) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Defaults) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -459,8 +322,7 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.DDoubleInt != nil {
 		i = proto2PutVarint(b, proto2PutFixed64(b, i, math.Float64bits((*m.DDoubleInt))), 20<<proto2TagTypeBits|proto2WireFixed64)
@@ -475,14 +337,10 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.DEnum)))), 17<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DBytes != nil {
-		i -= len(m.DBytes)
-		copy(b[i:], m.DBytes)
-		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len(m.DBytes))), 16<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len(m.DBytes):], m.DBytes), uint64(len(m.DBytes))), 16<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.DString != nil {
-		i -= len((*m.DString))
-		copy(b[i:], (*m.DString))
-		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len((*m.DString)))), 15<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len((*m.DString)):], (*m.DString)), uint64(len((*m.DString)))), 15<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.DBool != nil {
 		i = proto2PutVarint(b, proto2PutBool(b, i, (*m.DBool)), 14<<proto2TagTypeBits|proto2WireVarint)
@@ -543,7 +401,7 @@ func (m *Defaults) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -677,7 +535,6 @@ func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.DDoubleInt = b[proto2Fixed64Size:], new(math.Float64frombits(binary.LittleEndian.Uint64(b)))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -689,8 +546,6 @@ func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -813,14 +668,10 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [20]bool
-	var f int
+	seen, f := [20]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -873,35 +724,12 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
 			continue
 		}
-		class, bits, iv, uv, fv, bv, sv, by, tok := proto2ClassNone, 64, int64(0), uint64(0), float64(0), false, "", []byte(nil), jsontext.Token{}
-		switch f {
-		case 0, 4, 8:
-			class, bits = proto2ClassSigned, 32
-		case 1, 5, 9:
-			class, bits = proto2ClassSigned, 64
-		case 2, 6:
-			class, bits = proto2ClassUnsigned, 32
-		case 3, 7:
-			class, bits = proto2ClassUnsigned, 64
-		case 10, 18:
-			class, bits = proto2ClassFloat, 32
-		case 11, 12, 19:
-			class, bits = proto2ClassFloat, 64
-		case 13:
-			class = proto2ClassBool
-		case 14:
-			class = proto2ClassString
-		case 15:
-			class = proto2ClassBytes
-		case 16, 17:
-			class = proto2ClassEnum
-		}
+		class, bits, iv, uv, fv, bv, sv, by, tok := proto2DefaultsJSONClasses[f][0], proto2DefaultsJSONClasses[f][1], int64(0), uint64(0), float64(0), false, "", []byte(nil), jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -978,9 +806,9 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.DDoubleInt = new(fv)
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2DefaultsJSONClasses = [20][2]int{{proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassUnsigned, 32}, {proto2ClassUnsigned, 64}, {proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassUnsigned, 32}, {proto2ClassUnsigned, 64}, {proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassFloat, 32}, {proto2ClassFloat, 64}, {proto2ClassFloat, 64}, {proto2ClassBool, 64}, {proto2ClassString, 64}, {proto2ClassBytes, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassFloat, 32}, {proto2ClassFloat, 64}}
 
 type Required struct {
 	ReqInt32  *int32
@@ -1000,47 +828,23 @@ type Required struct {
 func (m *Required) Reset() { *m = Required{} }
 
 func (m *Required) GetReqInt32() int32 {
-	if m != nil && m.ReqInt32 != nil {
-		return *m.ReqInt32
-	}
-	return 0
+	return proto2GetOr(m, func(m *Required) *int32 { return m.ReqInt32 }, 0)
 }
-
 func (m *Required) GetReqString() string {
-	if m != nil && m.ReqString != nil {
-		return *m.ReqString
-	}
-	return ""
+	return proto2GetOr(m, func(m *Required) *string { return m.ReqString }, "")
 }
-
 func (m *Required) GetInner() *Required_Inner {
-	if m != nil {
-		return m.Inner
-	}
-	return nil
+	return proto2Get(m, func(m *Required) *Required_Inner { return m.Inner })
 }
-
 func (m *Required) GetInners() []*Required_Inner {
-	if m != nil {
-		return m.Inners
-	}
-	return nil
+	return proto2Get(m, func(m *Required) []*Required_Inner { return m.Inners })
 }
-
 func (m *Required) GetInnerMap() map[string]*Required_Inner {
-	if m != nil {
-		return m.InnerMap
-	}
-	return nil
+	return proto2Get(m, func(m *Required) map[string]*Required_Inner { return m.InnerMap })
 }
-
 func (m *Required) GetO() isRequired_O {
-	if m != nil {
-		return m.O
-	}
-	return nil
+	return proto2Get(m, func(m *Required) isRequired_O { return m.O })
 }
-
 func (m *Required) GetInnerOneof() *Required_Inner {
 	if x, ok := m.GetO().(*Required_InnerOneof); ok {
 		return x.InnerOneof
@@ -1051,19 +855,11 @@ func (m *Required) GetInnerOneof() *Required_Inner {
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Required) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Required) []byte { return m.unknownFields })
 }
 
-type isRequired_O interface {
-	isRequired_O()
-}
-
-type Required_InnerOneof struct {
-	InnerOneof *Required_Inner
-}
+type isRequired_O interface{ isRequired_O() }
+type Required_InnerOneof struct{ InnerOneof *Required_Inner }
 
 func (*Required_InnerOneof) isRequired_O() {}
 
@@ -1118,8 +914,7 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if o, ok := m.O.(*Required_InnerOneof); ok {
 		n, err := o.InnerOneof.ProtoMarshalToSizedBuffer(b[:i])
@@ -1137,9 +932,7 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 				return 0, err
 			}
 			i = proto2PutVarint(b, proto2PutVarint(b, i-n, uint64(n)), proto2MapValueField<<proto2TagTypeBits|proto2WireBytes)
-			i -= len(k)
-			copy(b[i:], k)
-			i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len(k))), proto2MapKeyField<<proto2TagTypeBits|proto2WireBytes)
+			i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), proto2MapKeyField<<proto2TagTypeBits|proto2WireBytes)
 			i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(start-i)), 5<<proto2TagTypeBits|proto2WireBytes)
 		}
 	}
@@ -1158,9 +951,7 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i = proto2PutVarint(b, proto2PutVarint(b, i-n, uint64(n)), 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.ReqString != nil {
-		i -= len((*m.ReqString))
-		copy(b[i:], (*m.ReqString))
-		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len((*m.ReqString)))), 2<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len((*m.ReqString)):], (*m.ReqString)), uint64(len((*m.ReqString)))), 2<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.ReqInt32 != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.ReqInt32)))), 1<<proto2TagTypeBits|proto2WireVarint)
@@ -1172,10 +963,7 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 // wire-format message in b.
 func (m *Required) UnmarshalBinary(b []byte) error {
 	*m = Required{}
-	if err := m.ProtoMergeDepth(b, 0); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())
 }
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
@@ -1185,7 +973,7 @@ func (m *Required) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -1212,10 +1000,7 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Inner == nil {
-				m.Inner = &Required_Inner{}
-			}
-			if err := m.Inner.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := proto2Alloc(&m.Inner).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -1254,10 +1039,7 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 					if n < 0 {
 						goto errParse
 					}
-					if mv == nil {
-						mv = &Required_Inner{}
-					}
-					if err := mv.ProtoMergeDepth(x, depth+1); err != nil {
+					if err := proto2Alloc(&mv).ProtoMergeDepth(x, depth+1); err != nil {
 						return err
 					}
 					v = v[n:]
@@ -1269,9 +1051,7 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if mv == nil {
-				mv = &Required_Inner{}
-			}
+			proto2Alloc(&mv)
 			proto2MapSet(&m.InnerMap, mk, mv)
 			b = b[n:]
 		case 6<<proto2TagTypeBits | proto2WireBytes:
@@ -1291,7 +1071,6 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -1303,8 +1082,6 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1415,10 +1192,7 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 // value in b.
 func (m *Required) UnmarshalJSON(b []byte) error {
 	*m = Required{}
-	if err := m.ProtoMergeJSON(b); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeJSON(b), m.ProtoCheckInitialized())
 }
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
@@ -1436,10 +1210,7 @@ func (m *Required) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 		return err
 	}
 	*m = Required{}
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeJSONFrom(d), m.ProtoCheckInitialized())
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
@@ -1450,20 +1221,11 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [6]bool
-	var oneofs [1]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var mk string
-	var f int
+	seen, oneofs, in, mk, f := [6]bool{}, [1]bool{}, jsontext.KindInvalid, "", 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := proto2NextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -1488,7 +1250,6 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -1532,13 +1293,7 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, sv, tok := proto2ClassNone, 64, int64(0), "", jsontext.Token{}
-		switch f {
-		case 0:
-			class, bits = proto2ClassSigned, 32
-		case 1:
-			class = proto2ClassString
-		}
+		class, bits, iv, sv, tok := proto2RequiredJSONClasses[f][0], proto2RequiredJSONClasses[f][1], int64(0), "", jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1559,10 +1314,7 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 1:
 			m.ReqString = new(sv)
 		case 2:
-			if m.Inner == nil {
-				m.Inner = &Required_Inner{}
-			}
-			if err := m.Inner.ProtoMergeJSONFrom(d); err != nil {
+			if err := proto2Alloc(&m.Inner).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
@@ -1585,9 +1337,9 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.O = &Required_InnerOneof{InnerOneof: mv}
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2RequiredJSONClasses = [6][2]int{{proto2ClassSigned, 32}, {proto2ClassString, 64}, {proto2ClassNone, 64}, {proto2ClassNone, 64}, {proto2ClassNone, 64}, {proto2ClassNone, 64}}
 
 type Required_Inner struct {
 	Flag *bool
@@ -1599,19 +1351,13 @@ type Required_Inner struct {
 func (m *Required_Inner) Reset() { *m = Required_Inner{} }
 
 func (m *Required_Inner) GetFlag() bool {
-	if m != nil && m.Flag != nil {
-		return *m.Flag
-	}
-	return false
+	return proto2GetOr(m, func(m *Required_Inner) *bool { return m.Flag }, false)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Required_Inner) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Required_Inner) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -1649,8 +1395,7 @@ func (m *Required_Inner) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Flag != nil {
 		i = proto2PutVarint(b, proto2PutBool(b, i, (*m.Flag)), 1<<proto2TagTypeBits|proto2WireVarint)
@@ -1662,10 +1407,7 @@ func (m *Required_Inner) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 // wire-format message in b.
 func (m *Required_Inner) UnmarshalBinary(b []byte) error {
 	*m = Required_Inner{}
-	if err := m.ProtoMergeDepth(b, 0); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())
 }
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
@@ -1675,7 +1417,7 @@ func (m *Required_Inner) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -1692,7 +1434,6 @@ func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Flag = b[n:], new(x != 0)
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -1704,8 +1445,6 @@ func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1755,10 +1494,7 @@ func (m *Required_Inner) ProtoAppendJSON(b []byte) ([]byte, error) {
 // value in b.
 func (m *Required_Inner) UnmarshalJSON(b []byte) error {
 	*m = Required_Inner{}
-	if err := m.ProtoMergeJSON(b); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeJSON(b), m.ProtoCheckInitialized())
 }
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
@@ -1776,10 +1512,7 @@ func (m *Required_Inner) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 		return err
 	}
 	*m = Required_Inner{}
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeJSONFrom(d), m.ProtoCheckInitialized())
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
@@ -1790,14 +1523,10 @@ func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [1]bool
-	var f int
+	seen, f := [1]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -1812,7 +1541,6 @@ func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
@@ -1832,8 +1560,6 @@ func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.Flag = new(bv)
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
 type Groups struct {
@@ -1848,33 +1574,19 @@ type Groups struct {
 func (m *Groups) Reset() { *m = Groups{} }
 
 func (m *Groups) GetOptgroup() *Groups_OptGroup {
-	if m != nil {
-		return m.Optgroup
-	}
-	return nil
+	return proto2Get(m, func(m *Groups) *Groups_OptGroup { return m.Optgroup })
 }
-
 func (m *Groups) GetRepgroup() []*Groups_RepGroup {
-	if m != nil {
-		return m.Repgroup
-	}
-	return nil
+	return proto2Get(m, func(m *Groups) []*Groups_RepGroup { return m.Repgroup })
 }
-
 func (m *Groups) GetAfter() int32 {
-	if m != nil && m.After != nil {
-		return *m.After
-	}
-	return 0
+	return proto2GetOr(m, func(m *Groups) *int32 { return m.After }, 0)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Groups) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Groups) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -1915,8 +1627,7 @@ func (m *Groups) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.After != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.After)))), 8<<proto2TagTypeBits|proto2WireVarint)
@@ -1954,7 +1665,7 @@ func (m *Groups) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -1969,10 +1680,7 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 			if err != nil {
 				return err
 			}
-			if m.Optgroup == nil {
-				m.Optgroup = &Groups_OptGroup{}
-			}
-			if err := m.Optgroup.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
+			if err := proto2Alloc(&m.Optgroup).ProtoMergeDepth(b[:n-1], depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -1994,7 +1702,6 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.After = b[n:], new(int32(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -2006,8 +1713,6 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2086,18 +1791,11 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [3]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var f int
+	seen, in, f := [3]bool{}, jsontext.KindInvalid, 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := proto2NextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -2116,7 +1814,6 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -2142,11 +1839,7 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto2.Groups: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, tok := proto2ClassNone, 64, int64(0), jsontext.Token{}
-		switch f {
-		case 2:
-			class, bits = proto2ClassSigned, 32
-		}
+		class, bits, iv, tok := proto2GroupsJSONClasses[f][0], proto2GroupsJSONClasses[f][1], int64(0), jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -2161,10 +1854,7 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch f {
 		case 0:
-			if m.Optgroup == nil {
-				m.Optgroup = &Groups_OptGroup{}
-			}
-			if err := m.Optgroup.ProtoMergeJSONFrom(d); err != nil {
+			if err := proto2Alloc(&m.Optgroup).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 1:
@@ -2177,9 +1867,9 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.After = new(int32(iv))
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2GroupsJSONClasses = [3][2]int{{proto2ClassNone, 64}, {proto2ClassNone, 64}, {proto2ClassSigned, 32}}
 
 type Groups_OptGroup struct {
 	A *int32
@@ -2192,26 +1882,16 @@ type Groups_OptGroup struct {
 func (m *Groups_OptGroup) Reset() { *m = Groups_OptGroup{} }
 
 func (m *Groups_OptGroup) GetA() int32 {
-	if m != nil && m.A != nil {
-		return *m.A
-	}
-	return 0
+	return proto2GetOr(m, func(m *Groups_OptGroup) *int32 { return m.A }, 0)
 }
-
 func (m *Groups_OptGroup) GetB() string {
-	if m != nil && m.B != nil {
-		return *m.B
-	}
-	return ""
+	return proto2GetOr(m, func(m *Groups_OptGroup) *string { return m.B }, "")
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Groups_OptGroup) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Groups_OptGroup) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -2249,13 +1929,10 @@ func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.B != nil {
-		i -= len((*m.B))
-		copy(b[i:], (*m.B))
-		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len((*m.B)))), 3<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len((*m.B)):], (*m.B)), uint64(len((*m.B)))), 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.A != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.A)))), 2<<proto2TagTypeBits|proto2WireVarint)
@@ -2277,7 +1954,7 @@ func (m *Groups_OptGroup) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -2300,7 +1977,6 @@ func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.B = b[n:], new(string(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -2312,8 +1988,6 @@ func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2382,14 +2056,10 @@ func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [2]bool
-	var f int
+	seen, f := [2]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -2406,19 +2076,12 @@ func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
 			continue
 		}
-		class, bits, iv, sv, tok := proto2ClassNone, 64, int64(0), "", jsontext.Token{}
-		switch f {
-		case 0:
-			class, bits = proto2ClassSigned, 32
-		case 1:
-			class = proto2ClassString
-		}
+		class, bits, iv, sv, tok := proto2GroupsOptGroupJSONClasses[f][0], proto2GroupsOptGroupJSONClasses[f][1], int64(0), "", jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -2440,9 +2103,9 @@ func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.B = new(sv)
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2GroupsOptGroupJSONClasses = [2][2]int{{proto2ClassSigned, 32}, {proto2ClassString, 64}}
 
 type Groups_RepGroup struct {
 	C    *int32
@@ -2455,26 +2118,16 @@ type Groups_RepGroup struct {
 func (m *Groups_RepGroup) Reset() { *m = Groups_RepGroup{} }
 
 func (m *Groups_RepGroup) GetC() int32 {
-	if m != nil && m.C != nil {
-		return *m.C
-	}
-	return 0
+	return proto2GetOr(m, func(m *Groups_RepGroup) *int32 { return m.C }, 0)
 }
-
 func (m *Groups_RepGroup) GetDeep() *Groups_RepGroup_Deep {
-	if m != nil {
-		return m.Deep
-	}
-	return nil
+	return proto2Get(m, func(m *Groups_RepGroup) *Groups_RepGroup_Deep { return m.Deep })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Groups_RepGroup) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Groups_RepGroup) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -2512,8 +2165,7 @@ func (m *Groups_RepGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Deep != nil {
 		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireEndGroup)
@@ -2543,7 +2195,7 @@ func (m *Groups_RepGroup) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -2564,15 +2216,11 @@ func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 			if err != nil {
 				return err
 			}
-			if m.Deep == nil {
-				m.Deep = &Groups_RepGroup_Deep{}
-			}
-			if err := m.Deep.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
+			if err := proto2Alloc(&m.Deep).ProtoMergeDepth(b[:n-1], depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -2584,8 +2232,6 @@ func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2654,14 +2300,10 @@ func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [2]bool
-	var f int
+	seen, f := [2]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -2678,17 +2320,12 @@ func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
 			continue
 		}
-		class, bits, iv, tok := proto2ClassNone, 64, int64(0), jsontext.Token{}
-		switch f {
-		case 0:
-			class, bits = proto2ClassSigned, 32
-		}
+		class, bits, iv, tok := proto2GroupsRepGroupJSONClasses[f][0], proto2GroupsRepGroupJSONClasses[f][1], int64(0), jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -2705,17 +2342,14 @@ func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 0:
 			m.C = new(int32(iv))
 		case 1:
-			if m.Deep == nil {
-				m.Deep = &Groups_RepGroup_Deep{}
-			}
-			if err := m.Deep.ProtoMergeJSONFrom(d); err != nil {
+			if err := proto2Alloc(&m.Deep).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2GroupsRepGroupJSONClasses = [2][2]int{{proto2ClassSigned, 32}, {proto2ClassNone, 64}}
 
 type Groups_RepGroup_Deep struct {
 	D *int64
@@ -2727,19 +2361,13 @@ type Groups_RepGroup_Deep struct {
 func (m *Groups_RepGroup_Deep) Reset() { *m = Groups_RepGroup_Deep{} }
 
 func (m *Groups_RepGroup_Deep) GetD() int64 {
-	if m != nil && m.D != nil {
-		return *m.D
-	}
-	return 0
+	return proto2GetOr(m, func(m *Groups_RepGroup_Deep) *int64 { return m.D }, 0)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Groups_RepGroup_Deep) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Groups_RepGroup_Deep) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -2774,8 +2402,7 @@ func (m *Groups_RepGroup_Deep) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.D != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64((*m.D))), 7<<proto2TagTypeBits|proto2WireVarint)
@@ -2797,7 +2424,7 @@ func (m *Groups_RepGroup_Deep) ProtoMerge(b []byte) error { return m.ProtoMergeD
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -2814,7 +2441,6 @@ func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.D = b[n:], new(int64(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -2826,8 +2452,6 @@ func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2890,14 +2514,10 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [1]bool
-	var f int
+	seen, f := [1]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -2912,7 +2532,6 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
@@ -2932,8 +2551,6 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.D = new(iv)
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
 type ClosedEnums struct {
@@ -2953,40 +2570,20 @@ type ClosedEnums struct {
 func (m *ClosedEnums) Reset() { *m = ClosedEnums{} }
 
 func (m *ClosedEnums) GetSingle() Closed {
-	if m != nil && m.Single != nil {
-		return *m.Single
-	}
-	return Closed_CLOSED_ONE
+	return proto2GetOr(m, func(m *ClosedEnums) *Closed { return m.Single }, Closed_CLOSED_ONE)
 }
-
 func (m *ClosedEnums) GetRep() []Closed {
-	if m != nil {
-		return m.Rep
-	}
-	return nil
+	return proto2Get(m, func(m *ClosedEnums) []Closed { return m.Rep })
 }
-
 func (m *ClosedEnums) GetPacked() []Closed {
-	if m != nil {
-		return m.Packed
-	}
-	return nil
+	return proto2Get(m, func(m *ClosedEnums) []Closed { return m.Packed })
 }
-
 func (m *ClosedEnums) GetByKey() map[int32]ClosedZero {
-	if m != nil {
-		return m.ByKey
-	}
-	return nil
+	return proto2Get(m, func(m *ClosedEnums) map[int32]ClosedZero { return m.ByKey })
 }
-
 func (m *ClosedEnums) GetO() isClosedEnums_O {
-	if m != nil {
-		return m.O
-	}
-	return nil
+	return proto2Get(m, func(m *ClosedEnums) isClosedEnums_O { return m.O })
 }
-
 func (m *ClosedEnums) GetInOneof() Closed {
 	if x, ok := m.GetO().(*ClosedEnums_InOneof); ok {
 		return x.InOneof
@@ -2997,19 +2594,11 @@ func (m *ClosedEnums) GetInOneof() Closed {
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *ClosedEnums) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *ClosedEnums) []byte { return m.unknownFields })
 }
 
-type isClosedEnums_O interface {
-	isClosedEnums_O()
-}
-
-type ClosedEnums_InOneof struct {
-	InOneof Closed
-}
+type isClosedEnums_O interface{ isClosedEnums_O() }
+type ClosedEnums_InOneof struct{ InOneof Closed }
 
 func (*ClosedEnums_InOneof) isClosedEnums_O() {}
 
@@ -3062,8 +2651,7 @@ func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64(o.InOneof))), 5<<proto2TagTypeBits|proto2WireVarint)
@@ -3107,7 +2695,7 @@ func (m *ClosedEnums) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -3242,7 +2830,6 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			m.O = &ClosedEnums_InOneof{InOneof: e}
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -3254,8 +2841,6 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -3344,20 +2929,11 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [5]bool
-	var oneofs [1]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var mk string
-	var f int
+	seen, oneofs, in, mk, f := [5]bool{}, [1]bool{}, jsontext.KindInvalid, "", 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := proto2NextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -3380,7 +2956,6 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -3424,11 +2999,7 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, tok := proto2ClassNone, 64, int64(0), jsontext.Token{}
-		switch f {
-		case 0, 1, 2, 3, 4:
-			class = proto2ClassEnum
-		}
+		class, bits, iv, tok := proto2ClosedEnumsJSONClasses[f][0], proto2ClosedEnumsJSONClasses[f][1], int64(0), jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -3481,9 +3052,9 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.O = &ClosedEnums_InOneof{InOneof: ev}
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2ClosedEnumsJSONClasses = [5][2]int{{proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}}
 
 type Packed struct {
 	PInt32   []int32
@@ -3500,54 +3071,26 @@ type Packed struct {
 func (m *Packed) Reset() { *m = Packed{} }
 
 func (m *Packed) GetPInt32() []int32 {
-	if m != nil {
-		return m.PInt32
-	}
-	return nil
+	return proto2Get(m, func(m *Packed) []int32 { return m.PInt32 })
 }
-
 func (m *Packed) GetPSint64() []int64 {
-	if m != nil {
-		return m.PSint64
-	}
-	return nil
+	return proto2Get(m, func(m *Packed) []int64 { return m.PSint64 })
 }
-
 func (m *Packed) GetPFixed32() []uint32 {
-	if m != nil {
-		return m.PFixed32
-	}
-	return nil
+	return proto2Get(m, func(m *Packed) []uint32 { return m.PFixed32 })
 }
-
 func (m *Packed) GetPDouble() []float64 {
-	if m != nil {
-		return m.PDouble
-	}
-	return nil
+	return proto2Get(m, func(m *Packed) []float64 { return m.PDouble })
 }
-
-func (m *Packed) GetPBool() []bool {
-	if m != nil {
-		return m.PBool
-	}
-	return nil
-}
-
+func (m *Packed) GetPBool() []bool { return proto2Get(m, func(m *Packed) []bool { return m.PBool }) }
 func (m *Packed) GetUInt32() []int32 {
-	if m != nil {
-		return m.UInt32
-	}
-	return nil
+	return proto2Get(m, func(m *Packed) []int32 { return m.UInt32 })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Packed) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Packed) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -3605,8 +3148,7 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	for _, v := range slices.Backward(m.UInt32) {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64(v))), 6<<proto2TagTypeBits|proto2WireVarint)
@@ -3663,7 +3205,7 @@ func (m *Packed) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -3796,7 +3338,6 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.UInt32 = b[n:], append(m.UInt32, int32(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -3808,8 +3349,6 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -3911,18 +3450,11 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [6]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var f int
+	seen, in, f := [6]bool{}, jsontext.KindInvalid, 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := proto2NextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -3947,7 +3479,6 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -3973,19 +3504,7 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto2.Packed: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, uv, fv, bv, tok := proto2ClassNone, 64, int64(0), uint64(0), float64(0), false, jsontext.Token{}
-		switch f {
-		case 0, 5:
-			class, bits = proto2ClassSigned, 32
-		case 1:
-			class, bits = proto2ClassSigned, 64
-		case 2:
-			class, bits = proto2ClassUnsigned, 32
-		case 3:
-			class, bits = proto2ClassFloat, 64
-		case 4:
-			class = proto2ClassBool
-		}
+		class, bits, iv, uv, fv, bv, tok := proto2PackedJSONClasses[f][0], proto2PackedJSONClasses[f][1], int64(0), uint64(0), float64(0), false, jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -4019,9 +3538,9 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.UInt32 = append(m.UInt32, int32(iv))
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2PackedJSONClasses = [6][2]int{{proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassUnsigned, 32}, {proto2ClassFloat, 64}, {proto2ClassBool, 64}, {proto2ClassSigned, 32}}
 
 type Extendable struct {
 	Known *int32
@@ -4033,19 +3552,13 @@ type Extendable struct {
 func (m *Extendable) Reset() { *m = Extendable{} }
 
 func (m *Extendable) GetKnown() int32 {
-	if m != nil && m.Known != nil {
-		return *m.Known
-	}
-	return 0
+	return proto2GetOr(m, func(m *Extendable) *int32 { return m.Known }, 0)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Extendable) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Extendable) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -4080,8 +3593,7 @@ func (m *Extendable) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Known != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.Known)))), 1<<proto2TagTypeBits|proto2WireVarint)
@@ -4103,7 +3615,7 @@ func (m *Extendable) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0)
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -4120,7 +3632,6 @@ func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Known = b[n:], new(int32(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -4132,8 +3643,6 @@ func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4196,14 +3705,10 @@ func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [1]bool
-	var f int
+	seen, f := [1]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -4218,7 +3723,6 @@ func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
@@ -4238,8 +3742,6 @@ func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.Known = new(int32(iv))
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
 type Scope struct {
@@ -4252,10 +3754,7 @@ func (m *Scope) Reset() { *m = Scope{} }
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Scope) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Scope) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -4287,8 +3786,7 @@ func (m *Scope) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	return len(b) - i, nil
 }
@@ -4307,7 +3805,7 @@ func (m *Scope) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -4316,7 +3814,6 @@ func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 		}
 		start := b
 		b = b[n:]
-		// Unknown field, or a known field with an unexpected wire type.
 		n, err := proto2SkipField(b, t, depth)
 		if err != nil {
 			return err
@@ -4327,8 +3824,6 @@ func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4388,15 +3883,11 @@ func (m *Scope) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	if d.PeekKind() != jsontext.KindEndObject {
-		kt, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		return errors.New("proto: cotorp.test.proto2.Scope: unknown field " + strconv.Quote(kt.String()))
+	kt, more, err := proto2NextKey(d)
+	if !more {
+		return err
 	}
-	_, err = d.ReadToken()
-	return err
+	return errors.New("proto: cotorp.test.proto2.Scope: unknown field " + strconv.Quote(kt.String()))
 }
 
 type Proto2Strings struct {
@@ -4412,33 +3903,19 @@ type Proto2Strings struct {
 func (m *Proto2Strings) Reset() { *m = Proto2Strings{} }
 
 func (m *Proto2Strings) GetS() string {
-	if m != nil && m.S != nil {
-		return *m.S
-	}
-	return ""
+	return proto2GetOr(m, func(m *Proto2Strings) *string { return m.S }, "")
 }
-
 func (m *Proto2Strings) GetRs() []string {
-	if m != nil {
-		return m.Rs
-	}
-	return nil
+	return proto2Get(m, func(m *Proto2Strings) []string { return m.Rs })
 }
-
 func (m *Proto2Strings) GetShared() *commonpb.Shared {
-	if m != nil {
-		return m.Shared
-	}
-	return nil
+	return proto2Get(m, func(m *Proto2Strings) *commonpb.Shared { return m.Shared })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Proto2Strings) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *Proto2Strings) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -4479,8 +3956,7 @@ func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Shared != nil {
 		n, err := m.Shared.ProtoMarshalToSizedBuffer(b[:i])
@@ -4490,14 +3966,10 @@ func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i = proto2PutVarint(b, proto2PutVarint(b, i-n, uint64(n)), 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	for _, v := range slices.Backward(m.Rs) {
-		i -= len(v)
-		copy(b[i:], v)
-		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len(v))), 2<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 2<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.S != nil {
-		i -= len((*m.S))
-		copy(b[i:], (*m.S))
-		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(len((*m.S)))), 1<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len((*m.S)):], (*m.S)), uint64(len((*m.S)))), 1<<proto2TagTypeBits|proto2WireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -4516,7 +3988,7 @@ func (m *Proto2Strings) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b,
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -4543,15 +4015,11 @@ func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.Shared == nil {
-				m.Shared = &commonpb.Shared{}
-			}
-			if err := m.Shared.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := proto2Alloc(&m.Shared).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -4563,8 +4031,6 @@ func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4645,18 +4111,11 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [3]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var f int
+	seen, in, f := [3]bool{}, jsontext.KindInvalid, 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := proto2NextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -4675,7 +4134,6 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -4701,11 +4159,7 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto2.Proto2Strings: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, sv, tok := proto2ClassNone, "", jsontext.Token{}
-		switch f {
-		case 0, 1:
-			class = proto2ClassString
-		}
+		class, sv, tok := proto2Proto2StringsJSONClasses[f], "", jsontext.Token{}
 		if class != proto2ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -4724,17 +4178,14 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 1:
 			m.Rs = append(m.Rs, sv)
 		case 2:
-			if m.Shared == nil {
-				m.Shared = &commonpb.Shared{}
-			}
-			if err := m.Shared.ProtoMergeJSONFrom(d); err != nil {
+			if err := proto2Alloc(&m.Shared).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var proto2Proto2StringsJSONClasses = [3]int{proto2ClassString, proto2ClassString, proto2ClassNone}
 
 type ExtGroup struct {
 	G *int32
@@ -4745,20 +4196,12 @@ type ExtGroup struct {
 // Reset clears all fields of m.
 func (m *ExtGroup) Reset() { *m = ExtGroup{} }
 
-func (m *ExtGroup) GetG() int32 {
-	if m != nil && m.G != nil {
-		return *m.G
-	}
-	return 0
-}
+func (m *ExtGroup) GetG() int32 { return proto2GetOr(m, func(m *ExtGroup) *int32 { return m.G }, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *ExtGroup) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return proto2Get(m, func(m *ExtGroup) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -4793,8 +4236,7 @@ func (m *ExtGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.G != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.G)))), 1<<proto2TagTypeBits|proto2WireVarint)
@@ -4816,7 +4258,7 @@ func (m *ExtGroup) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= proto2MaxDepth {
-		goto errDepth
+		return errors.New(proto2ErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -4833,7 +4275,6 @@ func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.G = b[n:], new(int32(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := proto2SkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -4845,8 +4286,6 @@ func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(proto2ErrParse)
-errDepth:
-	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4909,14 +4348,10 @@ func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [1]bool
-	var f int
+	seen, f := [1]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := proto2NextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -4931,7 +4366,6 @@ func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
@@ -4951,12 +4385,8 @@ func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.G = new(int32(iv))
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
-// proto2PutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func proto2PutVarint(b []byte, i int, u uint64) int {
 	if u < proto2VarintContBit {
 		b[i-1] = byte(u)
@@ -4967,22 +4397,16 @@ func proto2PutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// proto2PutFixed32 writes u in 4 little-endian bytes ending at b[i] and returns
-// the index of the first.
 func proto2PutFixed32(b []byte, i int, u uint32) int {
 	binary.LittleEndian.PutUint32(b[i-proto2Fixed32Size:], u)
 	return i - proto2Fixed32Size
 }
 
-// proto2PutFixed64 writes u in 8 little-endian bytes ending at b[i] and returns
-// the index of the first.
 func proto2PutFixed64(b []byte, i int, u uint64) int {
 	binary.LittleEndian.PutUint64(b[i-proto2Fixed64Size:], u)
 	return i - proto2Fixed64Size
 }
 
-// proto2PutBool writes v as a one-byte varint ending at b[i] and returns its
-// index.
 func proto2PutBool(b []byte, i int, v bool) int {
 	b[i-1] = 0
 	if v {
@@ -4991,14 +4415,10 @@ func proto2PutBool(b []byte, i int, v bool) int {
 	return i - 1
 }
 
-// proto2SizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func proto2SizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 }
 
-// proto2ReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func proto2ReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -5007,8 +4427,6 @@ func proto2ReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// proto2SkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func proto2SkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & proto2TagTypeMask {
 	case proto2WireVarint:
@@ -5033,9 +4451,6 @@ func proto2SkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(proto2ErrParse)
 }
 
-// proto2SkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func proto2SkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [proto2SkipStackSize]int32
 	open := append(stk[:0], num)
@@ -5068,8 +4483,6 @@ func proto2SkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// proto2Appended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func proto2Appended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -5080,8 +4493,6 @@ func proto2Appended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// proto2SortedKeys appends the keys of m to keys, which should be empty, and
-// sorts them. The caller allocates keys, so that it can stay on the stack.
 func proto2SortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	for k := range m {
 		keys = append(keys, k)
@@ -5090,7 +4501,29 @@ func proto2SortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	return keys
 }
 
-// proto2MapSet sets (*m)[k] to v, allocating *m if it is nil.
+func proto2Get[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
+func proto2GetOr[M, T any](m *M, f func(*M) *T, def T) T {
+	if m != nil {
+		if p := f(m); p != nil {
+			return *p
+		}
+	}
+	return def
+}
+
+func proto2Alloc[T any](p **T) *T {
+	if *p == nil {
+		*p = new(T)
+	}
+	return *p
+}
+
 func proto2MapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -5098,8 +4531,21 @@ func proto2MapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	(*m)[k] = v
 }
 
-// proto2WriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func proto2Invert[K, V comparable](m map[K]V) map[V]K {
+	r := make(map[V]K, len(m))
+	for k, v := range m {
+		r[v] = k
+	}
+	return r
+}
+
+func proto2EnumString(names map[int32]string, v int32) string {
+	if s, ok := names[v]; ok {
+		return s
+	}
+	return strconv.Itoa(int(v))
+}
+
 func proto2WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -5107,8 +4553,6 @@ func proto2WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// proto2AppendEnum appends enum value v as its name in names, or as a number
-// if it has none.
 func proto2AppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	if s, ok := names[v]; ok {
 		b = append(b, '"')
@@ -5118,8 +4562,6 @@ func proto2AppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	return strconv.AppendInt(b, int64(v), 10)
 }
 
-// proto2AppendFloat appends f, a float of the given bit size, as a JSON number or
-// as "NaN", "Infinity" or "-Infinity".
 func proto2AppendFloat(b []byte, f float64, bits int) []byte {
 	switch {
 	case math.IsNaN(f):
@@ -5132,9 +4574,6 @@ func proto2AppendFloat(b []byte, f float64, bits int) []byte {
 	return jsontext.AppendFloat(b, f, bits)
 }
 
-// proto2CloseObject finishes a JSON object whose members were appended to b from
-// index start, each preceded by a comma: the first comma becomes the
-// opening brace.
 func proto2CloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -5143,8 +4582,6 @@ func proto2CloseObject(b []byte, start int) []byte {
 	return append(b, '}')
 }
 
-// proto2EndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func proto2EndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -5155,9 +4592,6 @@ func proto2EndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// proto2StrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func proto2StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -5169,9 +4603,6 @@ func proto2StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// proto2OpenJSON reads the first token of the value of message name, which
-// must be of the given kind. It reports false if the value is null, which
-// leaves the message unchanged, or on error.
 func proto2OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
 	if d.PeekKind() == jsontext.KindNull {
 		return false, d.SkipValue()
@@ -5180,7 +4611,6 @@ func proto2OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) 
 	return err == nil, err
 }
 
-// proto2ExpectJSON reads a token of the given kind, a JSON what, in message name.
 func proto2ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -5192,9 +4622,15 @@ func proto2ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string
 	return nil
 }
 
-// proto2EnumClass returns the parse class and bit size for an enum value of
-// the given token kind: nothing to parse for null, a number, or a name,
-// which stays in the token until it is looked up.
+func proto2NextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
+	if d.PeekKind() == jsontext.KindEndObject {
+		_, err := d.ReadToken()
+		return jsontext.Token{}, false, err
+	}
+	tok, err := d.ReadToken()
+	return tok, err == nil, err
+}
+
 func proto2EnumClass(k jsontext.Kind) (int, int) {
 	switch k {
 	case jsontext.KindNull:
@@ -5205,8 +4641,6 @@ func proto2EnumClass(k jsontext.Kind) (int, int) {
 	return proto2ClassSigned, 32
 }
 
-// proto2ParseInt parses tok, a number or a quoted number, as a signed integer
-// of the given bit size, for a field of message name.
 func proto2ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := proto2JSONNumber(tok, name)
 	if err != nil {
@@ -5222,8 +4656,6 @@ func proto2ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	return n.Int64(), nil
 }
 
-// proto2ParseUint parses tok, a number or a quoted number, as an unsigned
-// integer of the given bit size, for a field of message name.
 func proto2ParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
 	s, err := proto2JSONNumber(tok, name)
 	if err != nil {
@@ -5239,9 +4671,6 @@ func proto2ParseUint(tok jsontext.Token, bits int, name string) (uint64, error) 
 	return n.Uint64(), nil
 }
 
-// proto2ExactInt returns the integer that JSON number s denotes exactly, in an
-// exponent or fraction form, or nil. The exponent is bounded so that exact
-// arithmetic stays cheap.
 func proto2ExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
@@ -5255,9 +4684,6 @@ func proto2ExactInt(s string) *big.Int {
 	return r.Num()
 }
 
-// proto2ParseFloat parses tok, a number, a quoted number, or "NaN", "Infinity"
-// or "-Infinity", as a float of the given bit size, for a field of
-// message name.
 func proto2ParseFloat(tok jsontext.Token, bits int, name string) (float64, error) {
 	if tok.Kind() == jsontext.KindString {
 		switch tok.String() {
@@ -5280,8 +4706,6 @@ func proto2ParseFloat(tok jsontext.Token, bits int, name string) (float64, error
 	return v, nil
 }
 
-// proto2JSONNumber returns the text of tok, which must be a number or a string
-// holding a JSON number, for a field of message name.
 func proto2JSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -5290,7 +4714,6 @@ func proto2JSONNumber(tok jsontext.Token, name string) (string, error) {
 	return s, nil
 }
 
-// proto2ParseBool parses tok as a boolean for a field of message name.
 func proto2ParseBool(tok jsontext.Token, name string) (bool, error) {
 	switch tok.Kind() {
 	case jsontext.KindTrue:
@@ -5301,7 +4724,6 @@ func proto2ParseBool(tok jsontext.Token, name string) (bool, error) {
 	return false, proto2JSONError(name, "invalid boolean "+tok.String())
 }
 
-// proto2ParseString parses tok as a string for a field of message name.
 func proto2ParseString(tok jsontext.Token, name string) (string, error) {
 	if tok.Kind() != jsontext.KindString {
 		return "", proto2JSONError(name, "invalid string "+tok.String())
@@ -5309,8 +4731,6 @@ func proto2ParseString(tok jsontext.Token, name string) (string, error) {
 	return tok.String(), nil
 }
 
-// proto2ParseBytes parses tok as base64 bytes for a field of message name,
-// accepting standard and URL-safe alphabets, with or without padding.
 func proto2ParseBytes(tok jsontext.Token, name string) ([]byte, error) {
 	s := tok.String()
 	if tok.Kind() == jsontext.KindString {
@@ -5328,8 +4748,6 @@ func proto2ParseBytes(tok jsontext.Token, name string) ([]byte, error) {
 	return nil, proto2JSONError(name, "invalid bytes "+s)
 }
 
-// proto2ParseEnum converts an enum value read with the given class, a name in
-// tok or a number in iv, to E. values maps names to numbers.
 func proto2ParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
 	switch class {
 	case proto2ClassEnum:
@@ -5345,8 +4763,6 @@ func proto2ParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values m
 	return 0, nil
 }
 
-// proto2ParseIntKey parses JSON object key s as a signed integer of the given bit
-// size, for map field field of message name.
 func proto2ParseIntKey(s string, bits int, name, field string) (int64, error) {
 	k, err := strconv.ParseInt(s, 10, bits)
 	if err != nil {
@@ -5355,7 +4771,6 @@ func proto2ParseIntKey(s string, bits int, name, field string) (int64, error) {
 	return k, nil
 }
 
-// proto2JSONError returns an error about the ProtoJSON value of message name.
 func proto2JSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

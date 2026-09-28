@@ -19,52 +19,29 @@ import (
 	"unicode/utf8"
 )
 
-// Wire types.
 const (
-	commonWireVarint     = 0
-	commonWireFixed64    = 1
-	commonWireBytes      = 2
-	commonWireStartGroup = 3
-	commonWireEndGroup   = 4
-	commonWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	commonTagTypeBits    = 3
-	commonTagTypeMask    = 1<<3 - 1
-	commonMaxFieldNumber = 1<<29 - 1
-)
-
-// Encoded sizes.
-const (
-	commonFixed32Size       = 4
-	commonFixed64Size       = 8
-	commonVarintPayloadBits = 7    // value bits per varint byte
-	commonVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	commonMaxDepth      = 10000 // maximum message and group nesting
-	commonSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON scalar parse classes.
-const (
-	commonClassNone   = 0
-	commonClassSigned = 1
-	commonClassString = 5
-)
-
-// ProtoJSON limits.
-const commonMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
-
-// Error messages used more than once.
-const (
+	commonWireVarint         = 0
+	commonWireFixed64        = 1
+	commonWireBytes          = 2
+	commonWireStartGroup     = 3
+	commonWireEndGroup       = 4
+	commonWireFixed32        = 5
+	commonTagTypeBits        = 3
+	commonTagTypeMask        = 1<<3 - 1
+	commonMaxFieldNumber     = 1<<29 - 1
+	commonFixed32Size        = 4
+	commonFixed64Size        = 8
+	commonVarintPayloadBits  = 7
+	commonVarintContBit      = 0x80
+	commonMaxDepth           = 10000
+	commonSkipStackSize      = 16
+	commonClassNone          = 0
+	commonClassSigned        = 1
+	commonClassString        = 5
+	commonMaxJSONExponent    = 100
 	commonSharedLabelErrUTF8 = "proto: field cotorp.test.common.Shared.label contains invalid UTF-8"
-	commonErrParse           = "proto: cannot parse invalid wire-format data"
 	commonErrDepth           = "proto: exceeded maximum recursion depth"
+	commonErrParse           = "proto: cannot parse invalid wire-format data"
 )
 
 type Color int32
@@ -85,32 +62,16 @@ var Color_name = map[int32]string{
 }
 
 // Color_value maps Color names to their numbers.
-var Color_value = map[string]int32{
-	"COLOR_UNSPECIFIED": 0,
-	"COLOR_RED":         1,
-	"COLOR_GREEN":       2,
-	"COLOR_BLUE":        3,
-}
+var Color_value = commonInvert(Color_name)
 
 // Enum returns a pointer to a copy of x.
 func (x Color) Enum() *Color { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x Color) String() string {
-	if s, ok := Color_name[int32(x)]; ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
+func (x Color) String() string { return commonEnumString(Color_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of Color.
-func (x Color) IsValid() bool {
-	switch x {
-	case Color_COLOR_UNSPECIFIED, Color_COLOR_RED, Color_COLOR_GREEN, Color_COLOR_BLUE:
-		return true
-	}
-	return false
-}
+func (x Color) IsValid() bool { return x >= 0 && x <= 3 }
 
 // Shared is a message referenced from other packages.
 type Shared struct {
@@ -123,27 +84,13 @@ type Shared struct {
 // Reset clears all fields of m.
 func (m *Shared) Reset() { *m = Shared{} }
 
-func (m *Shared) GetLabel() string {
-	if m != nil {
-		return m.Label
-	}
-	return ""
-}
-
-func (m *Shared) GetValue() int64 {
-	if m != nil {
-		return m.Value
-	}
-	return 0
-}
+func (m *Shared) GetLabel() string { return commonGet(m, func(m *Shared) string { return m.Label }) }
+func (m *Shared) GetValue() int64  { return commonGet(m, func(m *Shared) int64 { return m.Value }) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Shared) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return commonGet(m, func(m *Shared) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -181,8 +128,7 @@ func (m *Shared) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Value != 0 {
 		i = commonPutVarint(b, commonPutVarint(b, i, uint64(m.Value)), 2<<commonTagTypeBits|commonWireVarint)
@@ -191,9 +137,7 @@ func (m *Shared) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if !utf8.ValidString(m.Label) {
 			return 0, errors.New(commonSharedLabelErrUTF8)
 		}
-		i -= len(m.Label)
-		copy(b[i:], m.Label)
-		i = commonPutVarint(b, commonPutVarint(b, i, uint64(len(m.Label))), 1<<commonTagTypeBits|commonWireBytes)
+		i = commonPutVarint(b, commonPutVarint(b, i-copy(b[i-len(m.Label):], m.Label), uint64(len(m.Label))), 1<<commonTagTypeBits|commonWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -212,7 +156,7 @@ func (m *Shared) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= commonMaxDepth {
-		goto errDepth
+		return errors.New(commonErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -238,7 +182,6 @@ func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Value = b[n:], int64(x)
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := commonSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -250,8 +193,6 @@ func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(commonErrParse)
-errDepth:
-	return errors.New(commonErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -320,14 +261,10 @@ func (m *Shared) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [2]bool
-	var f int
+	seen, f := [2]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := commonNextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -344,19 +281,12 @@ func (m *Shared) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
 			continue
 		}
-		class, bits, iv, sv, tok := commonClassNone, 64, int64(0), "", jsontext.Token{}
-		switch f {
-		case 1:
-			class, bits = commonClassSigned, 64
-		case 0:
-			class = commonClassString
-		}
+		class, bits, iv, sv, tok := commonSharedJSONClasses[f][0], commonSharedJSONClasses[f][1], int64(0), "", jsontext.Token{}
 		if class != commonClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -378,12 +308,10 @@ func (m *Shared) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			m.Value = iv
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
-// commonPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
+var commonSharedJSONClasses = [2][2]int{{commonClassString, 64}, {commonClassSigned, 64}}
+
 func commonPutVarint(b []byte, i int, u uint64) int {
 	if u < commonVarintContBit {
 		b[i-1] = byte(u)
@@ -394,14 +322,10 @@ func commonPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// commonSizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func commonSizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+commonVarintPayloadBits-1)/commonVarintPayloadBits
 }
 
-// commonReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func commonReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -410,8 +334,6 @@ func commonReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// commonSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func commonSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & commonTagTypeMask {
 	case commonWireVarint:
@@ -436,9 +358,6 @@ func commonSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(commonErrParse)
 }
 
-// commonSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func commonSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [commonSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -471,8 +390,6 @@ func commonSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// commonAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func commonAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -483,8 +400,28 @@ func commonAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// commonWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func commonGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
+func commonInvert[K, V comparable](m map[K]V) map[V]K {
+	r := make(map[V]K, len(m))
+	for k, v := range m {
+		r[v] = k
+	}
+	return r
+}
+
+func commonEnumString(names map[int32]string, v int32) string {
+	if s, ok := names[v]; ok {
+		return s
+	}
+	return strconv.Itoa(int(v))
+}
+
 func commonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -492,9 +429,6 @@ func commonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// commonCloseObject finishes a JSON object whose members were appended to b from
-// index start, each preceded by a comma: the first comma becomes the
-// opening brace.
 func commonCloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -503,8 +437,6 @@ func commonCloseObject(b []byte, start int) []byte {
 	return append(b, '}')
 }
 
-// commonEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func commonEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -515,9 +447,6 @@ func commonEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// commonStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func commonStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -529,9 +458,6 @@ func commonStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// commonOpenJSON reads the first token of the value of message name, which
-// must be of the given kind. It reports false if the value is null, which
-// leaves the message unchanged, or on error.
 func commonOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
 	if d.PeekKind() == jsontext.KindNull {
 		return false, d.SkipValue()
@@ -540,7 +466,6 @@ func commonOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) 
 	return err == nil, err
 }
 
-// commonExpectJSON reads a token of the given kind, a JSON what, in message name.
 func commonExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -552,8 +477,15 @@ func commonExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string
 	return nil
 }
 
-// commonParseInt parses tok, a number or a quoted number, as a signed integer
-// of the given bit size, for a field of message name.
+func commonNextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
+	if d.PeekKind() == jsontext.KindEndObject {
+		_, err := d.ReadToken()
+		return jsontext.Token{}, false, err
+	}
+	tok, err := d.ReadToken()
+	return tok, err == nil, err
+}
+
 func commonParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := commonJSONNumber(tok, name)
 	if err != nil {
@@ -569,9 +501,6 @@ func commonParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	return n.Int64(), nil
 }
 
-// commonExactInt returns the integer that JSON number s denotes exactly, in an
-// exponent or fraction form, or nil. The exponent is bounded so that exact
-// arithmetic stays cheap.
 func commonExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > commonMaxJSONExponent || e < -commonMaxJSONExponent {
@@ -585,8 +514,6 @@ func commonExactInt(s string) *big.Int {
 	return r.Num()
 }
 
-// commonJSONNumber returns the text of tok, which must be a number or a string
-// holding a JSON number, for a field of message name.
 func commonJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -595,7 +522,6 @@ func commonJSONNumber(tok jsontext.Token, name string) (string, error) {
 	return s, nil
 }
 
-// commonParseString parses tok as a string for a field of message name.
 func commonParseString(tok jsontext.Token, name string) (string, error) {
 	if tok.Kind() != jsontext.KindString {
 		return "", commonJSONError(name, "invalid string "+tok.String())
@@ -603,7 +529,6 @@ func commonParseString(tok jsontext.Token, name string) (string, error) {
 	return tok.String(), nil
 }
 
-// commonJSONError returns an error about the ProtoJSON value of message name.
 func commonJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

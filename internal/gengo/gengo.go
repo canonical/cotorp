@@ -369,6 +369,10 @@ type fileGen struct {
 	errs   []*errConst
 	errIdx map[string]int // error text -> index in errs
 
+	// decls holds package-level declarations, such as lookup tables, to
+	// write after the method being generated.
+	decls []string
+
 	// Helper functions (see helpers.go).
 	funcs map[string]string // helperDefs suffix -> declared name
 }
@@ -491,7 +495,7 @@ var localNames = map[string]bool{
 	"fv": true, "bv": true, "sv": true, "by": true, "r": true, "ev": true,
 	"k64": true, "enc": true, "special": true, "ns": true, "secs": true,
 	"nanos": true, "neg": true, "in": true, "whole": true, "frac": true,
-	"dot": true, "p": true, "sb": true, "lax": true,
+	"dot": true, "p": true, "sb": true, "lax": true, "more": true,
 }
 
 // qualify returns name as referenced from this file, adding an import if it

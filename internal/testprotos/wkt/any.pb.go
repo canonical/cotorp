@@ -15,42 +15,25 @@ import (
 	"unicode/utf8"
 )
 
-// Wire types.
 const (
-	anyWireVarint     = 0
-	anyWireFixed64    = 1
-	anyWireBytes      = 2
-	anyWireStartGroup = 3
-	anyWireEndGroup   = 4
-	anyWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	anyTagTypeBits    = 3
-	anyTagTypeMask    = 1<<3 - 1
-	anyMaxFieldNumber = 1<<29 - 1
-)
-
-// Encoded sizes.
-const (
+	anyWireVarint        = 0
+	anyWireFixed64       = 1
+	anyWireBytes         = 2
+	anyWireStartGroup    = 3
+	anyWireEndGroup      = 4
+	anyWireFixed32       = 5
+	anyTagTypeBits       = 3
+	anyTagTypeMask       = 1<<3 - 1
+	anyMaxFieldNumber    = 1<<29 - 1
 	anyFixed32Size       = 4
 	anyFixed64Size       = 8
-	anyVarintPayloadBits = 7    // value bits per varint byte
-	anyVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	anyMaxDepth      = 10000 // maximum message and group nesting
-	anySkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// Error messages used more than once.
-const (
+	anyVarintPayloadBits = 7
+	anyVarintContBit     = 0x80
+	anyMaxDepth          = 10000
+	anySkipStackSize     = 16
 	anyAnyTypeUrlErrUTF8 = "proto: field google.protobuf.Any.type_url contains invalid UTF-8"
-	anyErrParse          = "proto: cannot parse invalid wire-format data"
 	anyErrDepth          = "proto: exceeded maximum recursion depth"
+	anyErrParse          = "proto: cannot parse invalid wire-format data"
 	anyAnyErrUnsupported = "proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have"
 )
 
@@ -124,27 +107,13 @@ type Any struct {
 // Reset clears all fields of m.
 func (m *Any) Reset() { *m = Any{} }
 
-func (m *Any) GetTypeUrl() string {
-	if m != nil {
-		return m.TypeUrl
-	}
-	return ""
-}
-
-func (m *Any) GetValue() []byte {
-	if m != nil {
-		return m.Value
-	}
-	return nil
-}
+func (m *Any) GetTypeUrl() string { return anyGet(m, func(m *Any) string { return m.TypeUrl }) }
+func (m *Any) GetValue() []byte   { return anyGet(m, func(m *Any) []byte { return m.Value }) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Any) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return anyGet(m, func(m *Any) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -182,21 +151,16 @@ func (m *Any) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if len(m.Value) > 0 {
-		i -= len(m.Value)
-		copy(b[i:], m.Value)
-		i = anyPutVarint(b, anyPutVarint(b, i, uint64(len(m.Value))), 2<<anyTagTypeBits|anyWireBytes)
+		i = anyPutVarint(b, anyPutVarint(b, i-copy(b[i-len(m.Value):], m.Value), uint64(len(m.Value))), 2<<anyTagTypeBits|anyWireBytes)
 	}
 	if len(m.TypeUrl) > 0 {
 		if !utf8.ValidString(m.TypeUrl) {
 			return 0, errors.New(anyAnyTypeUrlErrUTF8)
 		}
-		i -= len(m.TypeUrl)
-		copy(b[i:], m.TypeUrl)
-		i = anyPutVarint(b, anyPutVarint(b, i, uint64(len(m.TypeUrl))), 1<<anyTagTypeBits|anyWireBytes)
+		i = anyPutVarint(b, anyPutVarint(b, i-copy(b[i-len(m.TypeUrl):], m.TypeUrl), uint64(len(m.TypeUrl))), 1<<anyTagTypeBits|anyWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -215,7 +179,7 @@ func (m *Any) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= anyMaxDepth {
-		goto errDepth
+		return errors.New(anyErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -241,7 +205,6 @@ func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Value = b[n:], append([]byte{}, x...)
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := anySkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -253,8 +216,6 @@ func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(anyErrParse)
-errDepth:
-	return errors.New(anyErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -312,8 +273,6 @@ func (m *Any) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return errors.New(anyAnyErrUnsupported)
 }
 
-// anyPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func anyPutVarint(b []byte, i int, u uint64) int {
 	if u < anyVarintContBit {
 		b[i-1] = byte(u)
@@ -324,14 +283,10 @@ func anyPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// anySizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func anySizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
 }
 
-// anyReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func anyReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -340,8 +295,6 @@ func anyReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// anySkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func anySkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & anyTagTypeMask {
 	case anyWireVarint:
@@ -366,9 +319,6 @@ func anySkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(anyErrParse)
 }
 
-// anySkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func anySkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [anySkipStackSize]int32
 	open := append(stk[:0], num)
@@ -401,8 +351,6 @@ func anySkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// anyAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func anyAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -413,8 +361,13 @@ func anyAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// anyWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func anyGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
 func anyWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -422,8 +375,6 @@ func anyWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// anyEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func anyEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -434,9 +385,6 @@ func anyEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// anyStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func anyStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -448,7 +396,6 @@ func anyStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// anyJSONError returns an error about the ProtoJSON value of message name.
 func anyJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

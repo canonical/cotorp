@@ -20,62 +20,35 @@ import (
 	"unicode/utf8"
 )
 
-// Wire types.
 const (
-	editionsWireVarint     = 0
-	editionsWireFixed64    = 1
-	editionsWireBytes      = 2
-	editionsWireStartGroup = 3
-	editionsWireEndGroup   = 4
-	editionsWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	editionsTagTypeBits    = 3
-	editionsTagTypeMask    = 1<<3 - 1
-	editionsMaxFieldNumber = 1<<29 - 1
-)
-
-// Map entries are encoded as messages with these field numbers.
-const (
-	editionsMapKeyField   = 1
-	editionsMapValueField = 2
-)
-
-// Encoded sizes.
-const (
-	editionsFixed32Size       = 4
-	editionsFixed64Size       = 8
-	editionsVarintPayloadBits = 7    // value bits per varint byte
-	editionsVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	editionsMaxDepth      = 10000 // maximum message and group nesting
-	editionsSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON scalar parse classes.
-const (
-	editionsClassNone   = 0
-	editionsClassSigned = 1
-	editionsClassString = 5
-	editionsClassEnum   = 8
-)
-
-// ProtoJSON limits.
-const editionsMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
-
-// Error messages used more than once.
-const (
+	editionsWireVarint                           = 0
+	editionsWireFixed64                          = 1
+	editionsWireBytes                            = 2
+	editionsWireStartGroup                       = 3
+	editionsWireEndGroup                         = 4
+	editionsWireFixed32                          = 5
+	editionsTagTypeBits                          = 3
+	editionsTagTypeMask                          = 1<<3 - 1
+	editionsMaxFieldNumber                       = 1<<29 - 1
+	editionsMapKeyField                          = 1
+	editionsMapValueField                        = 2
+	editionsFixed32Size                          = 4
+	editionsFixed64Size                          = 8
+	editionsVarintPayloadBits                    = 7
+	editionsVarintContBit                        = 0x80
+	editionsMaxDepth                             = 10000
+	editionsSkipStackSize                        = 16
+	editionsClassNone                            = 0
+	editionsClassSigned                          = 1
+	editionsClassString                          = 5
+	editionsClassEnum                            = 8
+	editionsMaxJSONExponent                      = 100
 	editionsFeaturesVerifiedMapEntryValueErrUTF8 = "proto: field cotorp.test.editions.Features.VerifiedMapEntry.value contains invalid UTF-8"
 	editionsFeaturesVerifiedMapEntryKeyErrUTF8   = "proto: field cotorp.test.editions.Features.VerifiedMapEntry.key contains invalid UTF-8"
 	editionsFeaturesWithDefaultErrUTF8           = "proto: field cotorp.test.editions.Features.with_default contains invalid UTF-8"
 	editionsFeaturesVerifiedErrUTF8              = "proto: field cotorp.test.editions.Features.verified contains invalid UTF-8"
-	editionsErrParse                             = "proto: cannot parse invalid wire-format data"
 	editionsErrDepth                             = "proto: exceeded maximum recursion depth"
+	editionsErrParse                             = "proto: cannot parse invalid wire-format data"
 	editionsImplicitMessageBErrUTF8              = "proto: field cotorp.test.editions.ImplicitMessage.b contains invalid UTF-8"
 )
 
@@ -93,30 +66,16 @@ var OpenEnum_name = map[int32]string{
 }
 
 // OpenEnum_value maps OpenEnum names to their numbers.
-var OpenEnum_value = map[string]int32{
-	"OPEN_ZERO": 0,
-	"OPEN_ONE":  1,
-}
+var OpenEnum_value = editionsInvert(OpenEnum_name)
 
 // Enum returns a pointer to a copy of x.
 func (x OpenEnum) Enum() *OpenEnum { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x OpenEnum) String() string {
-	if s, ok := OpenEnum_name[int32(x)]; ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
+func (x OpenEnum) String() string { return editionsEnumString(OpenEnum_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of OpenEnum.
-func (x OpenEnum) IsValid() bool {
-	switch x {
-	case OpenEnum_OPEN_ZERO, OpenEnum_OPEN_ONE:
-		return true
-	}
-	return false
-}
+func (x OpenEnum) IsValid() bool { return x >= 0 && x <= 1 }
 
 type ClosedEnum int32
 
@@ -132,30 +91,16 @@ var ClosedEnum_name = map[int32]string{
 }
 
 // ClosedEnum_value maps ClosedEnum names to their numbers.
-var ClosedEnum_value = map[string]int32{
-	"CLOSED_ONE": 1,
-	"CLOSED_TWO": 2,
-}
+var ClosedEnum_value = editionsInvert(ClosedEnum_name)
 
 // Enum returns a pointer to a copy of x.
 func (x ClosedEnum) Enum() *ClosedEnum { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x ClosedEnum) String() string {
-	if s, ok := ClosedEnum_name[int32(x)]; ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
+func (x ClosedEnum) String() string { return editionsEnumString(ClosedEnum_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of ClosedEnum.
-func (x ClosedEnum) IsValid() bool {
-	switch x {
-	case ClosedEnum_CLOSED_ONE, ClosedEnum_CLOSED_TWO:
-		return true
-	}
-	return false
-}
+func (x ClosedEnum) IsValid() bool { return x >= 1 && x <= 2 }
 
 type Features struct {
 	ExplicitInt    *int32
@@ -186,117 +131,55 @@ const (
 func (m *Features) Reset() { *m = Features{} }
 
 func (m *Features) GetExplicitInt() int32 {
-	if m != nil && m.ExplicitInt != nil {
-		return *m.ExplicitInt
-	}
-	return 0
+	return editionsGetOr(m, func(m *Features) *int32 { return m.ExplicitInt }, 0)
 }
-
 func (m *Features) GetImplicitInt() int32 {
-	if m != nil {
-		return m.ImplicitInt
-	}
-	return 0
+	return editionsGet(m, func(m *Features) int32 { return m.ImplicitInt })
 }
-
 func (m *Features) GetRequiredInt() int32 {
-	if m != nil && m.RequiredInt != nil {
-		return *m.RequiredInt
-	}
-	return 0
+	return editionsGetOr(m, func(m *Features) *int32 { return m.RequiredInt }, 0)
 }
-
 func (m *Features) GetPackedInts() []int32 {
-	if m != nil {
-		return m.PackedInts
-	}
-	return nil
+	return editionsGet(m, func(m *Features) []int32 { return m.PackedInts })
 }
-
 func (m *Features) GetExpandedInts() []int32 {
-	if m != nil {
-		return m.ExpandedInts
-	}
-	return nil
+	return editionsGet(m, func(m *Features) []int32 { return m.ExpandedInts })
 }
-
 func (m *Features) GetVerified() string {
-	if m != nil && m.Verified != nil {
-		return *m.Verified
-	}
-	return ""
+	return editionsGetOr(m, func(m *Features) *string { return m.Verified }, "")
 }
-
 func (m *Features) GetUnverified() string {
-	if m != nil && m.Unverified != nil {
-		return *m.Unverified
-	}
-	return ""
+	return editionsGetOr(m, func(m *Features) *string { return m.Unverified }, "")
 }
-
 func (m *Features) GetDelimited() *Features_Child {
-	if m != nil {
-		return m.Delimited
-	}
-	return nil
+	return editionsGet(m, func(m *Features) *Features_Child { return m.Delimited })
 }
-
 func (m *Features) GetDelimitedList() []*Features_Child {
-	if m != nil {
-		return m.DelimitedList
-	}
-	return nil
+	return editionsGet(m, func(m *Features) []*Features_Child { return m.DelimitedList })
 }
-
 func (m *Features) GetLengthPrefixed() *Features_Child {
-	if m != nil {
-		return m.LengthPrefixed
-	}
-	return nil
+	return editionsGet(m, func(m *Features) *Features_Child { return m.LengthPrefixed })
 }
-
 func (m *Features) GetOpenEnum() OpenEnum {
-	if m != nil && m.OpenEnum != nil {
-		return *m.OpenEnum
-	}
-	return OpenEnum_OPEN_ZERO
+	return editionsGetOr(m, func(m *Features) *OpenEnum { return m.OpenEnum }, OpenEnum_OPEN_ZERO)
 }
-
 func (m *Features) GetClosedEnum() ClosedEnum {
-	if m != nil && m.ClosedEnum != nil {
-		return *m.ClosedEnum
-	}
-	return ClosedEnum_CLOSED_ONE
+	return editionsGetOr(m, func(m *Features) *ClosedEnum { return m.ClosedEnum }, ClosedEnum_CLOSED_ONE)
 }
-
 func (m *Features) GetWithDefault() string {
-	if m != nil && m.WithDefault != nil {
-		return *m.WithDefault
-	}
-	return Default_Features_WithDefault
+	return editionsGetOr(m, func(m *Features) *string { return m.WithDefault }, Default_Features_WithDefault)
 }
-
 func (m *Features) GetVerifiedMap() map[string]string {
-	if m != nil {
-		return m.VerifiedMap
-	}
-	return nil
+	return editionsGet(m, func(m *Features) map[string]string { return m.VerifiedMap })
 }
-
 func (m *Features) GetUnverifiedMap() map[string]string {
-	if m != nil {
-		return m.UnverifiedMap
-	}
-	return nil
+	return editionsGet(m, func(m *Features) map[string]string { return m.UnverifiedMap })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Features) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return editionsGet(m, func(m *Features) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -380,19 +263,14 @@ func (m *Features) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if len(m.UnverifiedMap) > 0 {
 		for _, k := range slices.Backward(editionsSortedKeys(m.UnverifiedMap, make([]string, 0, len(m.UnverifiedMap)))) {
 			v := m.UnverifiedMap[k]
 			start := i
-			i -= len(v)
-			copy(b[i:], v)
-			i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len(v))), editionsMapValueField<<editionsTagTypeBits|editionsWireBytes)
-			i -= len(k)
-			copy(b[i:], k)
-			i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len(k))), editionsMapKeyField<<editionsTagTypeBits|editionsWireBytes)
+			i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), editionsMapValueField<<editionsTagTypeBits|editionsWireBytes)
+			i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), editionsMapKeyField<<editionsTagTypeBits|editionsWireBytes)
 			i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(start-i)), 15<<editionsTagTypeBits|editionsWireBytes)
 		}
 	}
@@ -403,15 +281,11 @@ func (m *Features) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if !utf8.ValidString(v) {
 				return 0, errors.New(editionsFeaturesVerifiedMapEntryValueErrUTF8)
 			}
-			i -= len(v)
-			copy(b[i:], v)
-			i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len(v))), editionsMapValueField<<editionsTagTypeBits|editionsWireBytes)
+			i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), editionsMapValueField<<editionsTagTypeBits|editionsWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(editionsFeaturesVerifiedMapEntryKeyErrUTF8)
 			}
-			i -= len(k)
-			copy(b[i:], k)
-			i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len(k))), editionsMapKeyField<<editionsTagTypeBits|editionsWireBytes)
+			i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), editionsMapKeyField<<editionsTagTypeBits|editionsWireBytes)
 			i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(start-i)), 14<<editionsTagTypeBits|editionsWireBytes)
 		}
 	}
@@ -419,9 +293,7 @@ func (m *Features) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if !utf8.ValidString((*m.WithDefault)) {
 			return 0, errors.New(editionsFeaturesWithDefaultErrUTF8)
 		}
-		i -= len((*m.WithDefault))
-		copy(b[i:], (*m.WithDefault))
-		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len((*m.WithDefault)))), 13<<editionsTagTypeBits|editionsWireBytes)
+		i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len((*m.WithDefault)):], (*m.WithDefault)), uint64(len((*m.WithDefault)))), 13<<editionsTagTypeBits|editionsWireBytes)
 	}
 	if m.ClosedEnum != nil {
 		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(int64((*m.ClosedEnum)))), 12<<editionsTagTypeBits|editionsWireVarint)
@@ -453,17 +325,13 @@ func (m *Features) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i = editionsPutVarint(b, i-n, 8<<editionsTagTypeBits|editionsWireStartGroup)
 	}
 	if m.Unverified != nil {
-		i -= len((*m.Unverified))
-		copy(b[i:], (*m.Unverified))
-		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len((*m.Unverified)))), 7<<editionsTagTypeBits|editionsWireBytes)
+		i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len((*m.Unverified)):], (*m.Unverified)), uint64(len((*m.Unverified)))), 7<<editionsTagTypeBits|editionsWireBytes)
 	}
 	if m.Verified != nil {
 		if !utf8.ValidString((*m.Verified)) {
 			return 0, errors.New(editionsFeaturesVerifiedErrUTF8)
 		}
-		i -= len((*m.Verified))
-		copy(b[i:], (*m.Verified))
-		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len((*m.Verified)))), 6<<editionsTagTypeBits|editionsWireBytes)
+		i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len((*m.Verified)):], (*m.Verified)), uint64(len((*m.Verified)))), 6<<editionsTagTypeBits|editionsWireBytes)
 	}
 	for _, v := range slices.Backward(m.ExpandedInts) {
 		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(int64(v))), 5<<editionsTagTypeBits|editionsWireVarint)
@@ -491,10 +359,7 @@ func (m *Features) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 // wire-format message in b.
 func (m *Features) UnmarshalBinary(b []byte) error {
 	*m = Features{}
-	if err := m.ProtoMergeDepth(b, 0); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())
 }
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
@@ -504,7 +369,7 @@ func (m *Features) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Features) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= editionsMaxDepth {
-		goto errDepth
+		return errors.New(editionsErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -590,10 +455,7 @@ func (m *Features) ProtoMergeDepth(b []byte, depth int) error {
 			if err != nil {
 				return err
 			}
-			if m.Delimited == nil {
-				m.Delimited = &Features_Child{}
-			}
-			if err := m.Delimited.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
+			if err := editionsAlloc(&m.Delimited).ProtoMergeDepth(b[:n-1], depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -613,10 +475,7 @@ func (m *Features) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.LengthPrefixed == nil {
-				m.LengthPrefixed = &Features_Child{}
-			}
-			if err := m.LengthPrefixed.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := editionsAlloc(&m.LengthPrefixed).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -724,7 +583,6 @@ func (m *Features) ProtoMergeDepth(b []byte, depth int) error {
 			editionsMapSet(&m.UnverifiedMap, mk, mv)
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := editionsSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -736,8 +594,6 @@ func (m *Features) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(editionsErrParse)
-errDepth:
-	return errors.New(editionsErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -877,10 +733,7 @@ func (m *Features) ProtoAppendJSON(b []byte) ([]byte, error) {
 // value in b.
 func (m *Features) UnmarshalJSON(b []byte) error {
 	*m = Features{}
-	if err := m.ProtoMergeJSON(b); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeJSON(b), m.ProtoCheckInitialized())
 }
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
@@ -898,10 +751,7 @@ func (m *Features) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 		return err
 	}
 	*m = Features{}
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	return m.ProtoCheckInitialized()
+	return cmp.Or(m.ProtoMergeJSONFrom(d), m.ProtoCheckInitialized())
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
@@ -912,19 +762,11 @@ func (m *Features) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [15]bool
-	// in is the kind of the array or object of repeated or map field f
-	// while its elements are read.
-	var in jsontext.Kind
-	var mk string
-	var f int
+	seen, in, mk, f := [15]bool{}, jsontext.KindInvalid, "", 0
 	for {
 		if in == jsontext.KindInvalid {
-			if d.PeekKind() == jsontext.KindEndObject {
-				break
-			}
-			kt, err := d.ReadToken()
-			if err != nil {
+			kt, more, err := editionsNextKey(d)
+			if !more {
 				return err
 			}
 			key := kt.String()
@@ -967,7 +809,6 @@ func (m *Features) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			seen[f] = true
 			if d.PeekKind() == jsontext.KindNull {
-				// null leaves the field unset.
 				if err := d.SkipValue(); err != nil {
 					return err
 				}
@@ -1006,15 +847,7 @@ func (m *Features) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.editions.Features: null is not allowed in repeated fields or map values")
 			}
 		}
-		class, bits, iv, sv, tok := editionsClassNone, 64, int64(0), "", jsontext.Token{}
-		switch f {
-		case 0, 1, 2, 3, 4:
-			class, bits = editionsClassSigned, 32
-		case 5, 6, 12, 13, 14:
-			class = editionsClassString
-		case 10, 11:
-			class = editionsClassEnum
-		}
+		class, bits, iv, sv, tok := editionsFeaturesJSONClasses[f][0], editionsFeaturesJSONClasses[f][1], int64(0), "", jsontext.Token{}
 		if class != editionsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1048,10 +881,7 @@ func (m *Features) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 6:
 			m.Unverified = new(sv)
 		case 7:
-			if m.Delimited == nil {
-				m.Delimited = &Features_Child{}
-			}
-			if err := m.Delimited.ProtoMergeJSONFrom(d); err != nil {
+			if err := editionsAlloc(&m.Delimited).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 8:
@@ -1061,10 +891,7 @@ func (m *Features) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.DelimitedList = append(m.DelimitedList, mv)
 		case 9:
-			if m.LengthPrefixed == nil {
-				m.LengthPrefixed = &Features_Child{}
-			}
-			if err := m.LengthPrefixed.ProtoMergeJSONFrom(d); err != nil {
+			if err := editionsAlloc(&m.LengthPrefixed).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 10:
@@ -1087,9 +914,9 @@ func (m *Features) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			editionsMapSet(&m.UnverifiedMap, mk, sv)
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
+
+var editionsFeaturesJSONClasses = [15][2]int{{editionsClassSigned, 32}, {editionsClassSigned, 32}, {editionsClassSigned, 32}, {editionsClassSigned, 32}, {editionsClassSigned, 32}, {editionsClassString, 64}, {editionsClassString, 64}, {editionsClassNone, 64}, {editionsClassNone, 64}, {editionsClassNone, 64}, {editionsClassEnum, 64}, {editionsClassEnum, 64}, {editionsClassString, 64}, {editionsClassString, 64}, {editionsClassString, 64}}
 
 type Features_Child struct {
 	X *int32
@@ -1101,19 +928,13 @@ type Features_Child struct {
 func (m *Features_Child) Reset() { *m = Features_Child{} }
 
 func (m *Features_Child) GetX() int32 {
-	if m != nil && m.X != nil {
-		return *m.X
-	}
-	return 0
+	return editionsGetOr(m, func(m *Features_Child) *int32 { return m.X }, 0)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Features_Child) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return editionsGet(m, func(m *Features_Child) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -1148,8 +969,7 @@ func (m *Features_Child) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.X != nil {
 		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(int64((*m.X)))), 1<<editionsTagTypeBits|editionsWireVarint)
@@ -1171,7 +991,7 @@ func (m *Features_Child) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Features_Child) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= editionsMaxDepth {
-		goto errDepth
+		return errors.New(editionsErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -1188,7 +1008,6 @@ func (m *Features_Child) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.X = b[n:], new(int32(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := editionsSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -1200,8 +1019,6 @@ func (m *Features_Child) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(editionsErrParse)
-errDepth:
-	return errors.New(editionsErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1264,14 +1081,10 @@ func (m *Features_Child) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [1]bool
-	var f int
+	seen, f := [1]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := editionsNextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -1286,7 +1099,6 @@ func (m *Features_Child) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
@@ -1306,8 +1118,6 @@ func (m *Features_Child) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.X = new(int32(iv))
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
 type ImplicitMessage struct {
@@ -1322,33 +1132,19 @@ type ImplicitMessage struct {
 func (m *ImplicitMessage) Reset() { *m = ImplicitMessage{} }
 
 func (m *ImplicitMessage) GetA() int32 {
-	if m != nil {
-		return m.A
-	}
-	return 0
+	return editionsGet(m, func(m *ImplicitMessage) int32 { return m.A })
 }
-
 func (m *ImplicitMessage) GetB() string {
-	if m != nil {
-		return m.B
-	}
-	return ""
+	return editionsGet(m, func(m *ImplicitMessage) string { return m.B })
 }
-
 func (m *ImplicitMessage) GetC() *Features_Child {
-	if m != nil {
-		return m.C
-	}
-	return nil
+	return editionsGet(m, func(m *ImplicitMessage) *Features_Child { return m.C })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *ImplicitMessage) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return editionsGet(m, func(m *ImplicitMessage) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -1389,8 +1185,7 @@ func (m *ImplicitMessage) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.C != nil {
 		n, err := m.C.ProtoMarshalToSizedBuffer(b[:i])
@@ -1403,9 +1198,7 @@ func (m *ImplicitMessage) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if !utf8.ValidString(m.B) {
 			return 0, errors.New(editionsImplicitMessageBErrUTF8)
 		}
-		i -= len(m.B)
-		copy(b[i:], m.B)
-		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(len(m.B))), 2<<editionsTagTypeBits|editionsWireBytes)
+		i = editionsPutVarint(b, editionsPutVarint(b, i-copy(b[i-len(m.B):], m.B), uint64(len(m.B))), 2<<editionsTagTypeBits|editionsWireBytes)
 	}
 	if m.A != 0 {
 		i = editionsPutVarint(b, editionsPutVarint(b, i, uint64(int64(m.A))), 1<<editionsTagTypeBits|editionsWireVarint)
@@ -1427,7 +1220,7 @@ func (m *ImplicitMessage) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ImplicitMessage) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= editionsMaxDepth {
-		goto errDepth
+		return errors.New(editionsErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -1457,15 +1250,11 @@ func (m *ImplicitMessage) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			if m.C == nil {
-				m.C = &Features_Child{}
-			}
-			if err := m.C.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := editionsAlloc(&m.C).ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := editionsSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -1477,8 +1266,6 @@ func (m *ImplicitMessage) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(editionsErrParse)
-errDepth:
-	return errors.New(editionsErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1552,14 +1339,10 @@ func (m *ImplicitMessage) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if !ok {
 		return err
 	}
-	var seen [3]bool
-	var f int
+	seen, f := [3]bool{}, 0
 	for {
-		if d.PeekKind() == jsontext.KindEndObject {
-			break
-		}
-		kt, err := d.ReadToken()
-		if err != nil {
+		kt, more, err := editionsNextKey(d)
+		if !more {
 			return err
 		}
 		key := kt.String()
@@ -1578,19 +1361,12 @@ func (m *ImplicitMessage) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		seen[f] = true
 		if d.PeekKind() == jsontext.KindNull {
-			// null leaves the field unset.
 			if err := d.SkipValue(); err != nil {
 				return err
 			}
 			continue
 		}
-		class, bits, iv, sv, tok := editionsClassNone, 64, int64(0), "", jsontext.Token{}
-		switch f {
-		case 0:
-			class, bits = editionsClassSigned, 32
-		case 1:
-			class = editionsClassString
-		}
+		class, bits, iv, sv, tok := editionsImplicitMessageJSONClasses[f][0], editionsImplicitMessageJSONClasses[f][1], int64(0), "", jsontext.Token{}
 		if class != editionsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1611,20 +1387,15 @@ func (m *ImplicitMessage) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 1:
 			m.B = sv
 		case 2:
-			if m.C == nil {
-				m.C = &Features_Child{}
-			}
-			if err := m.C.ProtoMergeJSONFrom(d); err != nil {
+			if err := editionsAlloc(&m.C).ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	_, err = d.ReadToken()
-	return err
 }
 
-// editionsPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
+var editionsImplicitMessageJSONClasses = [3][2]int{{editionsClassSigned, 32}, {editionsClassString, 64}, {editionsClassNone, 64}}
+
 func editionsPutVarint(b []byte, i int, u uint64) int {
 	if u < editionsVarintContBit {
 		b[i-1] = byte(u)
@@ -1635,14 +1406,10 @@ func editionsPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// editionsSizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func editionsSizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+editionsVarintPayloadBits-1)/editionsVarintPayloadBits
 }
 
-// editionsReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func editionsReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -1651,8 +1418,6 @@ func editionsReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// editionsSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func editionsSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & editionsTagTypeMask {
 	case editionsWireVarint:
@@ -1677,9 +1442,6 @@ func editionsSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(editionsErrParse)
 }
 
-// editionsSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func editionsSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [editionsSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -1712,8 +1474,6 @@ func editionsSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// editionsAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func editionsAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -1724,8 +1484,6 @@ func editionsAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// editionsSortedKeys appends the keys of m to keys, which should be empty, and
-// sorts them. The caller allocates keys, so that it can stay on the stack.
 func editionsSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	for k := range m {
 		keys = append(keys, k)
@@ -1734,7 +1492,29 @@ func editionsSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	return keys
 }
 
-// editionsMapSet sets (*m)[k] to v, allocating *m if it is nil.
+func editionsGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
+func editionsGetOr[M, T any](m *M, f func(*M) *T, def T) T {
+	if m != nil {
+		if p := f(m); p != nil {
+			return *p
+		}
+	}
+	return def
+}
+
+func editionsAlloc[T any](p **T) *T {
+	if *p == nil {
+		*p = new(T)
+	}
+	return *p
+}
+
 func editionsMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -1742,8 +1522,21 @@ func editionsMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	(*m)[k] = v
 }
 
-// editionsWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func editionsInvert[K, V comparable](m map[K]V) map[V]K {
+	r := make(map[V]K, len(m))
+	for k, v := range m {
+		r[v] = k
+	}
+	return r
+}
+
+func editionsEnumString(names map[int32]string, v int32) string {
+	if s, ok := names[v]; ok {
+		return s
+	}
+	return strconv.Itoa(int(v))
+}
+
 func editionsWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -1751,8 +1544,6 @@ func editionsWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// editionsAppendEnum appends enum value v as its name in names, or as a number
-// if it has none.
 func editionsAppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	if s, ok := names[v]; ok {
 		b = append(b, '"')
@@ -1762,9 +1553,6 @@ func editionsAppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	return strconv.AppendInt(b, int64(v), 10)
 }
 
-// editionsCloseObject finishes a JSON object whose members were appended to b from
-// index start, each preceded by a comma: the first comma becomes the
-// opening brace.
 func editionsCloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -1773,8 +1561,6 @@ func editionsCloseObject(b []byte, start int) []byte {
 	return append(b, '}')
 }
 
-// editionsEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func editionsEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -1785,9 +1571,6 @@ func editionsEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// editionsStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func editionsStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -1799,9 +1582,6 @@ func editionsStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// editionsOpenJSON reads the first token of the value of message name, which
-// must be of the given kind. It reports false if the value is null, which
-// leaves the message unchanged, or on error.
 func editionsOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
 	if d.PeekKind() == jsontext.KindNull {
 		return false, d.SkipValue()
@@ -1810,7 +1590,6 @@ func editionsOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string
 	return err == nil, err
 }
 
-// editionsExpectJSON reads a token of the given kind, a JSON what, in message name.
 func editionsExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -1822,9 +1601,15 @@ func editionsExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what stri
 	return nil
 }
 
-// editionsEnumClass returns the parse class and bit size for an enum value of
-// the given token kind: nothing to parse for null, a number, or a name,
-// which stays in the token until it is looked up.
+func editionsNextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
+	if d.PeekKind() == jsontext.KindEndObject {
+		_, err := d.ReadToken()
+		return jsontext.Token{}, false, err
+	}
+	tok, err := d.ReadToken()
+	return tok, err == nil, err
+}
+
 func editionsEnumClass(k jsontext.Kind) (int, int) {
 	switch k {
 	case jsontext.KindNull:
@@ -1835,8 +1620,6 @@ func editionsEnumClass(k jsontext.Kind) (int, int) {
 	return editionsClassSigned, 32
 }
 
-// editionsParseInt parses tok, a number or a quoted number, as a signed integer
-// of the given bit size, for a field of message name.
 func editionsParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := editionsJSONNumber(tok, name)
 	if err != nil {
@@ -1852,9 +1635,6 @@ func editionsParseInt(tok jsontext.Token, bits int, name string) (int64, error) 
 	return n.Int64(), nil
 }
 
-// editionsExactInt returns the integer that JSON number s denotes exactly, in an
-// exponent or fraction form, or nil. The exponent is bounded so that exact
-// arithmetic stays cheap.
 func editionsExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > editionsMaxJSONExponent || e < -editionsMaxJSONExponent {
@@ -1868,8 +1648,6 @@ func editionsExactInt(s string) *big.Int {
 	return r.Num()
 }
 
-// editionsJSONNumber returns the text of tok, which must be a number or a string
-// holding a JSON number, for a field of message name.
 func editionsJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -1878,7 +1656,6 @@ func editionsJSONNumber(tok jsontext.Token, name string) (string, error) {
 	return s, nil
 }
 
-// editionsParseString parses tok as a string for a field of message name.
 func editionsParseString(tok jsontext.Token, name string) (string, error) {
 	if tok.Kind() != jsontext.KindString {
 		return "", editionsJSONError(name, "invalid string "+tok.String())
@@ -1886,8 +1663,6 @@ func editionsParseString(tok jsontext.Token, name string) (string, error) {
 	return tok.String(), nil
 }
 
-// editionsParseEnum converts an enum value read with the given class, a name in
-// tok or a number in iv, to E. values maps names to numbers.
 func editionsParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
 	switch class {
 	case editionsClassEnum:
@@ -1903,7 +1678,6 @@ func editionsParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values
 	return 0, nil
 }
 
-// editionsJSONError returns an error about the ProtoJSON value of message name.
 func editionsJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

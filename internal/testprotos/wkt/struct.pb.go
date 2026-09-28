@@ -18,48 +18,27 @@ import (
 	"unicode/utf8"
 )
 
-// Wire types.
 const (
-	structWireVarint     = 0
-	structWireFixed64    = 1
-	structWireBytes      = 2
-	structWireStartGroup = 3
-	structWireEndGroup   = 4
-	structWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	structTagTypeBits    = 3
-	structTagTypeMask    = 1<<3 - 1
-	structMaxFieldNumber = 1<<29 - 1
-)
-
-// Map entries are encoded as messages with these field numbers.
-const (
-	structMapKeyField   = 1
-	structMapValueField = 2
-)
-
-// Encoded sizes.
-const (
-	structFixed32Size       = 4
-	structFixed64Size       = 8
-	structVarintPayloadBits = 7    // value bits per varint byte
-	structVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	structMaxDepth      = 10000 // maximum message and group nesting
-	structSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// Error messages used more than once.
-const (
+	structWireVarint                  = 0
+	structWireFixed64                 = 1
+	structWireBytes                   = 2
+	structWireStartGroup              = 3
+	structWireEndGroup                = 4
+	structWireFixed32                 = 5
+	structTagTypeBits                 = 3
+	structTagTypeMask                 = 1<<3 - 1
+	structMaxFieldNumber              = 1<<29 - 1
+	structMapKeyField                 = 1
+	structMapValueField               = 2
+	structFixed32Size                 = 4
+	structFixed64Size                 = 8
+	structVarintPayloadBits           = 7
+	structVarintContBit               = 0x80
+	structMaxDepth                    = 10000
+	structSkipStackSize               = 16
 	structStructFieldsEntryKeyErrUTF8 = "proto: field google.protobuf.Struct.FieldsEntry.key contains invalid UTF-8"
-	structErrParse                    = "proto: cannot parse invalid wire-format data"
 	structErrDepth                    = "proto: exceeded maximum recursion depth"
+	structErrParse                    = "proto: cannot parse invalid wire-format data"
 	structValueStringValueErrUTF8     = "proto: field google.protobuf.Value.string_value contains invalid UTF-8"
 )
 
@@ -85,29 +64,16 @@ var NullValue_name = map[int32]string{
 }
 
 // NullValue_value maps NullValue names to their numbers.
-var NullValue_value = map[string]int32{
-	"NULL_VALUE": 0,
-}
+var NullValue_value = structInvert(NullValue_name)
 
 // Enum returns a pointer to a copy of x.
 func (x NullValue) Enum() *NullValue { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x NullValue) String() string {
-	if s, ok := NullValue_name[int32(x)]; ok {
-		return s
-	}
-	return strconv.Itoa(int(x))
-}
+func (x NullValue) String() string { return structEnumString(NullValue_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of NullValue.
-func (x NullValue) IsValid() bool {
-	switch x {
-	case NullValue_NULL_VALUE:
-		return true
-	}
-	return false
-}
+func (x NullValue) IsValid() bool { return x == 0 }
 
 // Represents a JSON object.
 //
@@ -133,19 +99,13 @@ type Struct struct {
 func (m *Struct) Reset() { *m = Struct{} }
 
 func (m *Struct) GetFields() map[string]*Value {
-	if m != nil {
-		return m.Fields
-	}
-	return nil
+	return structGet(m, func(m *Struct) map[string]*Value { return m.Fields })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Struct) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return structGet(m, func(m *Struct) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -180,8 +140,7 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if len(m.Fields) > 0 {
 		for _, k := range slices.Backward(structSortedKeys(m.Fields, make([]string, 0, len(m.Fields)))) {
@@ -195,9 +154,7 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if !utf8.ValidString(k) {
 				return 0, errors.New(structStructFieldsEntryKeyErrUTF8)
 			}
-			i -= len(k)
-			copy(b[i:], k)
-			i = structPutVarint(b, structPutVarint(b, i, uint64(len(k))), structMapKeyField<<structTagTypeBits|structWireBytes)
+			i = structPutVarint(b, structPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), structMapKeyField<<structTagTypeBits|structWireBytes)
 			i = structPutVarint(b, structPutVarint(b, i, uint64(start-i)), 1<<structTagTypeBits|structWireBytes)
 		}
 	}
@@ -218,7 +175,7 @@ func (m *Struct) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= structMaxDepth {
-		goto errDepth
+		return errors.New(structErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -255,10 +212,7 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 					if n < 0 {
 						goto errParse
 					}
-					if mv == nil {
-						mv = &Value{}
-					}
-					if err := mv.ProtoMergeDepth(x, depth+1); err != nil {
+					if err := structAlloc(&mv).ProtoMergeDepth(x, depth+1); err != nil {
 						return err
 					}
 					v = v[n:]
@@ -270,13 +224,10 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if mv == nil {
-				mv = &Value{}
-			}
+			structAlloc(&mv)
 			structMapSet(&m.Fields, mk, mv)
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := structSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -288,8 +239,6 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(structErrParse)
-errDepth:
-	return errors.New(structErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -403,47 +352,38 @@ type Value struct {
 func (m *Value) Reset() { *m = Value{} }
 
 func (m *Value) GetKind() isValue_Kind {
-	if m != nil {
-		return m.Kind
-	}
-	return nil
+	return structGet(m, func(m *Value) isValue_Kind { return m.Kind })
 }
-
 func (m *Value) GetNullValue() NullValue {
 	if x, ok := m.GetKind().(*Value_NullValue); ok {
 		return x.NullValue
 	}
 	return NullValue_NULL_VALUE
 }
-
 func (m *Value) GetNumberValue() float64 {
 	if x, ok := m.GetKind().(*Value_NumberValue); ok {
 		return x.NumberValue
 	}
 	return 0
 }
-
 func (m *Value) GetStringValue() string {
 	if x, ok := m.GetKind().(*Value_StringValue); ok {
 		return x.StringValue
 	}
 	return ""
 }
-
 func (m *Value) GetBoolValue() bool {
 	if x, ok := m.GetKind().(*Value_BoolValue); ok {
 		return x.BoolValue
 	}
 	return false
 }
-
 func (m *Value) GetStructValue() *Struct {
 	if x, ok := m.GetKind().(*Value_StructValue); ok {
 		return x.StructValue
 	}
 	return nil
 }
-
 func (m *Value) GetListValue() *ListValue {
 	if x, ok := m.GetKind().(*Value_ListValue); ok {
 		return x.ListValue
@@ -454,60 +394,38 @@ func (m *Value) GetListValue() *ListValue {
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Value) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return structGet(m, func(m *Value) []byte { return m.unknownFields })
 }
 
-type isValue_Kind interface {
-	isValue_Kind()
-}
+type isValue_Kind interface{ isValue_Kind() }
 
 // Represents a JSON `null`.
-type Value_NullValue struct {
-	NullValue NullValue
-}
-
-func (*Value_NullValue) isValue_Kind() {}
+type Value_NullValue struct{ NullValue NullValue }
 
 // Represents a JSON number. Must not be `NaN`, `Infinity` or
 // `-Infinity`, since those are not supported in JSON. This also cannot
 // represent large Int64 values, since JSON format generally does not
 // support them in its number type.
-type Value_NumberValue struct {
-	NumberValue float64
-}
-
-func (*Value_NumberValue) isValue_Kind() {}
+type Value_NumberValue struct{ NumberValue float64 }
 
 // Represents a JSON string.
-type Value_StringValue struct {
-	StringValue string
-}
-
-func (*Value_StringValue) isValue_Kind() {}
+type Value_StringValue struct{ StringValue string }
 
 // Represents a JSON boolean (`true` or `false` literal in JSON).
-type Value_BoolValue struct {
-	BoolValue bool
-}
-
-func (*Value_BoolValue) isValue_Kind() {}
+type Value_BoolValue struct{ BoolValue bool }
 
 // Represents a JSON object.
-type Value_StructValue struct {
-	StructValue *Struct
-}
-
-func (*Value_StructValue) isValue_Kind() {}
+type Value_StructValue struct{ StructValue *Struct }
 
 // Represents a JSON array.
-type Value_ListValue struct {
-	ListValue *ListValue
-}
+type Value_ListValue struct{ ListValue *ListValue }
 
-func (*Value_ListValue) isValue_Kind() {}
+func (*Value_NullValue) isValue_Kind()   {}
+func (*Value_NumberValue) isValue_Kind() {}
+func (*Value_StringValue) isValue_Kind() {}
+func (*Value_BoolValue) isValue_Kind()   {}
+func (*Value_StructValue) isValue_Kind() {}
+func (*Value_ListValue) isValue_Kind()   {}
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Value) ProtoSize() (n int) {
@@ -552,8 +470,7 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if o, ok := m.Kind.(*Value_ListValue); ok {
 		n, err := o.ListValue.ProtoMarshalToSizedBuffer(b[:i])
@@ -576,9 +493,7 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if !utf8.ValidString(o.StringValue) {
 			return 0, errors.New(structValueStringValueErrUTF8)
 		}
-		i -= len(o.StringValue)
-		copy(b[i:], o.StringValue)
-		i = structPutVarint(b, structPutVarint(b, i, uint64(len(o.StringValue))), 3<<structTagTypeBits|structWireBytes)
+		i = structPutVarint(b, structPutVarint(b, i-copy(b[i-len(o.StringValue):], o.StringValue), uint64(len(o.StringValue))), 3<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_NumberValue); ok {
 		i = structPutVarint(b, structPutFixed64(b, i, math.Float64bits(o.NumberValue)), 2<<structTagTypeBits|structWireFixed64)
@@ -603,7 +518,7 @@ func (m *Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= structMaxDepth {
-		goto errDepth
+		return errors.New(structErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -672,7 +587,6 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := structSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -684,8 +598,6 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(structErrParse)
-errDepth:
-	return errors.New(structErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -807,7 +719,6 @@ func (m *Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		m.Kind = &Value_NumberValue{NumberValue: fv}
 	default:
-		// A syntax error, which the read reports.
 		if _, err := d.ReadToken(); err != nil {
 			return err
 		}
@@ -828,19 +739,13 @@ type ListValue struct {
 func (m *ListValue) Reset() { *m = ListValue{} }
 
 func (m *ListValue) GetValues() []*Value {
-	if m != nil {
-		return m.Values
-	}
-	return nil
+	return structGet(m, func(m *ListValue) []*Value { return m.Values })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *ListValue) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return structGet(m, func(m *ListValue) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -875,8 +780,7 @@ func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	for _, v := range slices.Backward(m.Values) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -902,7 +806,7 @@ func (m *ListValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= structMaxDepth {
-		goto errDepth
+		return errors.New(structErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -924,7 +828,6 @@ func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := structSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -936,8 +839,6 @@ func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(structErrParse)
-errDepth:
-	return errors.New(structErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1016,8 +917,6 @@ func (m *ListValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return err
 }
 
-// structPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func structPutVarint(b []byte, i int, u uint64) int {
 	if u < structVarintContBit {
 		b[i-1] = byte(u)
@@ -1028,15 +927,11 @@ func structPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// structPutFixed64 writes u in 8 little-endian bytes ending at b[i] and returns
-// the index of the first.
 func structPutFixed64(b []byte, i int, u uint64) int {
 	binary.LittleEndian.PutUint64(b[i-structFixed64Size:], u)
 	return i - structFixed64Size
 }
 
-// structPutBool writes v as a one-byte varint ending at b[i] and returns its
-// index.
 func structPutBool(b []byte, i int, v bool) int {
 	b[i-1] = 0
 	if v {
@@ -1045,14 +940,10 @@ func structPutBool(b []byte, i int, v bool) int {
 	return i - 1
 }
 
-// structSizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func structSizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
 }
 
-// structReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func structReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -1061,8 +952,6 @@ func structReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// structSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func structSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & structTagTypeMask {
 	case structWireVarint:
@@ -1087,9 +976,6 @@ func structSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(structErrParse)
 }
 
-// structSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func structSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [structSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -1122,8 +1008,6 @@ func structSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// structAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func structAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -1134,8 +1018,6 @@ func structAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// structSortedKeys appends the keys of m to keys, which should be empty, and
-// sorts them. The caller allocates keys, so that it can stay on the stack.
 func structSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	for k := range m {
 		keys = append(keys, k)
@@ -1144,7 +1026,20 @@ func structSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	return keys
 }
 
-// structMapSet sets (*m)[k] to v, allocating *m if it is nil.
+func structGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
+func structAlloc[T any](p **T) *T {
+	if *p == nil {
+		*p = new(T)
+	}
+	return *p
+}
+
 func structMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -1152,8 +1047,21 @@ func structMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	(*m)[k] = v
 }
 
-// structWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func structInvert[K, V comparable](m map[K]V) map[V]K {
+	r := make(map[V]K, len(m))
+	for k, v := range m {
+		r[v] = k
+	}
+	return r
+}
+
+func structEnumString(names map[int32]string, v int32) string {
+	if s, ok := names[v]; ok {
+		return s
+	}
+	return strconv.Itoa(int(v))
+}
+
 func structWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -1161,8 +1069,6 @@ func structWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// structEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func structEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -1173,9 +1079,6 @@ func structEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// structStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func structStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -1187,9 +1090,6 @@ func structStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// structOpenJSON reads the first token of the value of message name, which
-// must be of the given kind. It reports false if the value is null, which
-// leaves the message unchanged, or on error.
 func structOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
 	if d.PeekKind() == jsontext.KindNull {
 		return false, d.SkipValue()
@@ -1198,7 +1098,6 @@ func structOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) 
 	return err == nil, err
 }
 
-// structExpectJSON reads a token of the given kind, a JSON what, in message name.
 func structExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -1210,7 +1109,6 @@ func structExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string
 	return nil
 }
 
-// structJSONError returns an error about the ProtoJSON value of message name.
 func structJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

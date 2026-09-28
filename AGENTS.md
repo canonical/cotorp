@@ -97,10 +97,11 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   the `default` case measures the unknown field with the `SkipField` helper
   and keeps it. Map entries decode with the same pattern.
 - **`goto` rules in `ProtoMergeDepth`:**
-  - Decode failures `goto errParse` and depth failures `goto errDepth`; both
-    labels sit at the end of the function. Helpers cannot jump to them, so
-    they report failure with a negative length (`ReadBytes`) or return the
-    error (`SkipField`, `SkipGroup`).
+  - Decode failures `goto errParse`, whose label sits at the end of the
+    function; the depth check at the top returns its error directly.
+    Helpers cannot jump to the label, so they report failure with a
+    negative length (`ReadBytes`) or return the error (`SkipField`,
+    `SkipGroup`).
   - Declare no variables at the top level of the function body between the
     first `goto` and the labels. Declare them inside the `for` loop or other
     blocks, or the jump will not compile.
@@ -110,14 +111,37 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   - Unknown fields are copied first, so they end up last.
   - Each value is written by one expression that evaluates to the new `i`:
     `fg.putScalar` returns it (a `PutVarint`, `PutFixed32`, `PutFixed64` or
-    `PutBool` call; strings and bytes first emit their copy), and the tag
+    `PutBool` call; strings and bytes nest their `copy` in the length
+    write), and the tag
     write wraps it: `i = PutVarint(b, <value>, <tag>)`.
 - **Keep generated code dense.** Where gofmt allows it, prefer one line:
   - one-statement methods on one line (`MarshalBinary`, `ProtoMerge`, and
     `ProtoCheckInitialized` and `MarshalJSON` without required fields);
   - `b, m.F = b[n:], expr` to advance and assign in `ProtoMergeDepth`;
   - `m.F = new(expr)` for explicit-presence fields (Go 1.26);
-  - `a, b := x, y` for several locals (gofmt expands `var (...)` groups).
+  - `a, b := x, y` for several locals (gofmt expands `var (...)` groups);
+  - `cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())` and the
+    like, where a method returns the first of two errors;
+  - `Alloc(&m.F)` to allocate a sub-message on first use;
+  - getters through the `Get` and `GetOr` helpers, whose function literal is
+    inlined (measured as fast as the plain form). Oneof member getters keep
+    their type assertion: a generic helper asserts through a dictionary and
+    was 60% slower. gofmt keeps a function on one line only when it is
+    short, so most getters take three lines;
+  - lookup tables built at generation time instead of `switch` statements
+    where indexing is at least as fast (the JSON parse class per field,
+    `<Msg>JSONClasses`), or at init time where only startup pays
+    (`E_value = Invert(E_name)` for enums without aliases). JSON field names
+    stay in a `switch`: a map lookup was four times slower;
+  - no blank lines between declarations that gofmt lets touch (getters, and
+    the oneof types, then their marker methods).
+- **Emit comments only on exported declarations.** Helpers, file constants
+  and lookup tables have none, and no comments are emitted inside function
+  bodies. Explain generated code with comments in the generator instead
+  (`constGroups` keeps its docs for this reason).
+- **Measure density changes that touch hot paths.** Some are not free: an
+  unconditional `copy` of empty unknown fields cost 4% of binary marshaling,
+  so it stays guarded.
 - **Wire output must stay byte-identical to protoc** for messages without
   maps. Map entries are sorted by key.
 - **Generated code must build at Go 1.27**, the `go.mod` version. It uses
@@ -141,7 +165,10 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   one value per loop iteration (a field's value, or an element of the
   repeated or map field named by `in`), parses scalars with one `Parse*`
   helper call per class, then assigns. Nested messages call
-  `ProtoMergeJSONFrom` on the same decoder. Map entries are stored with the
+  `ProtoMergeJSONFrom` on the same decoder. The loop reads keys with the
+  `NextKey` helper, which also consumes the closing brace and ends the
+  method; it returns the key token, not a string, so that the key can stay
+  on the stack. Map entries are stored with the
   `MapSet` helper, after non-string keys are parsed by `Parse*Key`.
   - A `jsontext.Token` is invalid after the next read or peek, so convert it
     (for example with `tok.String()`) before using the decoder again. An

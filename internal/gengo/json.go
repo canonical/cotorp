@@ -331,10 +331,8 @@ func (fg *fileGen) genJSONUnmarshal(mi *messageInfo, body func()) {
 	jt := fg.std("encoding/json/jsontext")
 	merge := func(call string) {
 		if mi.m.HasRequired() {
-			fg.P("if err := m.", call, "; err != nil {")
-			fg.P("return err")
-			fg.P("}")
-			fg.P("return m.ProtoCheckInitialized()")
+			// cmp.Or returns the first error; the check is cheap.
+			fg.P("return ", fg.std("cmp"), ".Or(m.", call, ", m.ProtoCheckInitialized())")
 		} else {
 			fg.P("return m.", call)
 		}
@@ -371,6 +369,11 @@ func (fg *fileGen) genJSONUnmarshal(mi *messageInfo, body func()) {
 	body()
 	fg.P("}")
 	fg.P()
+	for _, d := range fg.decls {
+		fg.P(d)
+		fg.P()
+	}
+	fg.decls = nil
 }
 
 // jsonReadOpen emits code reading the first token of a value, which must be
@@ -381,7 +384,6 @@ func (fg *fileGen) jsonReadOpen(name, kind, hint, what string) {
 	fg.P("return err")
 	fg.P("}")
 	fg.P("if tok.Kind() == ", fg.kind("Null"), " {")
-	fg.P("// JSON null leaves the message unchanged.")
 	fg.P("return nil")
 	fg.P("}")
 	fg.P("if tok.Kind() != ", fg.kind(kind), " {")
@@ -402,7 +404,6 @@ func (fg *fileGen) jsonOpen(name, kind, what string) {
 // with Options.JSONDiscardUnknown.
 func (fg *fileGen) jsonUnknown(name, key string) {
 	if fg.g.opts.JSONDiscardUnknown {
-		fg.P("// Unknown keys are ignored (-json_discard_unknown).")
 		fg.P("if err := d.SkipValue(); err != nil {")
 		fg.P("return err")
 		fg.P("}")
@@ -417,22 +418,19 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	name := mi.m.FullName
 	fg.jsonOpen(name, "BeginObject", "object")
 	if len(mi.fields) == 0 {
+		kt := "kt"
 		if fg.g.opts.JSONDiscardUnknown {
-			fg.P("for d.PeekKind() != ", fg.kind("EndObject"), " {")
-			fg.P("if _, err := d.ReadToken(); err != nil {")
-			fg.P("return err")
-			fg.P("}")
-		} else {
-			fg.P("if d.PeekKind() != ", fg.kind("EndObject"), " {")
-			fg.P("kt, err := d.ReadToken()")
-			fg.P("if err != nil {")
-			fg.P("return err")
+			fg.P("for {")
+			kt = "_"
+		}
+		fg.P(kt, ", more, err := ", fg.fn("NextKey"), "(d)")
+		fg.P("if !more {")
+		fg.P("return err")
+		fg.P("}")
+		fg.jsonUnknown(name, "kt.String()")
+		if fg.g.opts.JSONDiscardUnknown {
 			fg.P("}")
 		}
-		fg.jsonUnknown(name, "kt.String()")
-		fg.P("}")
-		fg.P("_, err = d.ReadToken()")
-		fg.P("return err")
 		return
 	}
 
@@ -465,28 +463,25 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	objects := append(append([]int(nil), maps...), mapsNull...)
 	containers := len(arrays)+len(objects) > 0
 
-	fg.P("var seen [", len(mi.fields), "]bool")
+	names, values := []string{"seen"}, []string{"[" + strconv.Itoa(len(mi.fields)) + "]bool{}"}
 	if len(mi.oneofs) > 0 {
-		fg.P("var oneofs [", len(mi.oneofs), "]bool")
+		names, values = append(names, "oneofs"), append(values, "["+strconv.Itoa(len(mi.oneofs))+"]bool{}")
 	}
 	if containers {
-		fg.P("// in is the kind of the array or object of repeated or map field f")
-		fg.P("// while its elements are read.")
-		fg.P("var in ", fg.std("encoding/json/jsontext"), ".Kind")
+		names, values = append(names, "in"), append(values, fg.kind("Invalid"))
 	}
 	if len(objects) > 0 {
-		fg.P("var mk string")
+		names, values = append(names, "mk"), append(values, `""`)
 	}
-	fg.P("var f int")
+	names, values = append(names, "f"), append(values, "0")
+	fg.P(joinComma(names), " := ", joinComma(values))
 	fg.P("for {")
 	if containers {
 		fg.P("if in == ", fg.kind("Invalid"), " {")
 	}
-	fg.P("if d.PeekKind() == ", fg.kind("EndObject"), " {")
-	fg.P("break")
-	fg.P("}")
-	fg.P("kt, err := d.ReadToken()")
-	fg.P("if err != nil {")
+	// The loop ends when NextKey reads the closing brace.
+	fg.P("kt, more, err := ", fg.fn("NextKey"), "(d)")
+	fg.P("if !more {")
 	fg.P("return err")
 	fg.P("}")
 	fg.P("key := kt.String()")
@@ -532,7 +527,6 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	fg.P("}")
 	fg.P("seen[f] = true")
 	fg.P("if d.PeekKind() == ", fg.kind("Null"), notIn("f", nullOK), " {")
-	fg.P("// null leaves the field unset.")
 	fg.P("if err := d.SkipValue(); err != nil {")
 	fg.P("return err")
 	fg.P("}")
@@ -589,8 +583,6 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	}
 	fg.jsonValue(mi, allIndexes(mi))
 	fg.P("}")
-	fg.P("_, err = d.ReadToken()")
-	fg.P("return err")
 }
 
 func allIndexes(mi *messageInfo) []int {
@@ -723,9 +715,36 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 				decl("bits", strconv.Itoa(k[1]))
 			}
 		} else {
-			decl("class", fg.class(classNone))
+			// The class and bit size of each field come from a table
+			// indexed by f, declared after the method.
+			table := fg.constName(fg.owner(mi.m.FullName) + "JSONClasses")
+			entries := make([]string, len(mi.fields))
+			for i := range entries {
+				entries[i] = fg.class(classNone)
+				if numeric {
+					entries[i] = "{" + entries[i] + ", 64}"
+				}
+			}
+			for _, k := range gkeys {
+				for _, i := range groups[k] {
+					if numeric {
+						bits := k[1]
+						if bits == 0 {
+							bits = 64
+						}
+						entries[i] = "{" + fg.class(k[0]) + ", " + strconv.Itoa(bits) + "}"
+					} else {
+						entries[i] = fg.class(k[0])
+					}
+				}
+			}
 			if numeric {
-				decl("bits", "64")
+				fg.decls = append(fg.decls, "var "+table+" = ["+strconv.Itoa(len(entries))+"][2]int{"+joinComma(entries)+"}")
+				decl("class", table+"[f][0]")
+				decl("bits", table+"[f][1]")
+			} else {
+				fg.decls = append(fg.decls, "var "+table+" = ["+strconv.Itoa(len(entries))+"]int{"+joinComma(entries)+"}")
+				decl("class", table+"[f]")
 			}
 		}
 		scratch := map[int][2]string{classSigned: {"iv", "int64(0)"}, classUnsigned: {"uv", "uint64(0)"}, classFloat: {"fv", "float64(0)"}, classBool: {"bv", "false"}, classString: {"sv", `""`}}
@@ -741,19 +760,6 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 			decl("tok", fg.std("encoding/json/jsontext")+".Token{}")
 		}
 		fg.P(joinComma(names), " := ", joinComma(values))
-		if !single {
-			// Select the parse class for the field.
-			fg.P("switch f {")
-			for _, k := range gkeys {
-				fg.P("case ", joinInts(groups[k]), ":")
-				if numeric && k[1] != 0 {
-					fg.P("class, bits = ", fg.class(k[0]), ", ", k[1])
-				} else {
-					fg.P("class = ", fg.class(k[0]))
-				}
-			}
-			fg.P("}")
-		}
 		if single {
 			fg.P("tok, err := d.ReadToken()")
 			fg.P("if err != nil {")
@@ -909,10 +915,7 @@ func (fg *fileGen) jsonAssign(fi *fieldInfo) {
 		val := fg.jsonValueExpr(f, name)
 		fg.P(fv, " = append(", fv, ", ", val, ")")
 	case f.Kind == desc.KindMessage:
-		fg.P("if ", fv, " == nil {")
-		fg.P(fv, " = &", fg.msgType(f.MessageType), "{}")
-		fg.P("}")
-		fg.P("if err := ", fv, ".ProtoMergeJSONFrom(d); err != nil {")
+		fg.P("if err := ", fg.fn("Alloc"), "(&", fv, ").ProtoMergeJSONFrom(d); err != nil {")
 		fg.P("return err")
 		fg.P("}")
 	case f.HasPresence && f.Kind != desc.KindBytes:
@@ -1096,7 +1099,6 @@ func (fg *fileGen) genJSONWrapper(mi *messageInfo) {
 	})
 	fg.genJSONUnmarshal(mi, func() {
 		fg.P("if d.PeekKind() == ", fg.kind("Null"), " {")
-		fg.P("// JSON null leaves the message unchanged.")
 		fg.P("return d.SkipValue()")
 		fg.P("}")
 		fg.jsonValue(mi, []int{idx})
@@ -1223,7 +1225,6 @@ func (fg *fileGen) genJSONValue(mi *messageInfo) {
 		fg.P("}")
 		fg.P("m.", kind, " = &", num.wrapper, "{", num.goName, ": fv}")
 		fg.P("default:")
-		fg.P("// A syntax error, which the read reports.")
 		fg.P("if _, err := d.ReadToken(); err != nil {")
 		fg.P("return err")
 		fg.P("}")
@@ -1244,7 +1245,6 @@ func (fg *fileGen) genJSONFieldMask(mi *messageInfo) {
 		fg.P("if j > 0 {")
 		fg.P("b = append(b, ',')")
 		fg.P("}")
-		fg.P("// snake_case to lowerCamelCase; reject paths that do not round-trip.")
 		fg.P("for ci := 0; ci < len(p); ci++ {")
 		fg.P("switch c := p[ci]; {")
 		fg.P("case c == '_':")
@@ -1270,7 +1270,6 @@ func (fg *fileGen) genJSONFieldMask(mi *messageInfo) {
 		fg.P("return nil")
 		fg.P("}")
 		fg.P("for _, p := range ", fg.std("strings"), ".Split(s, \",\") {")
-		fg.P("// lowerCamelCase to snake_case.")
 		fg.P("var sb []byte")
 		fg.P("for ci := 0; ci < len(p); ci++ {")
 		fg.P("switch c := p[ci]; {")

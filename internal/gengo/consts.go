@@ -17,14 +17,14 @@ import (
 
 // constGroup is a set of related constants declared together.
 type constGroup struct {
-	doc    string
+	doc    string // for readers of this file; not emitted
 	consts []constDef
 }
 
 type constDef struct {
 	suffix  string // name without the file prefix
 	value   string
-	comment string // optional trailing comment
+	comment string // optional explanation; not emitted
 }
 
 // constGroups lists every constant that generated code may use, in
@@ -206,45 +206,26 @@ func (fg *fileGen) resolveErrs(src []byte) ([]byte, [][2]string) {
 	}
 }
 
-// writeConsts writes the declarations of the constants this file uses.
+// writeConsts writes the declarations of the constants this file uses, as
+// one block. Group docs and comments are for readers of constGroups and are
+// not emitted.
 func (fg *fileGen) writeConsts(w *bytes.Buffer, errs [][2]string) {
+	var lines []string
 	for _, g := range constGroups {
-		var used []constDef
 		for _, c := range g.consts {
-			if _, ok := fg.consts[c.suffix]; ok {
-				used = append(used, c)
+			if name, ok := fg.consts[c.suffix]; ok {
+				lines = append(lines, name+" = "+c.value)
 			}
 		}
-		if len(used) == 0 {
-			continue
-		}
-		w.WriteString("// " + g.doc + "\n")
-		if len(used) == 1 {
-			w.WriteString("const ")
-		} else {
-			w.WriteString("const (\n")
-		}
-		for _, c := range used {
-			w.WriteString(fg.consts[c.suffix] + " = " + c.value)
-			if c.comment != "" {
-				w.WriteString(" // " + c.comment)
-			}
-			w.WriteString("\n")
-		}
-		if len(used) > 1 {
-			w.WriteString(")\n")
-		}
-		w.WriteString("\n")
 	}
-	switch len(errs) {
+	for _, e := range errs {
+		lines = append(lines, e[0]+" = "+e[1])
+	}
+	switch len(lines) {
 	case 0:
 	case 1:
-		w.WriteString("// Error message used more than once.\nconst " + errs[0][0] + " = " + errs[0][1] + "\n\n")
+		w.WriteString("const " + lines[0] + "\n\n")
 	default:
-		w.WriteString("// Error messages used more than once.\nconst (\n")
-		for _, e := range errs {
-			w.WriteString(e[0] + " = " + e[1] + "\n")
-		}
-		w.WriteString(")\n\n")
+		w.WriteString("const (\n" + strings.Join(lines, "\n") + "\n)\n\n")
 	}
 }

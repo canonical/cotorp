@@ -17,42 +17,25 @@ import (
 	"unicode/utf8"
 )
 
-// Wire types.
 const (
-	fieldMaskWireVarint     = 0
-	fieldMaskWireFixed64    = 1
-	fieldMaskWireBytes      = 2
-	fieldMaskWireStartGroup = 3
-	fieldMaskWireEndGroup   = 4
-	fieldMaskWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	fieldMaskTagTypeBits    = 3
-	fieldMaskTagTypeMask    = 1<<3 - 1
-	fieldMaskMaxFieldNumber = 1<<29 - 1
-)
-
-// Encoded sizes.
-const (
-	fieldMaskFixed32Size       = 4
-	fieldMaskFixed64Size       = 8
-	fieldMaskVarintPayloadBits = 7    // value bits per varint byte
-	fieldMaskVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	fieldMaskMaxDepth      = 10000 // maximum message and group nesting
-	fieldMaskSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// Error messages used more than once.
-const (
+	fieldMaskWireVarint                      = 0
+	fieldMaskWireFixed64                     = 1
+	fieldMaskWireBytes                       = 2
+	fieldMaskWireStartGroup                  = 3
+	fieldMaskWireEndGroup                    = 4
+	fieldMaskWireFixed32                     = 5
+	fieldMaskTagTypeBits                     = 3
+	fieldMaskTagTypeMask                     = 1<<3 - 1
+	fieldMaskMaxFieldNumber                  = 1<<29 - 1
+	fieldMaskFixed32Size                     = 4
+	fieldMaskFixed64Size                     = 8
+	fieldMaskVarintPayloadBits               = 7
+	fieldMaskVarintContBit                   = 0x80
+	fieldMaskMaxDepth                        = 10000
+	fieldMaskSkipStackSize                   = 16
 	fieldMaskFieldMaskPathsErrUTF8           = "proto: field google.protobuf.FieldMask.paths contains invalid UTF-8"
-	fieldMaskErrParse                        = "proto: cannot parse invalid wire-format data"
 	fieldMaskErrDepth                        = "proto: exceeded maximum recursion depth"
+	fieldMaskErrParse                        = "proto: cannot parse invalid wire-format data"
 	fieldMaskFieldMaskErrUnrepresentablePath = "proto: google.protobuf.FieldMask: path cannot be represented in JSON: "
 )
 
@@ -263,19 +246,13 @@ type FieldMask struct {
 func (m *FieldMask) Reset() { *m = FieldMask{} }
 
 func (m *FieldMask) GetPaths() []string {
-	if m != nil {
-		return m.Paths
-	}
-	return nil
+	return fieldMaskGet(m, func(m *FieldMask) []string { return m.Paths })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *FieldMask) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return fieldMaskGet(m, func(m *FieldMask) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -310,16 +287,13 @@ func (m *FieldMask) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	for _, v := range slices.Backward(m.Paths) {
 		if !utf8.ValidString(v) {
 			return 0, errors.New(fieldMaskFieldMaskPathsErrUTF8)
 		}
-		i -= len(v)
-		copy(b[i:], v)
-		i = fieldMaskPutVarint(b, fieldMaskPutVarint(b, i, uint64(len(v))), 1<<fieldMaskTagTypeBits|fieldMaskWireBytes)
+		i = fieldMaskPutVarint(b, fieldMaskPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 1<<fieldMaskTagTypeBits|fieldMaskWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -338,7 +312,7 @@ func (m *FieldMask) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= fieldMaskMaxDepth {
-		goto errDepth
+		return errors.New(fieldMaskErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -358,7 +332,6 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Paths = b[n:], append(m.Paths, string(x))
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := fieldMaskSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -370,8 +343,6 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(fieldMaskErrParse)
-errDepth:
-	return errors.New(fieldMaskErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -397,7 +368,6 @@ func (m *FieldMask) ProtoAppendJSON(b []byte) ([]byte, error) {
 			if j > 0 {
 				b = append(b, ',')
 			}
-			// snake_case to lowerCamelCase; reject paths that do not round-trip.
 			for ci := 0; ci < len(p); ci++ {
 				switch c := p[ci]; {
 				case c == '_':
@@ -452,7 +422,6 @@ func (m *FieldMask) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		return err
 	}
 	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
 		return nil
 	}
 	if tok.Kind() != jsontext.KindString {
@@ -463,7 +432,6 @@ func (m *FieldMask) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		return nil
 	}
 	for _, p := range strings.Split(s, ",") {
-		// lowerCamelCase to snake_case.
 		var sb []byte
 		for ci := 0; ci < len(p); ci++ {
 			switch c := p[ci]; {
@@ -480,8 +448,6 @@ func (m *FieldMask) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-// fieldMaskPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func fieldMaskPutVarint(b []byte, i int, u uint64) int {
 	if u < fieldMaskVarintContBit {
 		b[i-1] = byte(u)
@@ -492,14 +458,10 @@ func fieldMaskPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// fieldMaskSizeLen returns the size of a length-delimited value of l bytes,
-// including its length prefix.
 func fieldMaskSizeLen(l int) int {
 	return l + (bits.Len64(uint64(l)|1)+fieldMaskVarintPayloadBits-1)/fieldMaskVarintPayloadBits
 }
 
-// fieldMaskReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func fieldMaskReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -508,8 +470,6 @@ func fieldMaskReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// fieldMaskSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func fieldMaskSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & fieldMaskTagTypeMask {
 	case fieldMaskWireVarint:
@@ -534,9 +494,6 @@ func fieldMaskSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(fieldMaskErrParse)
 }
 
-// fieldMaskSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func fieldMaskSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [fieldMaskSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -569,8 +526,6 @@ func fieldMaskSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// fieldMaskAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func fieldMaskAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -581,8 +536,13 @@ func fieldMaskAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// fieldMaskWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func fieldMaskGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
 func fieldMaskWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -590,8 +550,6 @@ func fieldMaskWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// fieldMaskEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func fieldMaskEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -602,9 +560,6 @@ func fieldMaskEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// fieldMaskStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func fieldMaskStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -616,7 +571,6 @@ func fieldMaskStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// fieldMaskJSONError returns an error about the ProtoJSON value of message name.
 func fieldMaskJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }

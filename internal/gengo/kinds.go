@@ -239,9 +239,7 @@ func (fg *fileGen) putScalar(k desc.Kind, v string) string {
 	case desc.KindBool:
 		return fg.fn("PutBool") + "(b, i, " + v + ")"
 	case desc.KindString, desc.KindBytes:
-		fg.P("i -= len(", v, ")")
-		fg.P("copy(b[i:], ", v, ")")
-		return fg.putVarint("i", "uint64(len("+v+"))")
+		return fg.putVarint("i-copy(b[i-len("+v+"):], "+v+")", "uint64(len("+v+"))")
 	}
 	return fg.putVarint("i", varintExpr(k, v))
 }

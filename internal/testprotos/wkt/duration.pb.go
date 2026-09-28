@@ -16,56 +16,31 @@ import (
 	"strings"
 )
 
-// Wire types.
 const (
-	durationWireVarint     = 0
-	durationWireFixed64    = 1
-	durationWireBytes      = 2
-	durationWireStartGroup = 3
-	durationWireEndGroup   = 4
-	durationWireFixed32    = 5
-)
-
-// A tag holds the field number above the wire type in its low three bits.
-const (
-	durationTagTypeBits    = 3
-	durationTagTypeMask    = 1<<3 - 1
-	durationMaxFieldNumber = 1<<29 - 1
-)
-
-// Encoded sizes.
-const (
-	durationFixed32Size       = 4
-	durationFixed64Size       = 8
-	durationVarintPayloadBits = 7    // value bits per varint byte
-	durationVarintContBit     = 0x80 // set on every varint byte but the last
-)
-
-// Decoding limits.
-const (
-	durationMaxDepth      = 10000 // maximum message and group nesting
-	durationSkipStackSize = 16    // group nesting tracked without allocating
-)
-
-// ProtoJSON limits.
-const (
-	durationMaxFracDigits      = 9            // fractional second digits in a Duration
-	durationMaxDurationSeconds = 315576000000 // 10000 years
-)
-
-// Time units.
-const (
-	durationNanosPerSecond  = 1000000000
-	durationNanosPerMilli   = 1000000
-	durationNanosPerMicro   = 1000
-	durationMicrosPerSecond = 1000000
-	durationMillisPerSecond = 1000
-)
-
-// Error messages used more than once.
-const (
-	durationErrParse              = "proto: cannot parse invalid wire-format data"
+	durationWireVarint            = 0
+	durationWireFixed64           = 1
+	durationWireBytes             = 2
+	durationWireStartGroup        = 3
+	durationWireEndGroup          = 4
+	durationWireFixed32           = 5
+	durationTagTypeBits           = 3
+	durationTagTypeMask           = 1<<3 - 1
+	durationMaxFieldNumber        = 1<<29 - 1
+	durationFixed32Size           = 4
+	durationFixed64Size           = 8
+	durationVarintPayloadBits     = 7
+	durationVarintContBit         = 0x80
+	durationMaxDepth              = 10000
+	durationSkipStackSize         = 16
+	durationMaxFracDigits         = 9
+	durationMaxDurationSeconds    = 315576000000
+	durationNanosPerSecond        = 1000000000
+	durationNanosPerMilli         = 1000000
+	durationNanosPerMicro         = 1000
+	durationMicrosPerSecond       = 1000000
+	durationMillisPerSecond       = 1000
 	durationErrDepth              = "proto: exceeded maximum recursion depth"
+	durationErrParse              = "proto: cannot parse invalid wire-format data"
 	durationDurationErrOutOfRange = "proto: google.protobuf.Duration: duration out of range"
 )
 
@@ -147,26 +122,16 @@ type Duration struct {
 func (m *Duration) Reset() { *m = Duration{} }
 
 func (m *Duration) GetSeconds() int64 {
-	if m != nil {
-		return m.Seconds
-	}
-	return 0
+	return durationGet(m, func(m *Duration) int64 { return m.Seconds })
 }
-
 func (m *Duration) GetNanos() int32 {
-	if m != nil {
-		return m.Nanos
-	}
-	return 0
+	return durationGet(m, func(m *Duration) int32 { return m.Nanos })
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not
 // recognized when m was decoded.
 func (m *Duration) ProtoUnknownFields() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.unknownFields
+	return durationGet(m, func(m *Duration) []byte { return m.unknownFields })
 }
 
 // ProtoSize returns the size of the wire-format encoding of m.
@@ -204,8 +169,7 @@ func (m *Duration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	i := len(b)
 	if len(m.unknownFields) > 0 {
-		i -= len(m.unknownFields)
-		copy(b[i:], m.unknownFields)
+		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
 	}
 	if m.Nanos != 0 {
 		i = durationPutVarint(b, durationPutVarint(b, i, uint64(int64(m.Nanos))), 2<<durationTagTypeBits|durationWireVarint)
@@ -230,7 +194,7 @@ func (m *Duration) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 	if depth >= durationMaxDepth {
-		goto errDepth
+		return errors.New(durationErrDepth)
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
@@ -253,7 +217,6 @@ func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b, m.Nanos = b[n:], int32(x)
 		default:
-			// Unknown field, or a known field with an unexpected wire type.
 			n, err := durationSkipField(b, t, depth)
 			if err != nil {
 				return err
@@ -265,8 +228,6 @@ func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 	return nil
 errParse:
 	return errors.New(durationErrParse)
-errDepth:
-	return errors.New(durationErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -350,7 +311,6 @@ func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		return err
 	}
 	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
 		return nil
 	}
 	if tok.Kind() != jsontext.KindString {
@@ -385,8 +345,6 @@ func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-// durationPutVarint writes u as a varint ending at b[i] and returns the index of
-// its first byte.
 func durationPutVarint(b []byte, i int, u uint64) int {
 	if u < durationVarintContBit {
 		b[i-1] = byte(u)
@@ -397,8 +355,6 @@ func durationPutVarint(b []byte, i int, u uint64) int {
 	return i
 }
 
-// durationReadBytes returns the length-delimited value at the start of b and the
-// number of bytes it occupies, or n < 0 if it is malformed.
 func durationReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -407,8 +363,6 @@ func durationReadBytes(b []byte) (v []byte, n int) {
 	return b[k : k+int(ln)], k + int(ln)
 }
 
-// durationSkipField returns the length of the value at the start of b of a field
-// with tag t, in a message nested depth levels deep.
 func durationSkipField(b []byte, t uint64, depth int) (int, error) {
 	switch t & durationTagTypeMask {
 	case durationWireVarint:
@@ -433,9 +387,6 @@ func durationSkipField(b []byte, t uint64, depth int) (int, error) {
 	return 0, errors.New(durationErrParse)
 }
 
-// durationSkipGroup returns the length of the body of group num at the start of
-// b, including its end-group tag, in a message nested depth levels deep.
-// Nested groups are tracked with a small stack.
 func durationSkipGroup(b []byte, num int32, depth int) (int, error) {
 	var stk [durationSkipStackSize]int32
 	open := append(stk[:0], num)
@@ -468,8 +419,6 @@ func durationSkipGroup(b []byte, num int32, depth int) (int, error) {
 	return n, nil
 }
 
-// durationAppended finishes AppendBinary: b has capacity for size more bytes,
-// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
 func durationAppended(b []byte, size, n int, err error) ([]byte, error) {
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
@@ -480,8 +429,13 @@ func durationAppended(b []byte, size, n int, err error) ([]byte, error) {
 	return b[:len(b)+size], nil
 }
 
-// durationWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
-// unless producing b failed with err.
+func durationGet[M, T any](m *M, f func(*M) T) (t T) {
+	if m != nil {
+		t = f(m)
+	}
+	return t
+}
+
 func durationWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	if err != nil {
 		return err
@@ -489,8 +443,6 @@ func durationWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 	return e.WriteValue(b)
 }
 
-// durationEndJSON finishes ProtoMergeJSON for message name: decoding one value
-// from d failed with err, or d must have no more data.
 func durationEndJSON(d *jsontext.Decoder, err error, name string) error {
 	if err != nil {
 		return err
@@ -501,9 +453,6 @@ func durationEndJSON(d *jsontext.Decoder, err error, name string) error {
 	return nil
 }
 
-// durationStrictDecoder returns d, or a strict decoder for the next value of d if d
-// replaces invalid UTF-8 (as encoding/json's decoder does), which
-// ProtoJSON rejects.
 func durationStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
@@ -515,7 +464,6 @@ func durationStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
 
-// durationJSONError returns an error about the ProtoJSON value of message name.
 func durationJSONError(name, msg string) error {
 	return errors.New("proto: " + name + ": " + msg)
 }
