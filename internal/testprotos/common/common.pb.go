@@ -9,12 +9,64 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"math/big"
 	"math/bits"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+)
+
+// Wire types.
+const (
+	commonWireVarint     = 0
+	commonWireFixed64    = 1
+	commonWireBytes      = 2
+	commonWireStartGroup = 3
+	commonWireEndGroup   = 4
+	commonWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	commonTagTypeBits    = 3
+	commonTagTypeMask    = 1<<3 - 1
+	commonMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	commonFixed32Size       = 4
+	commonFixed64Size       = 8
+	commonVarintPayloadBits = 7    // value bits per varint byte
+	commonVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	commonMaxDepth      = 10000 // maximum message and group nesting
+	commonSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON scalar parse classes.
+const (
+	commonClassNone   = 0
+	commonClassSigned = 1
+	commonClassString = 5
+)
+
+// ProtoJSON limits.
+const commonMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
+
+// Hexadecimal digits for \u escapes in JSON strings.
+const commonHexDigits = "0123456789abcdef"
+
+// Error messages used more than once.
+const (
+	commonSharedLabelErrUTF8      = "proto: field cotorp.test.common.Shared.label contains invalid UTF-8"
+	commonSharedErrTrailingData   = "proto: cotorp.test.common.Shared: unexpected data after JSON value"
+	commonSharedErrInvalidInteger = "proto: cotorp.test.common.Shared: invalid integer "
 )
 
 type Color int32
@@ -56,7 +108,7 @@ func (x Color) String() string {
 // IsValid reports whether x is a declared value of Color.
 func (x Color) IsValid() bool {
 	switch x {
-	case 0, 1, 2, 3:
+	case Color_COLOR_UNSPECIFIED, Color_COLOR_RED, Color_COLOR_GREEN, Color_COLOR_BLUE:
 		return true
 	}
 	return false
@@ -102,10 +154,10 @@ func (m *Shared) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.Label) > 0 {
-		n += 1 + len(m.Label) + (bits.Len64((uint64(len(m.Label)))|1)+6)/7
+		n += 1 + len(m.Label) + (bits.Len64(uint64(len(m.Label))|1)+commonVarintPayloadBits-1)/commonVarintPayloadBits
 	}
 	if m.Value != 0 {
-		n += 1 + (bits.Len64((uint64(m.Value))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(m.Value)|1)+commonVarintPayloadBits-1)/commonVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -146,32 +198,32 @@ func (m *Shared) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Value != 0 {
 		u = uint64(m.Value)
-		if u < 0x80 {
+		if u < commonVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + commonVarintPayloadBits - 1) / commonVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<commonTagTypeBits | commonWireVarint
 	}
 	if len(m.Label) > 0 {
 		if !utf8.ValidString(m.Label) {
-			return 0, errors.New("proto: field cotorp.test.common.Shared.label contains invalid UTF-8")
+			return 0, errors.New(commonSharedLabelErrUTF8)
 		}
 		i -= len(m.Label)
 		copy(b[i:], m.Label)
 		u = uint64(len(m.Label))
-		if u < 0x80 {
+		if u < commonVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + commonVarintPayloadBits - 1) / commonVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<commonTagTypeBits | commonWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -191,118 +243,113 @@ func (m *Shared) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= commonMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>commonTagTypeBits == 0 || t>>commonTagTypeBits > commonMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field cotorp.test.common.Shared.label contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.Label = string(x)
-				continue
+		switch t {
+		case 1<<commonTagTypeBits | commonWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Value = int64(x)
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(commonSharedLabelErrUTF8)
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+			m.Label = string(x)
+		case 2<<commonTagTypeBits | commonWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = int64(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>commonTagTypeBits), t&commonTagTypeMask
+			switch typ {
+			case commonWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case commonWireFixed64:
+				if len(b) < commonFixed64Size {
+					goto errParse
+				}
+				n = commonFixed64Size
+			case commonWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case commonWireStartGroup:
+				var stk [commonSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > commonMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>commonTagTypeBits == 0 || t>>commonTagTypeBits > commonMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & commonTagTypeMask {
+					case commonWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case commonWireFixed64:
+						k = commonFixed64Size
+					case commonWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case commonWireStartGroup:
+						open = append(open, int32(t>>commonTagTypeBits))
+						k = 0
+					case commonWireEndGroup:
+						if open[len(open)-1] != int32(t>>commonTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case commonWireFixed32:
+						k = commonFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case commonWireFixed32:
+				if len(b) < commonFixed32Size {
+					goto errParse
+				}
+				n = commonFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
@@ -339,8 +386,8 @@ func (m *Shared) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := m.Label[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', commonHexDigits[c>>4], commonHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -382,7 +429,7 @@ func (m *Shared) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.common.Shared: unexpected data after JSON value")
+			return errors.New(commonSharedErrTrailingData)
 		}
 		return nil
 	}
@@ -431,22 +478,22 @@ func (m *Shared) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.common.Shared: unexpected data after JSON value")
+		return errors.New(commonSharedErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := commonClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 1:
-			class, bits = 1, 64
+			class, bits = commonClassSigned, 64
 		case 0:
-			class = 5
+			class = commonClassString
 		}
 		switch class {
-		case 1:
+		case commonClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -462,21 +509,21 @@ func (m *Shared) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.common.Shared: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > commonMaxJSONExponent || e < -commonMaxJSONExponent {
+						return errors.New(commonSharedErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.common.Shared: invalid integer " + string(raw))
+					return errors.New(commonSharedErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.common.Shared: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(commonSharedErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case commonClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.common.Shared: invalid string " + string(raw))
 			}

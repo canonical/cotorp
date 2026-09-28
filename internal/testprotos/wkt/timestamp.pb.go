@@ -15,6 +15,55 @@ import (
 	"unicode/utf8"
 )
 
+// Wire types.
+const (
+	timestampWireVarint     = 0
+	timestampWireFixed64    = 1
+	timestampWireBytes      = 2
+	timestampWireStartGroup = 3
+	timestampWireEndGroup   = 4
+	timestampWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	timestampTagTypeBits    = 3
+	timestampTagTypeMask    = 1<<3 - 1
+	timestampMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	timestampFixed32Size       = 4
+	timestampFixed64Size       = 8
+	timestampVarintPayloadBits = 7    // value bits per varint byte
+	timestampVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	timestampMaxDepth      = 10000 // maximum message and group nesting
+	timestampSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON limits.
+const (
+	timestampMinTimestampSeconds = -62135596800 // 0001-01-01T00:00:00Z
+	timestampMaxTimestampSeconds = 253402300799 // 9999-12-31T23:59:59Z
+)
+
+// Time units.
+const (
+	timestampNanosPerSecond  = 1000000000
+	timestampNanosPerMilli   = 1000000
+	timestampNanosPerMicro   = 1000
+	timestampMicrosPerSecond = 1000000
+	timestampMillisPerSecond = 1000
+)
+
+// Error message used more than once.
+const timestampTimestampErrOutOfRange = "proto: google.protobuf.Timestamp: timestamp out of range"
+
 // A Timestamp represents a point in time independent of any time zone or local
 // calendar, encoded as a count of seconds and fractions of seconds at
 // nanosecond resolution. The count is relative to an epoch at UTC midnight on
@@ -151,10 +200,10 @@ func (m *Timestamp) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Seconds != 0 {
-		n += 1 + (bits.Len64((uint64(m.Seconds))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(m.Seconds)|1)+timestampVarintPayloadBits-1)/timestampVarintPayloadBits
 	}
 	if m.Nanos != 0 {
-		n += 1 + (bits.Len64((uint64(int64(m.Nanos)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(m.Nanos))|1)+timestampVarintPayloadBits-1)/timestampVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -195,27 +244,27 @@ func (m *Timestamp) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Nanos != 0 {
 		u = uint64(int64(m.Nanos))
-		if u < 0x80 {
+		if u < timestampVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + timestampVarintPayloadBits - 1) / timestampVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<timestampTagTypeBits | timestampWireVarint
 	}
 	if m.Seconds != 0 {
 		u = uint64(m.Seconds)
-		if u < 0x80 {
+		if u < timestampVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + timestampVarintPayloadBits - 1) / timestampVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<timestampTagTypeBits | timestampWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -235,113 +284,108 @@ func (m *Timestamp) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= timestampMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>timestampTagTypeBits == 0 || t>>timestampTagTypeBits > timestampMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Seconds = int64(x)
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Nanos = int32(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<timestampTagTypeBits | timestampWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			m.Seconds = int64(x)
+		case 2<<timestampTagTypeBits | timestampWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Nanos = int32(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>timestampTagTypeBits), t&timestampTagTypeMask
+			switch typ {
+			case timestampWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case timestampWireFixed64:
+				if len(b) < timestampFixed64Size {
+					goto errParse
+				}
+				n = timestampFixed64Size
+			case timestampWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case timestampWireStartGroup:
+				var stk [timestampSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > timestampMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>timestampTagTypeBits == 0 || t>>timestampTagTypeBits > timestampMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & timestampTagTypeMask {
+					case timestampWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case timestampWireFixed64:
+						k = timestampFixed64Size
+					case timestampWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case timestampWireStartGroup:
+						open = append(open, int32(t>>timestampTagTypeBits))
+						k = 0
+					case timestampWireEndGroup:
+						if open[len(open)-1] != int32(t>>timestampTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case timestampWireFixed32:
+						k = timestampFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case timestampWireFixed32:
+				if len(b) < timestampFixed32Size {
+					goto errParse
+				}
+				n = timestampFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
@@ -369,23 +413,22 @@ func (m *Timestamp) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m != nil {
 		s, ns = m.Seconds, m.Nanos
 	}
-	// 0001-01-01T00:00:00Z to 9999-12-31T23:59:59.999999999Z.
-	if s < -62135596800 || s > 253402300799 || ns < 0 || ns > 999999999 {
-		return nil, errors.New("proto: google.protobuf.Timestamp: timestamp out of range")
+	if s < timestampMinTimestampSeconds || s > timestampMaxTimestampSeconds || ns < 0 || ns >= timestampNanosPerSecond {
+		return nil, errors.New(timestampTimestampErrOutOfRange)
 	}
 	b = append(b, '"')
 	b = time.Unix(s, 0).UTC().AppendFormat(b, "2006-01-02T15:04:05")
 	switch {
 	case ns == 0:
-	case ns%1000000 == 0:
+	case ns%timestampNanosPerMilli == 0:
 		b = append(b, '.')
-		b = append(b, strconv.Itoa(1000 + int(ns)/1000000)[1:]...)
-	case ns%1000 == 0:
+		b = append(b, strconv.Itoa(timestampMillisPerSecond + int(ns)/timestampNanosPerMilli)[1:]...)
+	case ns%timestampNanosPerMicro == 0:
 		b = append(b, '.')
-		b = append(b, strconv.Itoa(1000000 + int(ns)/1000)[1:]...)
+		b = append(b, strconv.Itoa(timestampMicrosPerSecond + int(ns)/timestampNanosPerMicro)[1:]...)
 	default:
 		b = append(b, '.')
-		b = append(b, strconv.Itoa(1000000000 + int(ns))[1:]...)
+		b = append(b, strconv.Itoa(timestampNanosPerSecond + int(ns))[1:]...)
 	}
 	b = append(b, "Z\""...)
 	return b, nil
@@ -420,8 +463,8 @@ func (m *Timestamp) ProtoMergeJSON(b []byte) error {
 		return errors.New("proto: google.protobuf.Timestamp: invalid timestamp " + strconv.Quote(s))
 	}
 	secs := t.Unix()
-	if secs < -62135596800 || secs > 253402300799 {
-		return errors.New("proto: google.protobuf.Timestamp: timestamp out of range")
+	if secs < timestampMinTimestampSeconds || secs > timestampMaxTimestampSeconds {
+		return errors.New(timestampTimestampErrOutOfRange)
 	}
 	m.Seconds, m.Nanos = secs, int32(t.Nanosecond())
 	return nil

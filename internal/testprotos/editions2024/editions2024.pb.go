@@ -9,12 +9,68 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"math/big"
 	"math/bits"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+)
+
+// Wire types.
+const (
+	editions2024WireVarint     = 0
+	editions2024WireFixed64    = 1
+	editions2024WireBytes      = 2
+	editions2024WireStartGroup = 3
+	editions2024WireEndGroup   = 4
+	editions2024WireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	editions2024TagTypeBits    = 3
+	editions2024TagTypeMask    = 1<<3 - 1
+	editions2024MaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	editions2024Fixed32Size       = 4
+	editions2024Fixed64Size       = 8
+	editions2024VarintPayloadBits = 7    // value bits per varint byte
+	editions2024VarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	editions2024MaxDepth      = 10000 // maximum message and group nesting
+	editions2024SkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON scalar parse classes.
+const (
+	editions2024ClassNone   = 0
+	editions2024ClassSigned = 1
+	editions2024ClassString = 5
+)
+
+// ProtoJSON limits.
+const editions2024MaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
+
+// Hexadecimal digits for \u escapes in JSON strings.
+const editions2024HexDigits = "0123456789abcdef"
+
+// Error messages used more than once.
+const (
+	editions2024ErrSizeChanged               = "proto: message size changed during marshal"
+	editions2024ErrParse                     = "proto: cannot parse invalid wire-format data"
+	editions2024ErrDepth                     = "proto: exceeded maximum recursion depth"
+	editions2024VisibleErrTrailingData       = "proto: cotorp.test.editions2024.Visible: unexpected data after JSON value"
+	editions2024VisibleErrInvalidInteger     = "proto: cotorp.test.editions2024.Visible: invalid integer "
+	editions2024VisibleHiddenSErrUTF8        = "proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8"
+	editions2024VisibleHiddenErrTrailingData = "proto: cotorp.test.editions2024.Visible.Hidden: unexpected data after JSON value"
 )
 
 type Visible struct {
@@ -56,13 +112,11 @@ func (m *Visible) ProtoSize() (n int) {
 		return 0
 	}
 	if m.A != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.A))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.A)))|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
 	}
 	if m.Hidden != nil {
-		{
-			l := m.Hidden.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Hidden.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -83,7 +137,7 @@ func (m *Visible) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(editions2024ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -102,35 +156,33 @@ func (m *Visible) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Hidden != nil {
-		{
-			n, err := m.Hidden.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+		n, err := m.Hidden.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.A != nil {
-		u = uint64(int64((*m.A)))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < editions2024VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + editions2024VarintPayloadBits - 1) / editions2024VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 2<<editions2024TagTypeBits | editions2024WireBytes
+	}
+	if m.A != nil {
+		u = uint64(int64((*m.A)))
+		if u < editions2024VarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + editions2024VarintPayloadBits - 1) / editions2024VarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 1<<editions2024TagTypeBits | editions2024WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -150,128 +202,123 @@ func (m *Visible) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= editions2024MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.A = &v
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Hidden == nil {
-					m.Hidden = &Visible_Hidden{}
-				}
-				mv := m.Hidden
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<editions2024TagTypeBits | editions2024WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.A = &v
+		case 2<<editions2024TagTypeBits | editions2024WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Hidden == nil {
+				m.Hidden = &Visible_Hidden{}
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			mv := m.Hidden
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>editions2024TagTypeBits), t&editions2024TagTypeMask
+			switch typ {
+			case editions2024WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case editions2024WireFixed64:
+				if len(b) < editions2024Fixed64Size {
+					goto errParse
+				}
+				n = editions2024Fixed64Size
+			case editions2024WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case editions2024WireStartGroup:
+				var stk [editions2024SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > editions2024MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & editions2024TagTypeMask {
+					case editions2024WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case editions2024WireFixed64:
+						k = editions2024Fixed64Size
+					case editions2024WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case editions2024WireStartGroup:
+						open = append(open, int32(t>>editions2024TagTypeBits))
+						k = 0
+					case editions2024WireEndGroup:
+						if open[len(open)-1] != int32(t>>editions2024TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case editions2024WireFixed32:
+						k = editions2024Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case editions2024WireFixed32:
+				if len(b) < editions2024Fixed32Size {
+					goto errParse
+				}
+				n = editions2024Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(editions2024ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(editions2024ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -299,11 +346,9 @@ func (m *Visible) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Hidden != nil {
 		b = append(b, "\"hidden\":"...)
-		{
-			var err error
-			if b, err = m.Hidden.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Hidden.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -334,7 +379,7 @@ func (m *Visible) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.editions2024.Visible: unexpected data after JSON value")
+			return errors.New(editions2024VisibleErrTrailingData)
 		}
 		return nil
 	}
@@ -383,19 +428,19 @@ func (m *Visible) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.editions2024.Visible: unexpected data after JSON value")
+		return errors.New(editions2024VisibleErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := editions2024ClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = editions2024ClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case editions2024ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -411,17 +456,17 @@ func (m *Visible) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.editions2024.Visible: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > editions2024MaxJSONExponent || e < -editions2024MaxJSONExponent {
+						return errors.New(editions2024VisibleErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.editions2024.Visible: invalid integer " + string(raw))
+					return errors.New(editions2024VisibleErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.editions2024.Visible: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(editions2024VisibleErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -473,7 +518,7 @@ func (m *Visible_Hidden) ProtoSize() (n int) {
 		return 0
 	}
 	if m.S != nil {
-		n += 1 + len((*m.S)) + (bits.Len64((uint64(len((*m.S))))|1)+6)/7
+		n += 1 + len((*m.S)) + (bits.Len64(uint64(len((*m.S)))|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -494,7 +539,7 @@ func (m *Visible_Hidden) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(editions2024ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -514,20 +559,20 @@ func (m *Visible_Hidden) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.S != nil {
 		if !utf8.ValidString((*m.S)) {
-			return 0, errors.New("proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8")
+			return 0, errors.New(editions2024VisibleHiddenSErrUTF8)
 		}
 		i -= len((*m.S))
 		copy(b[i:], (*m.S))
 		u = uint64(len((*m.S)))
-		if u < 0x80 {
+		if u < editions2024VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + editions2024VarintPayloadBits - 1) / editions2024VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<editions2024TagTypeBits | editions2024WireBytes
 	}
 	return len(b) - i, nil
 }
@@ -547,115 +592,113 @@ func (m *Visible_Hidden) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= editions2024MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8")
-				}
-				b = b[n:]
-				v := string(x)
-				m.S = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<editions2024TagTypeBits | editions2024WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(editions2024VisibleHiddenSErrUTF8)
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := string(x)
+			m.S = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>editions2024TagTypeBits), t&editions2024TagTypeMask
+			switch typ {
+			case editions2024WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case editions2024WireFixed64:
+				if len(b) < editions2024Fixed64Size {
+					goto errParse
+				}
+				n = editions2024Fixed64Size
+			case editions2024WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case editions2024WireStartGroup:
+				var stk [editions2024SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > editions2024MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & editions2024TagTypeMask {
+					case editions2024WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case editions2024WireFixed64:
+						k = editions2024Fixed64Size
+					case editions2024WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case editions2024WireStartGroup:
+						open = append(open, int32(t>>editions2024TagTypeBits))
+						k = 0
+					case editions2024WireEndGroup:
+						if open[len(open)-1] != int32(t>>editions2024TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case editions2024WireFixed32:
+						k = editions2024Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case editions2024WireFixed32:
+				if len(b) < editions2024Fixed32Size {
+					goto errParse
+				}
+				n = editions2024Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(editions2024ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(editions2024ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -686,8 +729,8 @@ func (m *Visible_Hidden) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.S)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', editions2024HexDigits[c>>4], editions2024HexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -722,7 +765,7 @@ func (m *Visible_Hidden) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: unexpected data after JSON value")
+			return errors.New(editions2024VisibleHiddenErrTrailingData)
 		}
 		return nil
 	}
@@ -769,18 +812,18 @@ func (m *Visible_Hidden) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: unexpected data after JSON value")
+		return errors.New(editions2024VisibleHiddenErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := editions2024ClassNone
 		var sv string
 		switch jb.f {
 		case 0:
-			class = 5
+			class = editions2024ClassString
 		}
 		switch class {
-		case 5:
+		case editions2024ClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: invalid string " + string(raw))
 			}

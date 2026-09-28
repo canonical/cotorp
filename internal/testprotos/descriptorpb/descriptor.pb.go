@@ -19,6 +19,124 @@ import (
 	"unicode/utf8"
 )
 
+// Wire types.
+const (
+	descriptorWireVarint     = 0
+	descriptorWireFixed64    = 1
+	descriptorWireBytes      = 2
+	descriptorWireStartGroup = 3
+	descriptorWireEndGroup   = 4
+	descriptorWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	descriptorTagTypeBits    = 3
+	descriptorTagTypeMask    = 1<<3 - 1
+	descriptorMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	descriptorFixed32Size       = 4
+	descriptorFixed64Size       = 8
+	descriptorVarintPayloadBits = 7    // value bits per varint byte
+	descriptorVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	descriptorMaxDepth      = 10000 // maximum message and group nesting
+	descriptorSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON scalar parse classes.
+const (
+	descriptorClassNone     = 0
+	descriptorClassSigned   = 1
+	descriptorClassUnsigned = 2
+	descriptorClassFloat    = 3
+	descriptorClassBool     = 4
+	descriptorClassString   = 5
+	descriptorClassBytes    = 6
+)
+
+// ProtoJSON limits.
+const (
+	descriptorMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
+	descriptorBase64Quantum   = 4   // base64 characters per padded block
+)
+
+// Hexadecimal digits for \u escapes in JSON strings.
+const descriptorHexDigits = "0123456789abcdef"
+
+// Error messages used more than once.
+const (
+	descriptorErrSizeChanged                                              = "proto: message size changed during marshal"
+	descriptorErrParse                                                    = "proto: cannot parse invalid wire-format data"
+	descriptorErrDepth                                                    = "proto: exceeded maximum recursion depth"
+	descriptorFileDescriptorSetErrTrailingData                            = "proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value"
+	descriptorFileDescriptorProtoErrTrailingData                          = "proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value"
+	descriptorFileDescriptorProtoErrInvalidInteger                        = "proto: google.protobuf.FileDescriptorProto: invalid integer "
+	descriptorDescriptorProtoErrTrailingData                              = "proto: google.protobuf.DescriptorProto: unexpected data after JSON value"
+	descriptorDescriptorProtoErrInvalidInteger                            = "proto: google.protobuf.DescriptorProto: invalid integer "
+	descriptorDescriptorProtoExtensionRangeErrTrailingData                = "proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value"
+	descriptorDescriptorProtoExtensionRangeErrInvalidInteger              = "proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer "
+	descriptorDescriptorProtoReservedRangeErrTrailingData                 = "proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value"
+	descriptorDescriptorProtoReservedRangeErrInvalidInteger               = "proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer "
+	descriptorExtensionRangeOptionsErrTrailingData                        = "proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value"
+	descriptorExtensionRangeOptionsErrInvalidInteger                      = "proto: google.protobuf.ExtensionRangeOptions: invalid integer "
+	descriptorExtensionRangeOptionsDeclarationErrTrailingData             = "proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value"
+	descriptorExtensionRangeOptionsDeclarationErrInvalidInteger           = "proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer "
+	descriptorFieldDescriptorProtoErrTrailingData                         = "proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value"
+	descriptorFieldDescriptorProtoErrInvalidInteger                       = "proto: google.protobuf.FieldDescriptorProto: invalid integer "
+	descriptorOneofDescriptorProtoErrTrailingData                         = "proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value"
+	descriptorEnumDescriptorProtoErrTrailingData                          = "proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value"
+	descriptorEnumDescriptorProtoErrInvalidInteger                        = "proto: google.protobuf.EnumDescriptorProto: invalid integer "
+	descriptorEnumDescriptorProtoEnumReservedRangeErrTrailingData         = "proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value"
+	descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger       = "proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer "
+	descriptorEnumValueDescriptorProtoErrTrailingData                     = "proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value"
+	descriptorEnumValueDescriptorProtoErrInvalidInteger                   = "proto: google.protobuf.EnumValueDescriptorProto: invalid integer "
+	descriptorServiceDescriptorProtoErrTrailingData                       = "proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value"
+	descriptorMethodDescriptorProtoErrTrailingData                        = "proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value"
+	descriptorFileOptionsErrTrailingData                                  = "proto: google.protobuf.FileOptions: unexpected data after JSON value"
+	descriptorFileOptionsErrInvalidInteger                                = "proto: google.protobuf.FileOptions: invalid integer "
+	descriptorMessageOptionsErrTrailingData                               = "proto: google.protobuf.MessageOptions: unexpected data after JSON value"
+	descriptorFieldOptionsErrTrailingData                                 = "proto: google.protobuf.FieldOptions: unexpected data after JSON value"
+	descriptorFieldOptionsErrInvalidInteger                               = "proto: google.protobuf.FieldOptions: invalid integer "
+	descriptorFieldOptionsEditionDefaultErrTrailingData                   = "proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value"
+	descriptorFieldOptionsEditionDefaultErrInvalidInteger                 = "proto: google.protobuf.FieldOptions.EditionDefault: invalid integer "
+	descriptorFieldOptionsFeatureSupportErrTrailingData                   = "proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value"
+	descriptorFieldOptionsFeatureSupportErrInvalidInteger                 = "proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer "
+	descriptorFieldOptionsFeatureSupportErrInvalidEdition                 = "proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: "
+	descriptorOneofOptionsErrTrailingData                                 = "proto: google.protobuf.OneofOptions: unexpected data after JSON value"
+	descriptorEnumOptionsErrTrailingData                                  = "proto: google.protobuf.EnumOptions: unexpected data after JSON value"
+	descriptorEnumValueOptionsErrTrailingData                             = "proto: google.protobuf.EnumValueOptions: unexpected data after JSON value"
+	descriptorServiceOptionsErrTrailingData                               = "proto: google.protobuf.ServiceOptions: unexpected data after JSON value"
+	descriptorMethodOptionsErrTrailingData                                = "proto: google.protobuf.MethodOptions: unexpected data after JSON value"
+	descriptorMethodOptionsErrInvalidInteger                              = "proto: google.protobuf.MethodOptions: invalid integer "
+	descriptorUninterpretedOptionErrTrailingData                          = "proto: google.protobuf.UninterpretedOption: unexpected data after JSON value"
+	descriptorUninterpretedOptionErrInvalidNumber                         = "proto: google.protobuf.UninterpretedOption: invalid number "
+	descriptorUninterpretedOptionErrInvalidInteger                        = "proto: google.protobuf.UninterpretedOption: invalid integer "
+	descriptorUninterpretedOptionErrInvalidBytes                          = "proto: google.protobuf.UninterpretedOption: invalid bytes "
+	descriptorUninterpretedOptionNamePartErrTrailingData                  = "proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value"
+	descriptorFeatureSetErrTrailingData                                   = "proto: google.protobuf.FeatureSet: unexpected data after JSON value"
+	descriptorFeatureSetErrInvalidInteger                                 = "proto: google.protobuf.FeatureSet: invalid integer "
+	descriptorFeatureSetVisibilityFeatureErrTrailingData                  = "proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value"
+	descriptorFeatureSetProtoLimitsFeatureErrTrailingData                 = "proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value"
+	descriptorFeatureSetDefaultsErrTrailingData                           = "proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value"
+	descriptorFeatureSetDefaultsErrInvalidInteger                         = "proto: google.protobuf.FeatureSetDefaults: invalid integer "
+	descriptorFeatureSetDefaultsErrInvalidEdition                         = "proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: "
+	descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrTrailingData   = "proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value"
+	descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger = "proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer "
+	descriptorSourceCodeInfoErrTrailingData                               = "proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value"
+	descriptorSourceCodeInfoLocationErrTrailingData                       = "proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value"
+	descriptorSourceCodeInfoLocationErrInvalidInteger                     = "proto: google.protobuf.SourceCodeInfo.Location: invalid integer "
+	descriptorGeneratedCodeInfoErrTrailingData                            = "proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value"
+	descriptorGeneratedCodeInfoAnnotationErrTrailingData                  = "proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value"
+	descriptorGeneratedCodeInfoAnnotationErrInvalidInteger                = "proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer "
+)
+
 // The verification state of the extension range.
 type ExtensionRangeOptions_VerificationState int32
 
@@ -56,7 +174,7 @@ func (x ExtensionRangeOptions_VerificationState) String() string {
 // IsValid reports whether x is a declared value of ExtensionRangeOptions_VerificationState.
 func (x ExtensionRangeOptions_VerificationState) IsValid() bool {
 	switch x {
-	case 0, 1:
+	case ExtensionRangeOptions_DECLARATION, ExtensionRangeOptions_UNVERIFIED:
 		return true
 	}
 	return false
@@ -155,7 +273,7 @@ func (x FieldDescriptorProto_Type) String() string {
 // IsValid reports whether x is a declared value of FieldDescriptorProto_Type.
 func (x FieldDescriptorProto_Type) IsValid() bool {
 	switch x {
-	case 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18:
+	case FieldDescriptorProto_TYPE_DOUBLE, FieldDescriptorProto_TYPE_FLOAT, FieldDescriptorProto_TYPE_INT64, FieldDescriptorProto_TYPE_UINT64, FieldDescriptorProto_TYPE_INT32, FieldDescriptorProto_TYPE_FIXED64, FieldDescriptorProto_TYPE_FIXED32, FieldDescriptorProto_TYPE_BOOL, FieldDescriptorProto_TYPE_STRING, FieldDescriptorProto_TYPE_GROUP, FieldDescriptorProto_TYPE_MESSAGE, FieldDescriptorProto_TYPE_BYTES, FieldDescriptorProto_TYPE_UINT32, FieldDescriptorProto_TYPE_ENUM, FieldDescriptorProto_TYPE_SFIXED32, FieldDescriptorProto_TYPE_SFIXED64, FieldDescriptorProto_TYPE_SINT32, FieldDescriptorProto_TYPE_SINT64:
 		return true
 	}
 	return false
@@ -201,7 +319,7 @@ func (x FieldDescriptorProto_Label) String() string {
 // IsValid reports whether x is a declared value of FieldDescriptorProto_Label.
 func (x FieldDescriptorProto_Label) IsValid() bool {
 	switch x {
-	case 1, 3, 2:
+	case FieldDescriptorProto_LABEL_OPTIONAL, FieldDescriptorProto_LABEL_REPEATED, FieldDescriptorProto_LABEL_REQUIRED:
 		return true
 	}
 	return false
@@ -245,7 +363,7 @@ func (x FileOptions_OptimizeMode) String() string {
 // IsValid reports whether x is a declared value of FileOptions_OptimizeMode.
 func (x FileOptions_OptimizeMode) IsValid() bool {
 	switch x {
-	case 1, 2, 3:
+	case FileOptions_SPEED, FileOptions_CODE_SIZE, FileOptions_LITE_RUNTIME:
 		return true
 	}
 	return false
@@ -294,7 +412,7 @@ func (x FieldOptions_CType) String() string {
 // IsValid reports whether x is a declared value of FieldOptions_CType.
 func (x FieldOptions_CType) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FieldOptions_STRING, FieldOptions_CORD, FieldOptions_STRING_PIECE:
 		return true
 	}
 	return false
@@ -339,7 +457,7 @@ func (x FieldOptions_JSType) String() string {
 // IsValid reports whether x is a declared value of FieldOptions_JSType.
 func (x FieldOptions_JSType) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FieldOptions_JS_NORMAL, FieldOptions_JS_STRING, FieldOptions_JS_NUMBER:
 		return true
 	}
 	return false
@@ -382,7 +500,7 @@ func (x FieldOptions_OptionRetention) String() string {
 // IsValid reports whether x is a declared value of FieldOptions_OptionRetention.
 func (x FieldOptions_OptionRetention) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FieldOptions_RETENTION_UNKNOWN, FieldOptions_RETENTION_RUNTIME, FieldOptions_RETENTION_SOURCE:
 		return true
 	}
 	return false
@@ -448,7 +566,7 @@ func (x FieldOptions_OptionTargetType) String() string {
 // IsValid reports whether x is a declared value of FieldOptions_OptionTargetType.
 func (x FieldOptions_OptionTargetType) IsValid() bool {
 	switch x {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9:
+	case FieldOptions_TARGET_TYPE_UNKNOWN, FieldOptions_TARGET_TYPE_FILE, FieldOptions_TARGET_TYPE_EXTENSION_RANGE, FieldOptions_TARGET_TYPE_MESSAGE, FieldOptions_TARGET_TYPE_FIELD, FieldOptions_TARGET_TYPE_ONEOF, FieldOptions_TARGET_TYPE_ENUM, FieldOptions_TARGET_TYPE_ENUM_ENTRY, FieldOptions_TARGET_TYPE_SERVICE, FieldOptions_TARGET_TYPE_METHOD:
 		return true
 	}
 	return false
@@ -493,7 +611,7 @@ func (x MethodOptions_IdempotencyLevel) String() string {
 // IsValid reports whether x is a declared value of MethodOptions_IdempotencyLevel.
 func (x MethodOptions_IdempotencyLevel) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case MethodOptions_IDEMPOTENCY_UNKNOWN, MethodOptions_NO_SIDE_EFFECTS, MethodOptions_IDEMPOTENT:
 		return true
 	}
 	return false
@@ -549,7 +667,7 @@ func (x FeatureSet_VisibilityFeature_DefaultSymbolVisibility) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_VisibilityFeature_DefaultSymbolVisibility.
 func (x FeatureSet_VisibilityFeature_DefaultSymbolVisibility) IsValid() bool {
 	switch x {
-	case 0, 1, 2, 3, 4:
+	case FeatureSet_VisibilityFeature_DEFAULT_SYMBOL_VISIBILITY_UNKNOWN, FeatureSet_VisibilityFeature_EXPORT_ALL, FeatureSet_VisibilityFeature_EXPORT_TOP_LEVEL, FeatureSet_VisibilityFeature_LOCAL_ALL, FeatureSet_VisibilityFeature_STRICT:
 		return true
 	}
 	return false
@@ -599,7 +717,7 @@ func (x FeatureSet_ProtoLimitsFeature_EnforceProtoLimits) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_ProtoLimitsFeature_EnforceProtoLimits.
 func (x FeatureSet_ProtoLimitsFeature_EnforceProtoLimits) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FeatureSet_ProtoLimitsFeature_PROTO_LIMITS_UNKNOWN, FeatureSet_ProtoLimitsFeature_LEGACY_NO_EXPLICIT_LIMITS, FeatureSet_ProtoLimitsFeature_PROTO_LIMITS2026:
 		return true
 	}
 	return false
@@ -644,7 +762,7 @@ func (x FeatureSet_FieldPresence) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_FieldPresence.
 func (x FeatureSet_FieldPresence) IsValid() bool {
 	switch x {
-	case 0, 1, 2, 3:
+	case FeatureSet_FIELD_PRESENCE_UNKNOWN, FeatureSet_EXPLICIT, FeatureSet_IMPLICIT, FeatureSet_LEGACY_REQUIRED:
 		return true
 	}
 	return false
@@ -686,7 +804,7 @@ func (x FeatureSet_EnumType) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_EnumType.
 func (x FeatureSet_EnumType) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FeatureSet_ENUM_TYPE_UNKNOWN, FeatureSet_OPEN, FeatureSet_CLOSED:
 		return true
 	}
 	return false
@@ -728,7 +846,7 @@ func (x FeatureSet_RepeatedFieldEncoding) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_RepeatedFieldEncoding.
 func (x FeatureSet_RepeatedFieldEncoding) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FeatureSet_REPEATED_FIELD_ENCODING_UNKNOWN, FeatureSet_PACKED, FeatureSet_EXPANDED:
 		return true
 	}
 	return false
@@ -770,7 +888,7 @@ func (x FeatureSet_Utf8Validation) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_Utf8Validation.
 func (x FeatureSet_Utf8Validation) IsValid() bool {
 	switch x {
-	case 0, 2, 3:
+	case FeatureSet_UTF8_VALIDATION_UNKNOWN, FeatureSet_VERIFY, FeatureSet_NONE:
 		return true
 	}
 	return false
@@ -812,7 +930,7 @@ func (x FeatureSet_MessageEncoding) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_MessageEncoding.
 func (x FeatureSet_MessageEncoding) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FeatureSet_MESSAGE_ENCODING_UNKNOWN, FeatureSet_LENGTH_PREFIXED, FeatureSet_DELIMITED:
 		return true
 	}
 	return false
@@ -854,7 +972,7 @@ func (x FeatureSet_JsonFormat) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_JsonFormat.
 func (x FeatureSet_JsonFormat) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case FeatureSet_JSON_FORMAT_UNKNOWN, FeatureSet_ALLOW, FeatureSet_LEGACY_BEST_EFFORT:
 		return true
 	}
 	return false
@@ -899,7 +1017,7 @@ func (x FeatureSet_EnforceNamingStyle) String() string {
 // IsValid reports whether x is a declared value of FeatureSet_EnforceNamingStyle.
 func (x FeatureSet_EnforceNamingStyle) IsValid() bool {
 	switch x {
-	case 0, 1, 2, 3:
+	case FeatureSet_ENFORCE_NAMING_STYLE_UNKNOWN, FeatureSet_STYLE2024, FeatureSet_STYLE_LEGACY, FeatureSet_STYLE2026:
 		return true
 	}
 	return false
@@ -948,7 +1066,7 @@ func (x GeneratedCodeInfo_Annotation_Semantic) String() string {
 // IsValid reports whether x is a declared value of GeneratedCodeInfo_Annotation_Semantic.
 func (x GeneratedCodeInfo_Annotation_Semantic) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case GeneratedCodeInfo_Annotation_NONE, GeneratedCodeInfo_Annotation_SET, GeneratedCodeInfo_Annotation_ALIAS:
 		return true
 	}
 	return false
@@ -1040,7 +1158,7 @@ func (x Edition) String() string {
 // IsValid reports whether x is a declared value of Edition.
 func (x Edition) IsValid() bool {
 	switch x {
-	case 0, 900, 998, 999, 1000, 1001, 1002, 9999, 1, 2, 99997, 99998, 99999, 2147483647:
+	case Edition_EDITION_UNKNOWN, Edition_EDITION_LEGACY, Edition_EDITION_PROTO2, Edition_EDITION_PROTO3, Edition_EDITION_2023, Edition_EDITION_2024, Edition_EDITION_2026, Edition_EDITION_UNSTABLE, Edition_EDITION_1_TEST_ONLY, Edition_EDITION_2_TEST_ONLY, Edition_EDITION_99997_TEST_ONLY, Edition_EDITION_99998_TEST_ONLY, Edition_EDITION_99999_TEST_ONLY, Edition_EDITION_MAX:
 		return true
 	}
 	return false
@@ -1087,7 +1205,7 @@ func (x SymbolVisibility) String() string {
 // IsValid reports whether x is a declared value of SymbolVisibility.
 func (x SymbolVisibility) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case SymbolVisibility_VISIBILITY_UNSET, SymbolVisibility_VISIBILITY_LOCAL, SymbolVisibility_VISIBILITY_EXPORT:
 		return true
 	}
 	return false
@@ -1126,10 +1244,8 @@ func (m *FileDescriptorSet) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.File {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1153,7 +1269,7 @@ func (m *FileDescriptorSet) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1171,24 +1287,22 @@ func (m *FileDescriptorSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.File) - 1; j >= 0; j-- {
-		{
-			n, err := m.File[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x0a
+	for _, v := range slices.Backward(m.File) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -1211,115 +1325,113 @@ func (m *FileDescriptorSet) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FileDescriptorSet) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &FileDescriptorProto{}
-				m.File = append(m.File, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &FileDescriptorProto{}
+			m.File = append(m.File, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1354,11 +1466,9 @@ func (m *FileDescriptorSet) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.File) > 0 {
 		b = append(b, "\"file\":["...)
 		for j := range m.File {
-			{
-				var err error
-				if b, err = m.File[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.File[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -1395,7 +1505,7 @@ func (m *FileDescriptorSet) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value")
+			return errors.New(descriptorFileDescriptorSetErrTrailingData)
 		}
 		return nil
 	}
@@ -1457,7 +1567,7 @@ func (m *FileDescriptorSet) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value")
+		return errors.New(descriptorFileDescriptorSetErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
@@ -1631,64 +1741,52 @@ func (m *FileDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Package != nil {
-		n += 1 + len((*m.Package)) + (bits.Len64((uint64(len((*m.Package))))|1)+6)/7
+		n += 1 + len((*m.Package)) + (bits.Len64(uint64(len((*m.Package)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Dependency {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.MessageType {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.EnumType {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Service {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Extension {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.SourceCodeInfo != nil {
-		{
-			l := m.SourceCodeInfo.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.SourceCodeInfo.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.PublicDependency {
-		n += 1 + (bits.Len64((uint64(int64(v)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.WeakDependency {
-		n += 1 + (bits.Len64((uint64(int64(v)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Syntax != nil {
-		n += 1 + len((*m.Syntax)) + (bits.Len64((uint64(len((*m.Syntax))))|1)+6)/7
+		n += 1 + len((*m.Syntax)) + (bits.Len64(uint64(len((*m.Syntax)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Edition != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Edition))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Edition)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.OptionDependency {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1712,7 +1810,7 @@ func (m *FileDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1730,225 +1828,213 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.OptionDependency) - 1; j >= 0; j-- {
-		i -= len(m.OptionDependency[j])
-		copy(b[i:], m.OptionDependency[j])
-		u = uint64(len(m.OptionDependency[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.OptionDependency) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x7a
+		b[i] = 15<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Edition != nil {
 		u = uint64(int64((*m.Edition)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x70
+		b[i] = 14<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Syntax != nil {
 		i -= len((*m.Syntax))
 		copy(b[i:], (*m.Syntax))
 		u = uint64(len((*m.Syntax)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x62
+		b[i] = 12<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.WeakDependency) - 1; j >= 0; j-- {
-		u = uint64(int64(m.WeakDependency[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.WeakDependency) {
+		u = uint64(int64(v))
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x58
+		b[i] = 11<<descriptorTagTypeBits | descriptorWireVarint
 	}
-	for j := len(m.PublicDependency) - 1; j >= 0; j-- {
-		u = uint64(int64(m.PublicDependency[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.PublicDependency) {
+		u = uint64(int64(v))
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x50
+		b[i] = 10<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.SourceCodeInfo != nil {
-		{
-			n, err := m.SourceCodeInfo.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x4a
+		n, err := m.SourceCodeInfo.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x42
-		}
-	}
-	for j := len(m.Extension) - 1; j >= 0; j-- {
-		{
-			n, err := m.Extension[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x3a
-		}
-	}
-	for j := len(m.Service) - 1; j >= 0; j-- {
-		{
-			n, err := m.Service[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x32
-		}
-	}
-	for j := len(m.EnumType) - 1; j >= 0; j-- {
-		{
-			n, err := m.EnumType[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x2a
-		}
-	}
-	for j := len(m.MessageType) - 1; j >= 0; j-- {
-		{
-			n, err := m.MessageType[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
-		}
-	}
-	for j := len(m.Dependency) - 1; j >= 0; j-- {
-		i -= len(m.Dependency[j])
-		copy(b[i:], m.Dependency[j])
-		u = uint64(len(m.Dependency[j]))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 9<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	if m.Options != nil {
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	for _, v := range slices.Backward(m.Extension) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	for _, v := range slices.Backward(m.Service) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	for _, v := range slices.Backward(m.EnumType) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	for _, v := range slices.Backward(m.MessageType) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	for _, v := range slices.Backward(m.Dependency) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Package != nil {
 		i -= len((*m.Package))
 		copy(b[i:], (*m.Package))
 		u = uint64(len((*m.Package)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -1971,334 +2057,289 @@ func (m *FileDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Package = &v
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.Dependency = append(m.Dependency, string(x))
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Package = &v
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &DescriptorProto{}
-				m.MessageType = append(m.MessageType, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.Dependency = append(m.Dependency, string(x))
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &EnumDescriptorProto{}
-				m.EnumType = append(m.EnumType, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &DescriptorProto{}
+			m.MessageType = append(m.MessageType, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 6:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &ServiceDescriptorProto{}
-				m.Service = append(m.Service, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+		case 5<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 7:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &FieldDescriptorProto{}
-				m.Extension = append(m.Extension, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &EnumDescriptorProto{}
+			m.EnumType = append(m.EnumType, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 8:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &FileOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+		case 6<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 9:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.SourceCodeInfo == nil {
-					m.SourceCodeInfo = &SourceCodeInfo{}
-				}
-				mv := m.SourceCodeInfo
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &ServiceDescriptorProto{}
+			m.Service = append(m.Service, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 10:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.PublicDependency = append(m.PublicDependency, int32(x))
-				}
-				continue
+			b = b[n:]
+		case 7<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &FieldDescriptorProto{}
+			m.Extension = append(m.Extension, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 8<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &FileOptions{}
+			}
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 9<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.SourceCodeInfo == nil {
+				m.SourceCodeInfo = &SourceCodeInfo{}
+			}
+			mv := m.SourceCodeInfo
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 10<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
 				if n <= 0 {
 					goto errParse
 				}
-				b = b[n:]
+				v = v[n:]
 				m.PublicDependency = append(m.PublicDependency, int32(x))
-				continue
 			}
-		case 11:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.WeakDependency = append(m.WeakDependency, int32(x))
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.WeakDependency = append(m.WeakDependency, int32(x))
-				continue
-			}
-		case 12:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Syntax = &v
-				continue
-			}
-		case 14:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x70), x)
-					continue
-				}
-				v := e
-				m.Edition = &v
-				continue
-			}
-		case 15:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.OptionDependency = append(m.OptionDependency, string(x))
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		case 10<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			m.PublicDependency = append(m.PublicDependency, int32(x))
+		case 11<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
+					goto errParse
+				}
+				v = v[n:]
+				m.WeakDependency = append(m.WeakDependency, int32(x))
+			}
+		case 11<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			m.WeakDependency = append(m.WeakDependency, int32(x))
+		case 12<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Syntax = &v
+		case 14<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 14<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Edition = &v
+		case 15<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.OptionDependency = append(m.OptionDependency, string(x))
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2358,8 +2399,8 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -2377,8 +2418,8 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Package)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -2397,8 +2438,8 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := m.Dependency[j][ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -2438,8 +2479,8 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := m.OptionDependency[j][ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -2453,11 +2494,9 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.MessageType) > 0 {
 		b = append(b, "\"messageType\":["...)
 		for j := range m.MessageType {
-			{
-				var err error
-				if b, err = m.MessageType[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.MessageType[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -2467,11 +2506,9 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.EnumType) > 0 {
 		b = append(b, "\"enumType\":["...)
 		for j := range m.EnumType {
-			{
-				var err error
-				if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -2481,11 +2518,9 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Service) > 0 {
 		b = append(b, "\"service\":["...)
 		for j := range m.Service {
-			{
-				var err error
-				if b, err = m.Service[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Service[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -2495,11 +2530,9 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Extension) > 0 {
 		b = append(b, "\"extension\":["...)
 		for j := range m.Extension {
-			{
-				var err error
-				if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -2508,21 +2541,17 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if m.SourceCodeInfo != nil {
 		b = append(b, "\"sourceCodeInfo\":"...)
-		{
-			var err error
-			if b, err = m.SourceCodeInfo.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.SourceCodeInfo.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -2536,8 +2565,8 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Syntax)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -2586,7 +2615,7 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorFileDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -2678,31 +2707,31 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorFileDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 3, 4:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		case 0, 1, 2, 5, 12:
-			class = 5
+			class = descriptorClassString
 		case 13:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -2718,21 +2747,21 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FileDescriptorProto: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid integer " + string(raw))
+					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid string " + string(raw))
 			}
@@ -2799,13 +2828,13 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 		case 13:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -2930,61 +2959,45 @@ func (m *DescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Field {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.NestedType {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.EnumType {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.ExtensionRange {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Extension {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.OneofDecl {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.ReservedRange {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.ReservedName {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Visibility != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Visibility))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Visibility)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -3008,7 +3021,7 @@ func (m *DescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -3028,195 +3041,179 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Visibility != nil {
 		u = uint64(int64((*m.Visibility)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x58
+		b[i] = 11<<descriptorTagTypeBits | descriptorWireVarint
 	}
-	for j := len(m.ReservedName) - 1; j >= 0; j-- {
-		i -= len(m.ReservedName[j])
-		copy(b[i:], m.ReservedName[j])
-		u = uint64(len(m.ReservedName[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.ReservedName) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x52
+		b[i] = 10<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.ReservedRange) - 1; j >= 0; j-- {
-		{
-			n, err := m.ReservedRange[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x4a
+	for _, v := range slices.Backward(m.ReservedRange) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 9<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.OneofDecl) - 1; j >= 0; j-- {
-		{
-			n, err := m.OneofDecl[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x42
+	for _, v := range slices.Backward(m.OneofDecl) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x3a
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.Extension) - 1; j >= 0; j-- {
-		{
-			n, err := m.Extension[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x32
+	for _, v := range slices.Backward(m.Extension) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.ExtensionRange) - 1; j >= 0; j-- {
-		{
-			n, err := m.ExtensionRange[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x2a
+	for _, v := range slices.Backward(m.ExtensionRange) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.EnumType) - 1; j >= 0; j-- {
-		{
-			n, err := m.EnumType[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
+	for _, v := range slices.Backward(m.EnumType) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.NestedType) - 1; j >= 0; j-- {
-		{
-			n, err := m.NestedType[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+	for _, v := range slices.Backward(m.NestedType) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.Field) - 1; j >= 0; j-- {
-		{
-			n, err := m.Field[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+	for _, v := range slices.Backward(m.Field) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -3239,270 +3236,238 @@ func (m *DescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &FieldDescriptorProto{}
-				m.Field = append(m.Field, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &DescriptorProto{}
-				m.NestedType = append(m.NestedType, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &FieldDescriptorProto{}
+			m.Field = append(m.Field, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &EnumDescriptorProto{}
-				m.EnumType = append(m.EnumType, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &DescriptorProto_ExtensionRange{}
-				m.ExtensionRange = append(m.ExtensionRange, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &DescriptorProto{}
+			m.NestedType = append(m.NestedType, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 6:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &FieldDescriptorProto{}
-				m.Extension = append(m.Extension, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 7:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &MessageOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &EnumDescriptorProto{}
+			m.EnumType = append(m.EnumType, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 8:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &OneofDescriptorProto{}
-				m.OneofDecl = append(m.OneofDecl, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+		case 5<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 9:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &DescriptorProto_ReservedRange{}
-				m.ReservedRange = append(m.ReservedRange, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &DescriptorProto_ExtensionRange{}
+			m.ExtensionRange = append(m.ExtensionRange, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 10:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.ReservedName = append(m.ReservedName, string(x))
-				continue
+			b = b[n:]
+		case 6<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 11:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := SymbolVisibility(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x58), x)
-					continue
-				}
-				v := e
-				m.Visibility = &v
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &FieldDescriptorProto{}
+			m.Extension = append(m.Extension, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+		case 7<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &MessageOptions{}
+			}
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 8<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &OneofDescriptorProto{}
+			m.OneofDecl = append(m.OneofDecl, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 9<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &DescriptorProto_ReservedRange{}
+			m.ReservedRange = append(m.ReservedRange, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 10<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.ReservedName = append(m.ReservedName, string(x))
+		case 11<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			b = b[n:]
+			e := SymbolVisibility(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 11<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			v := e
+			m.Visibility = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -3572,8 +3537,8 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -3584,11 +3549,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Field) > 0 {
 		b = append(b, "\"field\":["...)
 		for j := range m.Field {
-			{
-				var err error
-				if b, err = m.Field[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Field[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3598,11 +3561,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Extension) > 0 {
 		b = append(b, "\"extension\":["...)
 		for j := range m.Extension {
-			{
-				var err error
-				if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3612,11 +3573,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.NestedType) > 0 {
 		b = append(b, "\"nestedType\":["...)
 		for j := range m.NestedType {
-			{
-				var err error
-				if b, err = m.NestedType[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.NestedType[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3626,11 +3585,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.EnumType) > 0 {
 		b = append(b, "\"enumType\":["...)
 		for j := range m.EnumType {
-			{
-				var err error
-				if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3640,11 +3597,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.ExtensionRange) > 0 {
 		b = append(b, "\"extensionRange\":["...)
 		for j := range m.ExtensionRange {
-			{
-				var err error
-				if b, err = m.ExtensionRange[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.ExtensionRange[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3654,11 +3609,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.OneofDecl) > 0 {
 		b = append(b, "\"oneofDecl\":["...)
 		for j := range m.OneofDecl {
-			{
-				var err error
-				if b, err = m.OneofDecl[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.OneofDecl[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3667,22 +3620,18 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.ReservedRange) > 0 {
 		b = append(b, "\"reservedRange\":["...)
 		for j := range m.ReservedRange {
-			{
-				var err error
-				if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3700,8 +3649,8 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := m.ReservedName[j][ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -3753,7 +3702,7 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.DescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -3839,29 +3788,29 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0, 9:
-			class = 5
+			class = descriptorClassString
 		case 10:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -3877,21 +3826,21 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.DescriptorProto: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorDescriptorProtoErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.DescriptorProto: invalid integer " + string(raw))
+					return errors.New(descriptorDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.DescriptorProto: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.DescriptorProto: invalid string " + string(raw))
 			}
@@ -3957,13 +3906,13 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 		case 10:
 			var ev SymbolVisibility
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := SymbolVisibility_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.DescriptorProto: invalid value for enum google.protobuf.SymbolVisibility: " + strconv.Quote(sv))
 				}
 				ev = SymbolVisibility(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = SymbolVisibility(iv)
 			}
 			x := ev
@@ -4020,16 +3969,14 @@ func (m *DescriptorProto_ExtensionRange) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Start != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Start))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Start)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.End != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.End))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.End)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -4053,7 +4000,7 @@ func (m *DescriptorProto_ExtensionRange) AppendBinary(b []byte) ([]byte, error) 
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -4072,47 +4019,45 @@ func (m *DescriptorProto_ExtensionRange) ProtoMarshalToSizedBuffer(b []byte) (in
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.End != nil {
 		u = uint64(int64((*m.End)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Start != nil {
 		u = uint64(int64((*m.Start)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -4135,139 +4080,131 @@ func (m *DescriptorProto_ExtensionRange) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *DescriptorProto_ExtensionRange) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Start = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.End = &v
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &ExtensionRangeOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.Start = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := int32(x)
+			m.End = &v
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &ExtensionRangeOptions{}
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4309,11 +4246,9 @@ func (m *DescriptorProto_ExtensionRange) ProtoAppendJSON(b []byte) ([]byte, erro
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -4347,7 +4282,7 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value")
+			return errors.New(descriptorDescriptorProtoExtensionRangeErrTrailingData)
 		}
 		return nil
 	}
@@ -4398,19 +4333,19 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value")
+		return errors.New(descriptorDescriptorProtoExtensionRangeErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0, 1:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -4426,17 +4361,17 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer " + string(raw))
+					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -4502,10 +4437,10 @@ func (m *DescriptorProto_ReservedRange) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Start != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Start))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Start)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.End != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.End))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.End)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -4526,7 +4461,7 @@ func (m *DescriptorProto_ReservedRange) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -4546,27 +4481,27 @@ func (m *DescriptorProto_ReservedRange) ProtoMarshalToSizedBuffer(b []byte) (int
 	}
 	if m.End != nil {
 		u = uint64(int64((*m.End)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Start != nil {
 		u = uint64(int64((*m.Start)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -4586,121 +4521,116 @@ func (m *DescriptorProto_ReservedRange) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *DescriptorProto_ReservedRange) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Start = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.End = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.Start = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := int32(x)
+			m.End = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4758,7 +4688,7 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value")
+			return errors.New(descriptorDescriptorProtoReservedRangeErrTrailingData)
 		}
 		return nil
 	}
@@ -4807,19 +4737,19 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value")
+		return errors.New(descriptorDescriptorProtoReservedRangeErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0, 1:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -4835,17 +4765,17 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer " + string(raw))
+					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -4930,25 +4860,19 @@ func (m *ExtensionRangeOptions) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Declaration {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Verification != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Verification))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Verification)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -4972,7 +4896,7 @@ func (m *ExtensionRangeOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -4990,76 +4914,68 @@ func (m *ExtensionRangeOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0x92
-			b[i+1] = 0x03
-		}
-	}
-	if m.Verification != nil {
-		u = uint64(int64((*m.Verification)))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	if m.Features != nil {
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 50<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	if m.Verification != nil {
+		u = uint64(int64((*m.Verification)))
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
-	for j := len(m.Declaration) - 1; j >= 0; j-- {
-		{
-			n, err := m.Declaration[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+	for _, v := range slices.Backward(m.Declaration) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -5082,165 +4998,154 @@ func (m *ExtensionRangeOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &ExtensionRangeOptions_Declaration{}
-				m.Declaration = append(m.Declaration, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+		switch t {
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := ExtensionRangeOptions_VerificationState(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x18), x)
-					continue
-				}
-				v := e
-				m.Verification = &v
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &ExtensionRangeOptions_Declaration{}
+			m.Declaration = append(m.Declaration, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 50:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := ExtensionRangeOptions_VerificationState(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Verification = &v
+		case 50<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -5275,11 +5180,9 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -5289,11 +5192,9 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Declaration) > 0 {
 		b = append(b, "\"declaration\":["...)
 		for j := range m.Declaration {
-			{
-				var err error
-				if b, err = m.Declaration[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Declaration[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -5302,11 +5203,9 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -5351,7 +5250,7 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value")
+			return errors.New(descriptorExtensionRangeOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -5423,11 +5322,11 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value")
+		return errors.New(descriptorExtensionRangeOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
@@ -5435,15 +5334,15 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 		case 3:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -5459,21 +5358,21 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid integer " + string(raw))
+					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid string " + string(raw))
 			}
@@ -5504,13 +5403,13 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 		case 3:
 			var ev ExtensionRangeOptions_VerificationState
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := ExtensionRangeOptions_VerificationState_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid value for enum google.protobuf.ExtensionRangeOptions.VerificationState: " + strconv.Quote(sv))
 				}
 				ev = ExtensionRangeOptions_VerificationState(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = ExtensionRangeOptions_VerificationState(iv)
 			}
 			x := ev
@@ -5594,13 +5493,13 @@ func (m *ExtensionRangeOptions_Declaration) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Number != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Number))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Number)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.FullName != nil {
-		n += 1 + len((*m.FullName)) + (bits.Len64((uint64(len((*m.FullName))))|1)+6)/7
+		n += 1 + len((*m.FullName)) + (bits.Len64(uint64(len((*m.FullName)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Type != nil {
-		n += 1 + len((*m.Type)) + (bits.Len64((uint64(len((*m.Type))))|1)+6)/7
+		n += 1 + len((*m.Type)) + (bits.Len64(uint64(len((*m.Type)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Reserved != nil {
 		n += 1 + 1
@@ -5627,7 +5526,7 @@ func (m *ExtensionRangeOptions_Declaration) AppendBinary(b []byte) ([]byte, erro
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -5653,7 +5552,7 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMarshalToSizedBuffer(b []byte) 
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Reserved != nil {
 		i--
@@ -5663,47 +5562,47 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMarshalToSizedBuffer(b []byte) 
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Type != nil {
 		i -= len((*m.Type))
 		copy(b[i:], (*m.Type))
 		u = uint64(len((*m.Type)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.FullName != nil {
 		i -= len((*m.FullName))
 		copy(b[i:], (*m.FullName))
 		u = uint64(len((*m.FullName)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Number != nil {
 		u = uint64(int64((*m.Number)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -5723,158 +5622,144 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ExtensionRangeOptions_Declaration) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Number = &v
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.FullName = &v
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Type = &v
-				continue
-			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Reserved = &v
-				continue
-			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Repeated = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.Number = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.FullName = &v
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Type = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.Reserved = &v
+		case 6<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.Repeated = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -5910,8 +5795,8 @@ func (m *ExtensionRangeOptions_Declaration) ProtoAppendJSON(b []byte) ([]byte, e
 			switch c := (*m.FullName)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -5929,8 +5814,8 @@ func (m *ExtensionRangeOptions_Declaration) ProtoAppendJSON(b []byte) ([]byte, e
 			switch c := (*m.Type)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -5983,7 +5868,7 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value")
+			return errors.New(descriptorExtensionRangeOptionsDeclarationErrTrailingData)
 		}
 		return nil
 	}
@@ -6038,25 +5923,25 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value")
+		return errors.New(descriptorExtensionRangeOptionsDeclarationErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		case 3, 4:
-			class = 4
+			class = descriptorClassBool
 		case 1, 2:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -6072,21 +5957,21 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer " + string(raw))
+					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -6094,7 +5979,7 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid string " + string(raw))
 			}
@@ -6275,37 +6160,35 @@ func (m *FieldDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Extendee != nil {
-		n += 1 + len((*m.Extendee)) + (bits.Len64((uint64(len((*m.Extendee))))|1)+6)/7
+		n += 1 + len((*m.Extendee)) + (bits.Len64(uint64(len((*m.Extendee)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Number != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Number))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Number)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Label != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Label))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Label)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Type != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Type))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Type)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.TypeName != nil {
-		n += 1 + len((*m.TypeName)) + (bits.Len64((uint64(len((*m.TypeName))))|1)+6)/7
+		n += 1 + len((*m.TypeName)) + (bits.Len64(uint64(len((*m.TypeName)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.DefaultValue != nil {
-		n += 1 + len((*m.DefaultValue)) + (bits.Len64((uint64(len((*m.DefaultValue))))|1)+6)/7
+		n += 1 + len((*m.DefaultValue)) + (bits.Len64(uint64(len((*m.DefaultValue)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.OneofIndex != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.OneofIndex))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.OneofIndex)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.JsonName != nil {
-		n += 1 + len((*m.JsonName)) + (bits.Len64((uint64(len((*m.JsonName))))|1)+6)/7
+		n += 1 + len((*m.JsonName)) + (bits.Len64(uint64(len((*m.JsonName)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Proto3Optional != nil {
 		n += 2 + 1
@@ -6332,7 +6215,7 @@ func (m *FieldDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -6358,145 +6241,142 @@ func (m *FieldDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x88
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JsonName != nil {
 		i -= len((*m.JsonName))
 		copy(b[i:], (*m.JsonName))
 		u = uint64(len((*m.JsonName)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x52
+		b[i] = 10<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.OneofIndex != nil {
 		u = uint64(int64((*m.OneofIndex)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x48
+		b[i] = 9<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x42
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.DefaultValue != nil {
 		i -= len((*m.DefaultValue))
 		copy(b[i:], (*m.DefaultValue))
 		u = uint64(len((*m.DefaultValue)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x3a
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.TypeName != nil {
 		i -= len((*m.TypeName))
 		copy(b[i:], (*m.TypeName))
 		u = uint64(len((*m.TypeName)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x32
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Type != nil {
 		u = uint64(int64((*m.Type)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Label != nil {
 		u = uint64(int64((*m.Label)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Number != nil {
 		u = uint64(int64((*m.Number)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Extendee != nil {
 		i -= len((*m.Extendee))
 		copy(b[i:], (*m.Extendee))
 		u = uint64(len((*m.Extendee)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -6519,247 +6399,215 @@ func (m *FieldDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Extendee = &v
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Number = &v
-				continue
-			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FieldDescriptorProto_Label(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x20), x)
-					continue
-				}
-				v := e
-				m.Label = &v
-				continue
-			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FieldDescriptorProto_Type(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x28), x)
-					continue
-				}
-				v := e
-				m.Type = &v
-				continue
-			}
-		case 6:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.TypeName = &v
-				continue
-			}
-		case 7:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.DefaultValue = &v
-				continue
-			}
-		case 8:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &FieldOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 9:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.OneofIndex = &v
-				continue
-			}
-		case 10:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.JsonName = &v
-				continue
-			}
-		case 17:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Proto3Optional = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Extendee = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.Number = &v
+		case 4<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			e := FieldDescriptorProto_Label(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Label = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			b = b[n:]
+			e := FieldDescriptorProto_Type(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
 			}
-		case 5:
-			if len(b) < 4 {
+			v := e
+			m.Type = &v
+		case 6<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.TypeName = &v
+		case 7<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.DefaultValue = &v
+		case 8<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &FieldOptions{}
+			}
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 9<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := int32(x)
+			m.OneofIndex = &v
+		case 10<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.JsonName = &v
+		case 17<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.Proto3Optional = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -6799,8 +6647,8 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -6845,8 +6693,8 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.TypeName)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -6864,8 +6712,8 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Extendee)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -6883,8 +6731,8 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.DefaultValue)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -6907,8 +6755,8 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.JsonName)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -6918,11 +6766,9 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -6965,7 +6811,7 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorFieldDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -7032,34 +6878,34 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorFieldDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 1, 7:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		case 10:
-			class = 4
+			class = descriptorClassBool
 		case 0, 4, 5, 6, 8:
-			class = 5
+			class = descriptorClassString
 		case 2, 3:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -7075,21 +6921,21 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid integer " + string(raw))
+					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -7097,7 +6943,7 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid string " + string(raw))
 			}
@@ -7115,13 +6961,13 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 		case 2:
 			var ev FieldDescriptorProto_Label
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FieldDescriptorProto_Label_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid value for enum google.protobuf.FieldDescriptorProto.Label: " + strconv.Quote(sv))
 				}
 				ev = FieldDescriptorProto_Label(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FieldDescriptorProto_Label(iv)
 			}
 			x := ev
@@ -7129,13 +6975,13 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 		case 3:
 			var ev FieldDescriptorProto_Type
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FieldDescriptorProto_Type_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid value for enum google.protobuf.FieldDescriptorProto.Type: " + strconv.Quote(sv))
 				}
 				ev = FieldDescriptorProto_Type(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FieldDescriptorProto_Type(iv)
 			}
 			x := ev
@@ -7210,13 +7056,11 @@ func (m *OneofDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -7240,7 +7084,7 @@ func (m *OneofDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -7259,37 +7103,35 @@ func (m *OneofDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -7312,130 +7154,125 @@ func (m *OneofDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *OneofDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &OneofOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &OneofOptions{}
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -7475,8 +7312,8 @@ func (m *OneofDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -7486,11 +7323,9 @@ func (m *OneofDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -7524,7 +7359,7 @@ func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorOneofDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -7573,18 +7408,18 @@ func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorOneofDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var sv string
 		switch jb.f {
 		case 0:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.OneofDescriptorProto: invalid string " + string(raw))
 			}
@@ -7686,31 +7521,25 @@ func (m *EnumDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Value {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.ReservedRange {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.ReservedName {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Visibility != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Visibility))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Visibility)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -7734,7 +7563,7 @@ func (m *EnumDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -7754,100 +7583,94 @@ func (m *EnumDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Visibility != nil {
 		u = uint64(int64((*m.Visibility)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
 	}
-	for j := len(m.ReservedName) - 1; j >= 0; j-- {
-		i -= len(m.ReservedName[j])
-		copy(b[i:], m.ReservedName[j])
-		u = uint64(len(m.ReservedName[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.ReservedName) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x2a
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.ReservedRange) - 1; j >= 0; j-- {
-		{
-			n, err := m.ReservedRange[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
+	for _, v := range slices.Backward(m.ReservedRange) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.Value) - 1; j >= 0; j-- {
-		{
-			n, err := m.Value[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+	for _, v := range slices.Backward(m.Value) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -7870,190 +7693,173 @@ func (m *EnumDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &EnumValueDescriptorProto{}
-				m.Value = append(m.Value, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &EnumOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &EnumValueDescriptorProto{}
+			m.Value = append(m.Value, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &EnumDescriptorProto_EnumReservedRange{}
-				m.ReservedRange = append(m.ReservedRange, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.ReservedName = append(m.ReservedName, string(x))
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &EnumOptions{}
 			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := SymbolVisibility(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x30), x)
-					continue
-				}
-				v := e
-				m.Visibility = &v
-				continue
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &EnumDescriptorProto_EnumReservedRange{}
+			m.ReservedRange = append(m.ReservedRange, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 5<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.ReservedName = append(m.ReservedName, string(x))
+		case 6<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			b = b[n:]
+			e := SymbolVisibility(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 6<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			v := e
+			m.Visibility = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -8098,8 +7904,8 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -8110,11 +7916,9 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Value) > 0 {
 		b = append(b, "\"value\":["...)
 		for j := range m.Value {
-			{
-				var err error
-				if b, err = m.Value[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Value[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -8123,22 +7927,18 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.ReservedRange) > 0 {
 		b = append(b, "\"reservedRange\":["...)
 		for j := range m.ReservedRange {
-			{
-				var err error
-				if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -8156,8 +7956,8 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := m.ReservedName[j][ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -8209,7 +8009,7 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorEnumDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -8285,29 +8085,29 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorEnumDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0, 4:
-			class = 5
+			class = descriptorClassString
 		case 5:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -8323,21 +8123,21 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid integer " + string(raw))
+					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid string " + string(raw))
 			}
@@ -8373,13 +8173,13 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 		case 5:
 			var ev SymbolVisibility
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := SymbolVisibility_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid value for enum google.protobuf.SymbolVisibility: " + strconv.Quote(sv))
 				}
 				ev = SymbolVisibility(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = SymbolVisibility(iv)
 			}
 			x := ev
@@ -8434,10 +8234,10 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Start != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Start))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Start)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.End != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.End))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.End)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -8458,7 +8258,7 @@ func (m *EnumDescriptorProto_EnumReservedRange) AppendBinary(b []byte) ([]byte, 
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -8478,27 +8278,27 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMarshalToSizedBuffer(b []by
 	}
 	if m.End != nil {
 		u = uint64(int64((*m.End)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Start != nil {
 		u = uint64(int64((*m.Start)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -8518,121 +8318,116 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Start = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.End = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.Start = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := int32(x)
+			m.End = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -8690,7 +8485,7 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value")
+			return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrTrailingData)
 		}
 		return nil
 	}
@@ -8739,19 +8534,19 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value")
+		return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0, 1:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -8767,17 +8562,17 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer " + string(raw))
+					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -8842,16 +8637,14 @@ func (m *EnumValueDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Number != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Number))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Number)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -8875,7 +8668,7 @@ func (m *EnumValueDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -8894,49 +8687,47 @@ func (m *EnumValueDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, err
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.Number != nil {
-		u = uint64(int64((*m.Number)))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	if m.Number != nil {
+		u = uint64(int64((*m.Number)))
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -8959,141 +8750,133 @@ func (m *EnumValueDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *EnumValueDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Number = &v
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &EnumValueOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.Number = &v
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &EnumValueOptions{}
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -9133,8 +8916,8 @@ func (m *EnumValueDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -9149,11 +8932,9 @@ func (m *EnumValueDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -9187,7 +8968,7 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorEnumValueDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -9238,22 +9019,22 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorEnumValueDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 1:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		case 0:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -9269,21 +9050,21 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid integer " + string(raw))
+					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid string " + string(raw))
 			}
@@ -9358,19 +9139,15 @@ func (m *ServiceDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Method {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -9394,7 +9171,7 @@ func (m *ServiceDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -9413,56 +9190,52 @@ func (m *ServiceDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.Method) - 1; j >= 0; j-- {
-		{
-			n, err := m.Method[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+	for _, v := range slices.Backward(m.Method) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -9485,146 +9258,138 @@ func (m *ServiceDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ServiceDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &MethodDescriptorProto{}
-				m.Method = append(m.Method, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &ServiceOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &MethodDescriptorProto{}
+			m.Method = append(m.Method, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &ServiceOptions{}
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -9669,8 +9434,8 @@ func (m *ServiceDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -9681,11 +9446,9 @@ func (m *ServiceDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Method) > 0 {
 		b = append(b, "\"method\":["...)
 		for j := range m.Method {
-			{
-				var err error
-				if b, err = m.Method[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Method[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -9694,11 +9457,9 @@ func (m *ServiceDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -9732,7 +9493,7 @@ func (m *ServiceDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorServiceDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -9802,18 +9563,18 @@ func (m *ServiceDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorServiceDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var sv string
 		switch jb.f {
 		case 0:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.ServiceDescriptorProto: invalid string " + string(raw))
 			}
@@ -9925,19 +9686,17 @@ func (m *MethodDescriptorProto) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Name != nil {
-		n += 1 + len((*m.Name)) + (bits.Len64((uint64(len((*m.Name))))|1)+6)/7
+		n += 1 + len((*m.Name)) + (bits.Len64(uint64(len((*m.Name)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.InputType != nil {
-		n += 1 + len((*m.InputType)) + (bits.Len64((uint64(len((*m.InputType))))|1)+6)/7
+		n += 1 + len((*m.InputType)) + (bits.Len64(uint64(len((*m.InputType)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.OutputType != nil {
-		n += 1 + len((*m.OutputType)) + (bits.Len64((uint64(len((*m.OutputType))))|1)+6)/7
+		n += 1 + len((*m.OutputType)) + (bits.Len64(uint64(len((*m.OutputType)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Options != nil {
-		{
-			l := m.Options.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Options.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.ClientStreaming != nil {
 		n += 1 + 1
@@ -9967,7 +9726,7 @@ func (m *MethodDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -9993,7 +9752,7 @@ func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.ClientStreaming != nil {
 		i--
@@ -10003,68 +9762,66 @@ func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Options != nil {
-		{
-			n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
+		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.OutputType != nil {
 		i -= len((*m.OutputType))
 		copy(b[i:], (*m.OutputType))
 		u = uint64(len((*m.OutputType)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.InputType != nil {
 		i -= len((*m.InputType))
 		copy(b[i:], (*m.InputType))
 		u = uint64(len((*m.InputType)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
 		u = uint64(len((*m.Name)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -10087,178 +9844,161 @@ func (m *MethodDescriptorProto) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *MethodDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Name = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.InputType = &v
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Name = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.OutputType = &v
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.InputType = &v
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Options == nil {
-					m.Options = &MethodOptions{}
-				}
-				mv := m.Options
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.OutputType = &v
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.ClientStreaming = &v
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Options == nil {
+				m.Options = &MethodOptions{}
 			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.ServerStreaming = &v
-				continue
+			mv := m.Options
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x != 0
+			m.ClientStreaming = &v
+		case 6<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.ServerStreaming = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -10298,8 +10038,8 @@ func (m *MethodDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.Name)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -10317,8 +10057,8 @@ func (m *MethodDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.InputType)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -10336,8 +10076,8 @@ func (m *MethodDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.OutputType)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -10347,11 +10087,9 @@ func (m *MethodDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		{
-			var err error
-			if b, err = m.Options.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -10403,7 +10141,7 @@ func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value")
+			return errors.New(descriptorMethodDescriptorProtoErrTrailingData)
 		}
 		return nil
 	}
@@ -10460,21 +10198,21 @@ func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value")
+		return errors.New(descriptorMethodDescriptorProtoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 4, 5:
-			class = 4
+			class = descriptorClassBool
 		case 0, 1, 2:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -10482,7 +10220,7 @@ func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid string " + string(raw))
 			}
@@ -10794,19 +10532,19 @@ func (m *FileOptions) ProtoSize() (n int) {
 		return 0
 	}
 	if m.JavaPackage != nil {
-		n += 1 + len((*m.JavaPackage)) + (bits.Len64((uint64(len((*m.JavaPackage))))|1)+6)/7
+		n += 1 + len((*m.JavaPackage)) + (bits.Len64(uint64(len((*m.JavaPackage)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.JavaOuterClassname != nil {
-		n += 1 + len((*m.JavaOuterClassname)) + (bits.Len64((uint64(len((*m.JavaOuterClassname))))|1)+6)/7
+		n += 1 + len((*m.JavaOuterClassname)) + (bits.Len64(uint64(len((*m.JavaOuterClassname)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.OptimizeFor != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.OptimizeFor))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.OptimizeFor)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.JavaMultipleFiles != nil {
 		n += 1 + 1
 	}
 	if m.GoPackage != nil {
-		n += 1 + len((*m.GoPackage)) + (bits.Len64((uint64(len((*m.GoPackage))))|1)+6)/7
+		n += 1 + len((*m.GoPackage)) + (bits.Len64(uint64(len((*m.GoPackage)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.CcGenericServices != nil {
 		n += 2 + 1
@@ -10830,37 +10568,33 @@ func (m *FileOptions) ProtoSize() (n int) {
 		n += 2 + 1
 	}
 	if m.ObjcClassPrefix != nil {
-		n += 2 + len((*m.ObjcClassPrefix)) + (bits.Len64((uint64(len((*m.ObjcClassPrefix))))|1)+6)/7
+		n += 2 + len((*m.ObjcClassPrefix)) + (bits.Len64(uint64(len((*m.ObjcClassPrefix)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.CsharpNamespace != nil {
-		n += 2 + len((*m.CsharpNamespace)) + (bits.Len64((uint64(len((*m.CsharpNamespace))))|1)+6)/7
+		n += 2 + len((*m.CsharpNamespace)) + (bits.Len64(uint64(len((*m.CsharpNamespace)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.SwiftPrefix != nil {
-		n += 2 + len((*m.SwiftPrefix)) + (bits.Len64((uint64(len((*m.SwiftPrefix))))|1)+6)/7
+		n += 2 + len((*m.SwiftPrefix)) + (bits.Len64(uint64(len((*m.SwiftPrefix)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.PhpClassPrefix != nil {
-		n += 2 + len((*m.PhpClassPrefix)) + (bits.Len64((uint64(len((*m.PhpClassPrefix))))|1)+6)/7
+		n += 2 + len((*m.PhpClassPrefix)) + (bits.Len64(uint64(len((*m.PhpClassPrefix)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.PhpNamespace != nil {
-		n += 2 + len((*m.PhpNamespace)) + (bits.Len64((uint64(len((*m.PhpNamespace))))|1)+6)/7
+		n += 2 + len((*m.PhpNamespace)) + (bits.Len64(uint64(len((*m.PhpNamespace)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.PhpMetadataNamespace != nil {
-		n += 2 + len((*m.PhpMetadataNamespace)) + (bits.Len64((uint64(len((*m.PhpMetadataNamespace))))|1)+6)/7
+		n += 2 + len((*m.PhpMetadataNamespace)) + (bits.Len64(uint64(len((*m.PhpMetadataNamespace)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.RubyPackage != nil {
-		n += 2 + len((*m.RubyPackage)) + (bits.Len64((uint64(len((*m.RubyPackage))))|1)+6)/7
+		n += 2 + len((*m.RubyPackage)) + (bits.Len64(uint64(len((*m.RubyPackage)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -10884,7 +10618,7 @@ func (m *FileOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -10902,150 +10636,137 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0x92
-			b[i+1] = 0x03
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 50<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.RubyPackage != nil {
 		i -= len((*m.RubyPackage))
 		copy(b[i:], (*m.RubyPackage))
 		u = uint64(len((*m.RubyPackage)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xea
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 45<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.PhpMetadataNamespace != nil {
 		i -= len((*m.PhpMetadataNamespace))
 		copy(b[i:], (*m.PhpMetadataNamespace))
 		u = uint64(len((*m.PhpMetadataNamespace)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xe2
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 44<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.PhpNamespace != nil {
 		i -= len((*m.PhpNamespace))
 		copy(b[i:], (*m.PhpNamespace))
 		u = uint64(len((*m.PhpNamespace)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xca
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 41<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.PhpClassPrefix != nil {
 		i -= len((*m.PhpClassPrefix))
 		copy(b[i:], (*m.PhpClassPrefix))
 		u = uint64(len((*m.PhpClassPrefix)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xc2
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 40<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.SwiftPrefix != nil {
 		i -= len((*m.SwiftPrefix))
 		copy(b[i:], (*m.SwiftPrefix))
 		u = uint64(len((*m.SwiftPrefix)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xba
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 39<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.CsharpNamespace != nil {
 		i -= len((*m.CsharpNamespace))
 		copy(b[i:], (*m.CsharpNamespace))
 		u = uint64(len((*m.CsharpNamespace)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xaa
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 37<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.ObjcClassPrefix != nil {
 		i -= len((*m.ObjcClassPrefix))
 		copy(b[i:], (*m.ObjcClassPrefix))
 		u = uint64(len((*m.ObjcClassPrefix)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xa2
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 36<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.CcEnableArenas != nil {
 		i--
@@ -11055,8 +10776,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0xf8
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 31<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaStringCheckUtf8 != nil {
 		i--
@@ -11066,8 +10786,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0xd8
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 27<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -11077,8 +10796,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0xb8
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 23<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaGenerateEqualsAndHash != nil {
 		i--
@@ -11088,8 +10806,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0xa0
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 20<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.PyGenericServices != nil {
 		i--
@@ -11099,8 +10816,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x90
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 18<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaGenericServices != nil {
 		i--
@@ -11110,8 +10826,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x88
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.CcGenericServices != nil {
 		i--
@@ -11121,22 +10836,21 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x80
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 16<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.GoPackage != nil {
 		i -= len((*m.GoPackage))
 		copy(b[i:], (*m.GoPackage))
 		u = uint64(len((*m.GoPackage)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x5a
+		b[i] = 11<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.JavaMultipleFiles != nil {
 		i--
@@ -11146,47 +10860,47 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x50
+		b[i] = 10<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.OptimizeFor != nil {
 		u = uint64(int64((*m.OptimizeFor)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x48
+		b[i] = 9<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.JavaOuterClassname != nil {
 		i -= len((*m.JavaOuterClassname))
 		copy(b[i:], (*m.JavaOuterClassname))
 		u = uint64(len((*m.JavaOuterClassname)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x42
+		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.JavaPackage != nil {
 		i -= len((*m.JavaPackage))
 		copy(b[i:], (*m.JavaPackage))
 		u = uint64(len((*m.JavaPackage)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -11209,367 +10923,305 @@ func (m *FileOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.JavaPackage = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 8:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.JavaOuterClassname = &v
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.JavaPackage = &v
+		case 8<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 9:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FileOptions_OptimizeMode(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x48), x)
-					continue
-				}
-				v := e
-				m.OptimizeFor = &v
-				continue
-			}
-		case 10:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.JavaMultipleFiles = &v
-				continue
-			}
-		case 11:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.GoPackage = &v
-				continue
-			}
-		case 16:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.CcGenericServices = &v
-				continue
-			}
-		case 17:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.JavaGenericServices = &v
-				continue
-			}
-		case 18:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.PyGenericServices = &v
-				continue
-			}
-		case 20:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.JavaGenerateEqualsAndHash = &v
-				continue
-			}
-		case 23:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 27:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.JavaStringCheckUtf8 = &v
-				continue
-			}
-		case 31:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.CcEnableArenas = &v
-				continue
-			}
-		case 36:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.ObjcClassPrefix = &v
-				continue
-			}
-		case 37:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.CsharpNamespace = &v
-				continue
-			}
-		case 39:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.SwiftPrefix = &v
-				continue
-			}
-		case 40:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.PhpClassPrefix = &v
-				continue
-			}
-		case 41:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.PhpNamespace = &v
-				continue
-			}
-		case 44:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.PhpMetadataNamespace = &v
-				continue
-			}
-		case 45:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.RubyPackage = &v
-				continue
-			}
-		case 50:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.JavaOuterClassname = &v
+		case 9<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := FileOptions_OptimizeMode(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 9<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.OptimizeFor = &v
+		case 10<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := x != 0
+			m.JavaMultipleFiles = &v
+		case 11<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.GoPackage = &v
+		case 16<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.CcGenericServices = &v
+		case 17<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.JavaGenericServices = &v
+		case 18<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.PyGenericServices = &v
+		case 20<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.JavaGenerateEqualsAndHash = &v
+		case 23<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 27<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.JavaStringCheckUtf8 = &v
+		case 31<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.CcEnableArenas = &v
+		case 36<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.ObjcClassPrefix = &v
+		case 37<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.CsharpNamespace = &v
+		case 39<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.SwiftPrefix = &v
+		case 40<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.PhpClassPrefix = &v
+		case 41<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.PhpNamespace = &v
+		case 44<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.PhpMetadataNamespace = &v
+		case 45<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.RubyPackage = &v
+		case 50<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -11611,8 +11263,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.JavaPackage)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11630,8 +11282,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.JavaOuterClassname)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11687,8 +11339,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.GoPackage)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11751,8 +11403,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.ObjcClassPrefix)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11770,8 +11422,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.CsharpNamespace)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11789,8 +11441,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.SwiftPrefix)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11808,8 +11460,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.PhpClassPrefix)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11827,8 +11479,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.PhpNamespace)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11846,8 +11498,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.PhpMetadataNamespace)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11865,8 +11517,8 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.RubyPackage)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -11876,22 +11528,18 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -11928,7 +11576,7 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FileOptions: unexpected data after JSON value")
+			return errors.New(descriptorFileOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -12034,32 +11682,32 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FileOptions: unexpected data after JSON value")
+		return errors.New(descriptorFileOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 2, 3, 4, 7, 8, 9, 10, 11:
-			class = 4
+			class = descriptorClassBool
 		case 0, 1, 6, 12, 13, 14, 15, 16, 17, 18:
-			class = 5
+			class = descriptorClassString
 		case 5:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -12075,21 +11723,21 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FileOptions: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFileOptionsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FileOptions: invalid integer " + string(raw))
+					return errors.New(descriptorFileOptionsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FileOptions: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFileOptionsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -12097,7 +11745,7 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.FileOptions: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FileOptions: invalid string " + string(raw))
 			}
@@ -12124,13 +11772,13 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 		case 5:
 			var ev FileOptions_OptimizeMode
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FileOptions_OptimizeMode_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FileOptions: invalid value for enum google.protobuf.FileOptions.OptimizeMode: " + strconv.Quote(sv))
 				}
 				ev = FileOptions_OptimizeMode(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FileOptions_OptimizeMode(iv)
 			}
 			x := ev
@@ -12356,16 +12004,12 @@ func (m *MessageOptions) ProtoSize() (n int) {
 		n += 1 + 1
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -12389,7 +12033,7 @@ func (m *MessageOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -12407,44 +12051,39 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x62
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 12<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.DeprecatedLegacyJsonFieldConflicts != nil {
 		i--
@@ -12454,7 +12093,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x58
+		b[i] = 11<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.MapEntry != nil {
 		i--
@@ -12464,7 +12103,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x38
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Deprecated != nil {
 		i--
@@ -12474,7 +12113,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.NoStandardDescriptorAccessor != nil {
 		i--
@@ -12484,7 +12123,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.MessageSetWireFormat != nil {
 		i--
@@ -12494,7 +12133,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -12517,188 +12156,168 @@ func (m *MessageOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *MessageOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.MessageSetWireFormat = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.NoStandardDescriptorAccessor = &v
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 7:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.MapEntry = &v
-				continue
-			}
-		case 11:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.DeprecatedLegacyJsonFieldConflicts = &v
-				continue
-			}
-		case 12:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x != 0
+			m.MessageSetWireFormat = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := x != 0
+			m.NoStandardDescriptorAccessor = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 7<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.MapEntry = &v
+		case 11<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.DeprecatedLegacyJsonFieldConflicts = &v
+		case 12<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -12777,22 +12396,18 @@ func (m *MessageOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -12829,7 +12444,7 @@ func (m *MessageOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.MessageOptions: unexpected data after JSON value")
+			return errors.New(descriptorMessageOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -12907,18 +12522,18 @@ func (m *MessageOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.MessageOptions: unexpected data after JSON value")
+		return errors.New(descriptorMessageOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var bv bool
 		switch jb.f {
 		case 0, 1, 2, 3, 4:
-			class = 4
+			class = descriptorClassBool
 		}
 		switch class {
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -13172,7 +12787,7 @@ func (m *FieldOptions) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Ctype != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Ctype))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Ctype)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Packed != nil {
 		n += 1 + 1
@@ -13184,7 +12799,7 @@ func (m *FieldOptions) ProtoSize() (n int) {
 		n += 1 + 1
 	}
 	if m.Jstype != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Jstype))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Jstype)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Weak != nil {
 		n += 1 + 1
@@ -13196,34 +12811,26 @@ func (m *FieldOptions) ProtoSize() (n int) {
 		n += 2 + 1
 	}
 	if m.Retention != nil {
-		n += 2 + (bits.Len64((uint64(int64((*m.Retention))))|1)+6)/7
+		n += 2 + (bits.Len64(uint64(int64((*m.Retention)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.Targets {
-		n += 2 + (bits.Len64((uint64(int64(v)))|1)+6)/7
+		n += 2 + (bits.Len64(uint64(int64(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.EditionDefaults {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.FeatureSupport != nil {
-		{
-			l := m.FeatureSupport.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.FeatureSupport.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -13247,7 +12854,7 @@ func (m *FieldOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -13265,111 +12872,97 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.FeatureSupport != nil {
-		{
-			n, err := m.FeatureSupport.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xb2
-			b[i+1] = 0x01
-		}
-	}
-	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xaa
-			b[i+1] = 0x01
-		}
-	}
-	for j := len(m.EditionDefaults) - 1; j >= 0; j-- {
-		{
-			n, err := m.EditionDefaults[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xa2
-			b[i+1] = 0x01
-		}
-	}
-	for j := len(m.Targets) - 1; j >= 0; j-- {
-		u = uint64(int64(m.Targets[j]))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0x98
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	if m.FeatureSupport != nil {
+		n, err := m.FeatureSupport.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 22<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	if m.Features != nil {
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 21<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	for _, v := range slices.Backward(m.EditionDefaults) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 20<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	for _, v := range slices.Backward(m.Targets) {
+		u = uint64(int64(v))
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 19<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Retention != nil {
 		u = uint64(int64((*m.Retention)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0x88
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.DebugRedact != nil {
 		i--
@@ -13379,8 +12972,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x80
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 16<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.UnverifiedLazy != nil {
 		i--
@@ -13390,7 +12982,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x78
+		b[i] = 15<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Weak != nil {
 		i--
@@ -13400,19 +12992,19 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x50
+		b[i] = 10<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Jstype != nil {
 		u = uint64(int64((*m.Jstype)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Lazy != nil {
 		i--
@@ -13422,7 +13014,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Deprecated != nil {
 		i--
@@ -13432,7 +13024,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Packed != nil {
 		i--
@@ -13442,19 +13034,19 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Ctype != nil {
 		u = uint64(int64((*m.Ctype)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -13477,318 +13069,275 @@ func (m *FieldOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FieldOptions_CType(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x08), x)
-					continue
-				}
-				v := e
-				m.Ctype = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Packed = &v
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Lazy = &v
-				continue
-			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FieldOptions_JSType(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x30), x)
-					continue
-				}
-				v := e
-				m.Jstype = &v
-				continue
-			}
-		case 10:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Weak = &v
-				continue
-			}
-		case 15:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.UnverifiedLazy = &v
-				continue
-			}
-		case 16:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.DebugRedact = &v
-				continue
-			}
-		case 17:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FieldOptions_OptionRetention(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x88, 0x01), x)
-					continue
-				}
-				v := e
-				m.Retention = &v
-				continue
-			}
-		case 19:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					if e := FieldOptions_OptionTargetType(int32(x)); !e.IsValid() {
-						m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x98, 0x01), x)
-					} else {
-						m.Targets = append(m.Targets, e)
-					}
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FieldOptions_OptionTargetType(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x98, 0x01), x)
-					continue
-				}
-				m.Targets = append(m.Targets, e)
-				continue
-			}
-		case 20:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &FieldOptions_EditionDefault{}
-				m.EditionDefaults = append(m.EditionDefaults, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 21:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 22:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.FeatureSupport == nil {
-					m.FeatureSupport = &FieldOptions_FeatureSupport{}
-				}
-				mv := m.FeatureSupport
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := FieldOptions_CType(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 1<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Ctype = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := x != 0
+			m.Packed = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.Lazy = &v
+		case 6<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FieldOptions_JSType(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 6<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Jstype = &v
+		case 10<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.Weak = &v
+		case 15<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.UnverifiedLazy = &v
+		case 16<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.DebugRedact = &v
+		case 17<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FieldOptions_OptionRetention(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 17<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Retention = &v
+		case 19<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
+					goto errParse
+				}
+				v = v[n:]
+				if e := FieldOptions_OptionTargetType(int32(x)); !e.IsValid() {
+					m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 19<<descriptorTagTypeBits|descriptorWireVarint), x)
+				} else {
+					m.Targets = append(m.Targets, e)
+				}
+			}
+		case 19<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FieldOptions_OptionTargetType(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 19<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			m.Targets = append(m.Targets, e)
+		case 20<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &FieldOptions_EditionDefault{}
+			m.EditionDefaults = append(m.EditionDefaults, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 21<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 22<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.FeatureSupport == nil {
+				m.FeatureSupport = &FieldOptions_FeatureSupport{}
+			}
+			mv := m.FeatureSupport
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -13925,11 +13474,9 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.EditionDefaults) > 0 {
 		b = append(b, "\"editionDefaults\":["...)
 		for j := range m.EditionDefaults {
-			{
-				var err error
-				if b, err = m.EditionDefaults[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.EditionDefaults[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -13938,32 +13485,26 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if m.FeatureSupport != nil {
 		b = append(b, "\"featureSupport\":"...)
-		{
-			var err error
-			if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -14000,7 +13541,7 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FieldOptions: unexpected data after JSON value")
+			return errors.New(descriptorFieldOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -14092,30 +13633,30 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldOptions: unexpected data after JSON value")
+		return errors.New(descriptorFieldOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 1, 3, 4, 5, 6, 7:
-			class = 4
+			class = descriptorClassBool
 		case 0, 2, 8, 9:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -14131,21 +13672,21 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FieldOptions: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFieldOptionsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FieldOptions: invalid integer " + string(raw))
+					return errors.New(descriptorFieldOptionsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FieldOptions: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFieldOptionsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -14153,7 +13694,7 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.FieldOptions: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FieldOptions: invalid string " + string(raw))
 			}
@@ -14165,13 +13706,13 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 		case 0:
 			var ev FieldOptions_CType
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FieldOptions_CType_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.CType: " + strconv.Quote(sv))
 				}
 				ev = FieldOptions_CType(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FieldOptions_CType(iv)
 			}
 			x := ev
@@ -14182,13 +13723,13 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 		case 2:
 			var ev FieldOptions_JSType
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FieldOptions_JSType_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.JSType: " + strconv.Quote(sv))
 				}
 				ev = FieldOptions_JSType(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FieldOptions_JSType(iv)
 			}
 			x := ev
@@ -14211,13 +13752,13 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 		case 8:
 			var ev FieldOptions_OptionRetention
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FieldOptions_OptionRetention_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.OptionRetention: " + strconv.Quote(sv))
 				}
 				ev = FieldOptions_OptionRetention(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FieldOptions_OptionRetention(iv)
 			}
 			x := ev
@@ -14225,13 +13766,13 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 		case 9:
 			var ev FieldOptions_OptionTargetType
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FieldOptions_OptionTargetType_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.OptionTargetType: " + strconv.Quote(sv))
 				}
 				ev = FieldOptions_OptionTargetType(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FieldOptions_OptionTargetType(iv)
 			}
 			m.Targets = append(m.Targets, ev)
@@ -14305,10 +13846,10 @@ func (m *FieldOptions_EditionDefault) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Value != nil {
-		n += 1 + len((*m.Value)) + (bits.Len64((uint64(len((*m.Value))))|1)+6)/7
+		n += 1 + len((*m.Value)) + (bits.Len64(uint64(len((*m.Value)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Edition != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Edition))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Edition)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -14329,7 +13870,7 @@ func (m *FieldOptions_EditionDefault) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -14349,29 +13890,29 @@ func (m *FieldOptions_EditionDefault) ProtoMarshalToSizedBuffer(b []byte) (int, 
 	}
 	if m.Edition != nil {
 		u = uint64(int64((*m.Edition)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Value != nil {
 		i -= len((*m.Value))
 		copy(b[i:], (*m.Value))
 		u = uint64(len((*m.Value)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -14391,128 +13932,123 @@ func (m *FieldOptions_EditionDefault) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldOptions_EditionDefault) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.Value = &v
-				continue
+		switch t {
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x18), x)
-					continue
-				}
-				v := e
-				m.Edition = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.Value = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			v := e
+			m.Edition = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -14554,8 +14090,8 @@ func (m *FieldOptions_EditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) 
 			switch c := (*m.Value)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -14590,7 +14126,7 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value")
+			return errors.New(descriptorFieldOptionsEditionDefaultErrTrailingData)
 		}
 		return nil
 	}
@@ -14639,29 +14175,29 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value")
+		return errors.New(descriptorFieldOptionsEditionDefaultErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 1:
-			class = 5
+			class = descriptorClassString
 		case 0:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -14677,21 +14213,21 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid integer " + string(raw))
+					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid string " + string(raw))
 			}
@@ -14703,13 +14239,13 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 		case 0:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -14798,19 +14334,19 @@ func (m *FieldOptions_FeatureSupport) ProtoSize() (n int) {
 		return 0
 	}
 	if m.EditionIntroduced != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.EditionIntroduced))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.EditionIntroduced)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.EditionDeprecated != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.EditionDeprecated))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.EditionDeprecated)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.DeprecationWarning != nil {
-		n += 1 + len((*m.DeprecationWarning)) + (bits.Len64((uint64(len((*m.DeprecationWarning))))|1)+6)/7
+		n += 1 + len((*m.DeprecationWarning)) + (bits.Len64(uint64(len((*m.DeprecationWarning)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.EditionRemoved != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.EditionRemoved))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.EditionRemoved)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.RemovalError != nil {
-		n += 1 + len((*m.RemovalError)) + (bits.Len64((uint64(len((*m.RemovalError))))|1)+6)/7
+		n += 1 + len((*m.RemovalError)) + (bits.Len64(uint64(len((*m.RemovalError)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -14831,7 +14367,7 @@ func (m *FieldOptions_FeatureSupport) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -14853,65 +14389,65 @@ func (m *FieldOptions_FeatureSupport) ProtoMarshalToSizedBuffer(b []byte) (int, 
 		i -= len((*m.RemovalError))
 		copy(b[i:], (*m.RemovalError))
 		u = uint64(len((*m.RemovalError)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x2a
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.EditionRemoved != nil {
 		u = uint64(int64((*m.EditionRemoved)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.DeprecationWarning != nil {
 		i -= len((*m.DeprecationWarning))
 		copy(b[i:], (*m.DeprecationWarning))
 		u = uint64(len((*m.DeprecationWarning)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.EditionDeprecated != nil {
 		u = uint64(int64((*m.EditionDeprecated)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.EditionIntroduced != nil {
 		u = uint64(int64((*m.EditionIntroduced)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -14931,173 +14467,159 @@ func (m *FieldOptions_FeatureSupport) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldOptions_FeatureSupport) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x08), x)
-					continue
-				}
-				v := e
-				m.EditionIntroduced = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x10), x)
-					continue
-				}
-				v := e
-				m.EditionDeprecated = &v
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.DeprecationWarning = &v
-				continue
-			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x20), x)
-					continue
-				}
-				v := e
-				m.EditionRemoved = &v
-				continue
-			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.RemovalError = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 1<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.EditionIntroduced = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 2<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.EditionDeprecated = &v
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.DeprecationWarning = &v
+		case 4<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.EditionRemoved = &v
+		case 5<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.RemovalError = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -15150,8 +14672,8 @@ func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) 
 			switch c := (*m.DeprecationWarning)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -15180,8 +14702,8 @@ func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) 
 			switch c := (*m.RemovalError)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -15216,7 +14738,7 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value")
+			return errors.New(descriptorFieldOptionsFeatureSupportErrTrailingData)
 		}
 		return nil
 	}
@@ -15271,29 +14793,29 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value")
+		return errors.New(descriptorFieldOptionsFeatureSupportErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 2, 4:
-			class = 5
+			class = descriptorClassString
 		case 0, 1, 3:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -15309,21 +14831,21 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer " + string(raw))
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid string " + string(raw))
 			}
@@ -15335,13 +14857,13 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 		case 0:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidEdition + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -15349,13 +14871,13 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 		case 1:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidEdition + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -15366,13 +14888,13 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 		case 3:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidEdition + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -15429,16 +14951,12 @@ func (m *OneofOptions) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -15462,7 +14980,7 @@ func (m *OneofOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -15480,44 +14998,39 @@ func (m *OneofOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x0a
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -15540,133 +15053,128 @@ func (m *OneofOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *OneofOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -15700,22 +15208,18 @@ func (m *OneofOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -15752,7 +15256,7 @@ func (m *OneofOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.OneofOptions: unexpected data after JSON value")
+			return errors.New(descriptorOneofOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -15820,7 +15324,7 @@ func (m *OneofOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.OneofOptions: unexpected data after JSON value")
+		return errors.New(descriptorOneofOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
@@ -15939,16 +15443,12 @@ func (m *EnumOptions) ProtoSize() (n int) {
 		n += 1 + 1
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -15972,7 +15472,7 @@ func (m *EnumOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -15990,44 +15490,39 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x3a
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.DeprecatedLegacyJsonFieldConflicts != nil {
 		i--
@@ -16037,7 +15532,7 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Deprecated != nil {
 		i--
@@ -16047,7 +15542,7 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.AllowAlias != nil {
 		i--
@@ -16057,7 +15552,7 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -16080,166 +15575,152 @@ func (m *EnumOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *EnumOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.AllowAlias = &v
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.DeprecatedLegacyJsonFieldConflicts = &v
-				continue
-			}
-		case 7:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x != 0
+			m.AllowAlias = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 6<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			v := x != 0
+			m.DeprecatedLegacyJsonFieldConflicts = &v
+		case 7<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -16300,22 +15781,18 @@ func (m *EnumOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -16352,7 +15829,7 @@ func (m *EnumOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.EnumOptions: unexpected data after JSON value")
+			return errors.New(descriptorEnumOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -16426,18 +15903,18 @@ func (m *EnumOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumOptions: unexpected data after JSON value")
+		return errors.New(descriptorEnumOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var bv bool
 		switch jb.f {
 		case 0, 1, 2:
-			class = 4
+			class = descriptorClassBool
 		}
 		switch class {
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -16559,25 +16036,19 @@ func (m *EnumValueOptions) ProtoSize() (n int) {
 		n += 1 + 1
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.DebugRedact != nil {
 		n += 1 + 1
 	}
 	if m.FeatureSupport != nil {
-		{
-			l := m.FeatureSupport.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.FeatureSupport.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -16601,7 +16072,7 @@ func (m *EnumValueOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -16619,44 +16090,39 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.FeatureSupport != nil {
-		{
-			n, err := m.FeatureSupport.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
+		n, err := m.FeatureSupport.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.DebugRedact != nil {
 		i--
@@ -16666,26 +16132,24 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.Deprecated != nil {
 		i--
@@ -16695,7 +16159,7 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -16718,173 +16182,159 @@ func (m *EnumValueOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *EnumValueOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.DebugRedact = &v
-				continue
-			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.FeatureSupport == nil {
-					m.FeatureSupport = &FieldOptions_FeatureSupport{}
-				}
-				mv := m.FeatureSupport
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			v := x != 0
+			m.DebugRedact = &v
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.FeatureSupport == nil {
+				m.FeatureSupport = &FieldOptions_FeatureSupport{}
+			}
+			mv := m.FeatureSupport
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -16927,11 +16377,9 @@ func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -16946,22 +16394,18 @@ func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.FeatureSupport != nil {
 		b = append(b, "\"featureSupport\":"...)
-		{
-			var err error
-			if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -16998,7 +16442,7 @@ func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.EnumValueOptions: unexpected data after JSON value")
+			return errors.New(descriptorEnumValueOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -17072,18 +16516,18 @@ func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumValueOptions: unexpected data after JSON value")
+		return errors.New(descriptorEnumValueOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var bv bool
 		switch jb.f {
 		case 0, 2:
-			class = 4
+			class = descriptorClassBool
 		}
 		switch class {
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -17188,16 +16632,12 @@ func (m *ServiceOptions) ProtoSize() (n int) {
 		n += 2 + 1
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -17221,7 +16661,7 @@ func (m *ServiceOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -17239,45 +16679,39 @@ func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0x92
-			b[i+1] = 0x02
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 34<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -17287,8 +16721,7 @@ func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x88
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 33<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -17311,144 +16744,136 @@ func (m *ServiceOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ServiceOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 33:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 34:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 33<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 34<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
+			}
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -17482,11 +16907,9 @@ func (m *ServiceOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -17502,11 +16925,9 @@ func (m *ServiceOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -17543,7 +16964,7 @@ func (m *ServiceOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.ServiceOptions: unexpected data after JSON value")
+			return errors.New(descriptorServiceOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -17613,18 +17034,18 @@ func (m *ServiceOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ServiceOptions: unexpected data after JSON value")
+		return errors.New(descriptorServiceOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var bv bool
 		switch jb.f {
 		case 1:
-			class = 4
+			class = descriptorClassBool
 		}
 		switch class {
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -17728,19 +17149,15 @@ func (m *MethodOptions) ProtoSize() (n int) {
 		n += 2 + 1
 	}
 	if m.IdempotencyLevel != nil {
-		n += 2 + (bits.Len64((uint64(int64((*m.IdempotencyLevel))))|1)+6)/7
+		n += 2 + (bits.Len64(uint64(int64((*m.IdempotencyLevel)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Features != nil {
-		{
-			l := m.Features.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Features.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.UninterpretedOption {
-		{
-			l := v.ProtoSize()
-			n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 2 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -17764,7 +17181,7 @@ func (m *MethodOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -17782,58 +17199,51 @@ func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UninterpretedOption) - 1; j >= 0; j-- {
-		{
-			n, err := m.UninterpretedOption[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x3e
+	for _, v := range slices.Backward(m.UninterpretedOption) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.Features != nil {
-		{
-			n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			b[i] = 0x9a
-			b[i+1] = 0x02
-		}
-	}
-	if m.IdempotencyLevel != nil {
-		u = uint64(int64((*m.IdempotencyLevel)))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0x90
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	if m.Features != nil {
+		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 35<<descriptorTagTypeBits|descriptorWireBytes)
+	}
+	if m.IdempotencyLevel != nil {
+		u = uint64(int64((*m.IdempotencyLevel)))
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i -= 2
+		binary.PutUvarint(b[i:], 34<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -17843,8 +17253,7 @@ func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i -= 2
-		b[i] = 0x88
-		b[i+1] = 0x02
+		binary.PutUvarint(b[i:], 33<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -17867,160 +17276,149 @@ func (m *MethodOptions) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *MethodOptions) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 33:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Deprecated = &v
-				continue
-			}
-		case 34:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := MethodOptions_IdempotencyLevel(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x90, 0x02), x)
-					continue
-				}
-				v := e
-				m.IdempotencyLevel = &v
-				continue
-			}
-		case 35:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Features == nil {
-					m.Features = &FeatureSet{}
-				}
-				mv := m.Features
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 999:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption{}
-				m.UninterpretedOption = append(m.UninterpretedOption, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 33<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x != 0
+			m.Deprecated = &v
+		case 34<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			e := MethodOptions_IdempotencyLevel(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 34<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.IdempotencyLevel = &v
+		case 35<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Features == nil {
+				m.Features = &FeatureSet{}
 			}
-		case 5:
-			if len(b) < 4 {
+			mv := m.Features
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 999<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption{}
+			m.UninterpretedOption = append(m.UninterpretedOption, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -18074,22 +17472,18 @@ func (m *MethodOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		{
-			var err error
-			if b, err = m.Features.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			{
-				var err error
-				if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -18126,7 +17520,7 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.MethodOptions: unexpected data after JSON value")
+			return errors.New(descriptorMethodOptionsErrTrailingData)
 		}
 		return nil
 	}
@@ -18198,30 +17592,30 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.MethodOptions: unexpected data after JSON value")
+		return errors.New(descriptorMethodOptionsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 0:
-			class = 4
+			class = descriptorClassBool
 		case 1:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -18237,21 +17631,21 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.MethodOptions: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorMethodOptionsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.MethodOptions: invalid integer " + string(raw))
+					return errors.New(descriptorMethodOptionsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.MethodOptions: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorMethodOptionsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -18259,7 +17653,7 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.MethodOptions: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.MethodOptions: invalid string " + string(raw))
 			}
@@ -18274,13 +17668,13 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 		case 1:
 			var ev MethodOptions_IdempotencyLevel
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := MethodOptions_IdempotencyLevel_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.MethodOptions: invalid value for enum google.protobuf.MethodOptions.IdempotencyLevel: " + strconv.Quote(sv))
 				}
 				ev = MethodOptions_IdempotencyLevel(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = MethodOptions_IdempotencyLevel(iv)
 			}
 			x := ev
@@ -18390,28 +17784,26 @@ func (m *UninterpretedOption) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Name {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.IdentifierValue != nil {
-		n += 1 + len((*m.IdentifierValue)) + (bits.Len64((uint64(len((*m.IdentifierValue))))|1)+6)/7
+		n += 1 + len((*m.IdentifierValue)) + (bits.Len64(uint64(len((*m.IdentifierValue)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.PositiveIntValue != nil {
-		n += 1 + (bits.Len64((*m.PositiveIntValue)|1)+6)/7
+		n += 1 + (bits.Len64((*m.PositiveIntValue)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.NegativeIntValue != nil {
-		n += 1 + (bits.Len64((uint64((*m.NegativeIntValue)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64((*m.NegativeIntValue))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.DoubleValue != nil {
-		n += 1 + 8
+		n += 1 + descriptorFixed64Size
 	}
 	if m.StringValue != nil {
-		n += 1 + len(m.StringValue) + (bits.Len64((uint64(len(m.StringValue)))|1)+6)/7
+		n += 1 + len(m.StringValue) + (bits.Len64(uint64(len(m.StringValue))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.AggregateValue != nil {
-		n += 1 + len((*m.AggregateValue)) + (bits.Len64((uint64(len((*m.AggregateValue))))|1)+6)/7
+		n += 1 + len((*m.AggregateValue)) + (bits.Len64(uint64(len((*m.AggregateValue)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -18435,7 +17827,7 @@ func (m *UninterpretedOption) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -18457,92 +17849,90 @@ func (m *UninterpretedOption) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len((*m.AggregateValue))
 		copy(b[i:], (*m.AggregateValue))
 		u = uint64(len((*m.AggregateValue)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x42
+		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.StringValue != nil {
 		i -= len(m.StringValue)
 		copy(b[i:], m.StringValue)
 		u = uint64(len(m.StringValue))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x3a
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.DoubleValue != nil {
-		i -= 8
+		i -= descriptorFixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DoubleValue)))
 		i--
-		b[i] = 0x31
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireFixed64
 	}
 	if m.NegativeIntValue != nil {
 		u = uint64((*m.NegativeIntValue))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.PositiveIntValue != nil {
 		u = (*m.PositiveIntValue)
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.IdentifierValue != nil {
 		i -= len((*m.IdentifierValue))
 		copy(b[i:], (*m.IdentifierValue))
 		u = uint64(len((*m.IdentifierValue)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
-	for j := len(m.Name) - 1; j >= 0; j-- {
-		{
-			n, err := m.Name[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x12
+	for _, v := range slices.Backward(m.Name) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -18565,186 +17955,166 @@ func (m *UninterpretedOption) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *UninterpretedOption) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &UninterpretedOption_NamePart{}
-				m.Name = append(m.Name, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+		switch t {
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.IdentifierValue = &v
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &UninterpretedOption_NamePart{}
+			m.Name = append(m.Name, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x
-				m.PositiveIntValue = &v
-				continue
+			b = b[n:]
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int64(x)
-				m.NegativeIntValue = &v
-				continue
-			}
-		case 6:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				v := math.Float64frombits(x)
-				m.DoubleValue = &v
-				continue
-			}
-		case 7:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.StringValue = append([]byte{}, x...)
-				continue
-			}
-		case 8:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.AggregateValue = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.IdentifierValue = &v
+		case 4<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := x
+			m.PositiveIntValue = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := int64(x)
+			m.NegativeIntValue = &v
+		case 6<<descriptorTagTypeBits | descriptorWireFixed64:
+			if len(b) < descriptorFixed64Size {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			x, n := binary.LittleEndian.Uint64(b), descriptorFixed64Size
+			b = b[n:]
+			v := math.Float64frombits(x)
+			m.DoubleValue = &v
+		case 7<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.StringValue = append([]byte{}, x...)
+		case 8<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.AggregateValue = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -18779,11 +18149,9 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Name) > 0 {
 		b = append(b, "\"name\":["...)
 		for j := range m.Name {
-			{
-				var err error
-				if b, err = m.Name[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Name[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -18800,8 +18168,8 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.IdentifierValue)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -18839,14 +18207,12 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.StringValue != nil {
 		b = append(b, "\"stringValue\":"...)
-		{
-			n := base64.StdEncoding.EncodedLen(len(m.StringValue))
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, n)[:l+n]
-			base64.StdEncoding.Encode(b[l:], m.StringValue)
-			b = append(b, '"')
-		}
+		n := base64.StdEncoding.EncodedLen(len(m.StringValue))
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, n)[:l+n]
+		base64.StdEncoding.Encode(b[l:], m.StringValue)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.AggregateValue != nil {
@@ -18859,8 +18225,8 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.AggregateValue)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -18898,7 +18264,7 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.UninterpretedOption: unexpected data after JSON value")
+			return errors.New(descriptorUninterpretedOptionErrTrailingData)
 		}
 		return nil
 	}
@@ -18976,11 +18342,11 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.UninterpretedOption: unexpected data after JSON value")
+		return errors.New(descriptorUninterpretedOptionErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var uv uint64
@@ -18989,18 +18355,18 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 		var by []byte
 		switch jb.f {
 		case 3:
-			class, bits = 1, 64
+			class, bits = descriptorClassSigned, 64
 		case 2:
-			class, bits = 2, 64
+			class, bits = descriptorClassUnsigned, 64
 		case 4:
-			class, bits = 3, 64
+			class, bits = descriptorClassFloat, 64
 		case 1, 6:
-			class = 5
+			class = descriptorClassString
 		case 5:
-			class = 6
+			class = descriptorClassBytes
 		}
 		switch class {
-		case 1, 2:
+		case descriptorClassSigned, descriptorClassUnsigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -19008,10 +18374,10 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 				}
 			}
 			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.UninterpretedOption: invalid number " + string(raw))
+				return errors.New(descriptorUninterpretedOptionErrInvalidNumber + string(raw))
 			}
 			var err error
-			if class == 1 {
+			if class == descriptorClassSigned {
 				iv, err = strconv.ParseInt(s, 10, bits)
 			} else {
 				uv, err = strconv.ParseUint(s, 10, bits)
@@ -19020,28 +18386,28 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+					return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if class == 1 {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-						return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+				if class == descriptorClassSigned {
+					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
 					}
 					iv = n.Int64()
 				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
-						return errors.New("proto: google.protobuf.UninterpretedOption: invalid integer " + string(raw))
+					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
 					}
 					uv = n.Uint64()
 				}
 			}
-		case 3:
+		case descriptorClassFloat:
 			s := string(raw)
 			special := false
 			if raw[0] == '"' {
@@ -19059,24 +18425,24 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 			}
 			if !special {
 				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New("proto: google.protobuf.UninterpretedOption: invalid number " + string(raw))
+					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + string(raw))
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New("proto: google.protobuf.UninterpretedOption: invalid number " + string(raw))
+					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + string(raw))
 				}
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.UninterpretedOption: invalid string " + string(raw))
 			}
 			if err := json.Unmarshal(raw, &sv); err != nil {
 				return err
 			}
-		case 6:
+		case descriptorClassBytes:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: google.protobuf.UninterpretedOption: invalid bytes " + string(raw))
+				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -19086,12 +18452,12 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 			if strings.ContainsAny(s, "-_") {
 				enc = base64.URLEncoding
 			}
-			if len(s)%4 != 0 {
+			if len(s)%descriptorBase64Quantum != 0 {
 				enc = enc.WithPadding(base64.NoPadding)
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New("proto: google.protobuf.UninterpretedOption: invalid bytes " + string(raw))
+				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + string(raw))
 			}
 		}
 		switch jb.f {
@@ -19167,7 +18533,7 @@ func (m *UninterpretedOption_NamePart) ProtoSize() (n int) {
 		return 0
 	}
 	if m.NamePart != nil {
-		n += 1 + len((*m.NamePart)) + (bits.Len64((uint64(len((*m.NamePart))))|1)+6)/7
+		n += 1 + len((*m.NamePart)) + (bits.Len64(uint64(len((*m.NamePart)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.IsExtension != nil {
 		n += 1 + 1
@@ -19194,7 +18560,7 @@ func (m *UninterpretedOption_NamePart) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -19220,21 +18586,21 @@ func (m *UninterpretedOption_NamePart) ProtoMarshalToSizedBuffer(b []byte) (int,
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.NamePart != nil {
 		i -= len((*m.NamePart))
 		copy(b[i:], (*m.NamePart))
 		u = uint64(len((*m.NamePart)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -19257,123 +18623,118 @@ func (m *UninterpretedOption_NamePart) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *UninterpretedOption_NamePart) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.NamePart = &v
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.IsExtension = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.NamePart = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.IsExtension = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -19416,8 +18777,8 @@ func (m *UninterpretedOption_NamePart) ProtoAppendJSON(b []byte) ([]byte, error)
 			switch c := (*m.NamePart)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -19464,7 +18825,7 @@ func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value")
+			return errors.New(descriptorUninterpretedOptionNamePartErrTrailingData)
 		}
 		return nil
 	}
@@ -19513,21 +18874,21 @@ func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value")
+		return errors.New(descriptorUninterpretedOptionNamePartErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		var bv bool
 		var sv string
 		switch jb.f {
 		case 1:
-			class = 4
+			class = descriptorClassBool
 		case 0:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 4:
+		case descriptorClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -19535,7 +18896,7 @@ func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid boolean " + string(raw))
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid string " + string(raw))
 			}
@@ -19656,31 +19017,31 @@ func (m *FeatureSet) ProtoSize() (n int) {
 		return 0
 	}
 	if m.FieldPresence != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.FieldPresence))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.FieldPresence)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.EnumType != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.EnumType))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.EnumType)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.RepeatedFieldEncoding != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.RepeatedFieldEncoding))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.RepeatedFieldEncoding)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Utf8Validation != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Utf8Validation))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Utf8Validation)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.MessageEncoding != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.MessageEncoding))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.MessageEncoding)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.JsonFormat != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.JsonFormat))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.JsonFormat)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.EnforceNamingStyle != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.EnforceNamingStyle))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.EnforceNamingStyle)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.DefaultSymbolVisibility != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.DefaultSymbolVisibility))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.DefaultSymbolVisibility)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.EnforceProtoLimits != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.EnforceProtoLimits))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.EnforceProtoLimits)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -19701,7 +19062,7 @@ func (m *FeatureSet) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -19721,111 +19082,111 @@ func (m *FeatureSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.EnforceProtoLimits != nil {
 		u = uint64(int64((*m.EnforceProtoLimits)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x48
+		b[i] = 9<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.DefaultSymbolVisibility != nil {
 		u = uint64(int64((*m.DefaultSymbolVisibility)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x40
+		b[i] = 8<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.EnforceNamingStyle != nil {
 		u = uint64(int64((*m.EnforceNamingStyle)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x38
+		b[i] = 7<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.JsonFormat != nil {
 		u = uint64(int64((*m.JsonFormat)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.MessageEncoding != nil {
 		u = uint64(int64((*m.MessageEncoding)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Utf8Validation != nil {
 		u = uint64(int64((*m.Utf8Validation)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.RepeatedFieldEncoding != nil {
 		u = uint64(int64((*m.RepeatedFieldEncoding)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.EnumType != nil {
 		u = uint64(int64((*m.EnumType)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.FieldPresence != nil {
 		u = uint64(int64((*m.FieldPresence)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -19845,243 +19206,217 @@ func (m *FeatureSet) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FeatureSet) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_FieldPresence(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x08), x)
-					continue
-				}
-				v := e
-				m.FieldPresence = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_EnumType(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x10), x)
-					continue
-				}
-				v := e
-				m.EnumType = &v
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_RepeatedFieldEncoding(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x18), x)
-					continue
-				}
-				v := e
-				m.RepeatedFieldEncoding = &v
-				continue
-			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_Utf8Validation(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x20), x)
-					continue
-				}
-				v := e
-				m.Utf8Validation = &v
-				continue
-			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_MessageEncoding(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x28), x)
-					continue
-				}
-				v := e
-				m.MessageEncoding = &v
-				continue
-			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_JsonFormat(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x30), x)
-					continue
-				}
-				v := e
-				m.JsonFormat = &v
-				continue
-			}
-		case 7:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_EnforceNamingStyle(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x38), x)
-					continue
-				}
-				v := e
-				m.EnforceNamingStyle = &v
-				continue
-			}
-		case 8:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_VisibilityFeature_DefaultSymbolVisibility(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x40), x)
-					continue
-				}
-				v := e
-				m.DefaultSymbolVisibility = &v
-				continue
-			}
-		case 9:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x48), x)
-					continue
-				}
-				v := e
-				m.EnforceProtoLimits = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := FeatureSet_FieldPresence(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 1<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.FieldPresence = &v
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			e := FeatureSet_EnumType(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 2<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.EnumType = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			b = b[n:]
+			e := FeatureSet_RepeatedFieldEncoding(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
 			}
-		case 5:
-			if len(b) < 4 {
+			v := e
+			m.RepeatedFieldEncoding = &v
+		case 4<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			e := FeatureSet_Utf8Validation(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Utf8Validation = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FeatureSet_MessageEncoding(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.MessageEncoding = &v
+		case 6<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FeatureSet_JsonFormat(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 6<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.JsonFormat = &v
+		case 7<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FeatureSet_EnforceNamingStyle(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 7<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.EnforceNamingStyle = &v
+		case 8<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FeatureSet_VisibilityFeature_DefaultSymbolVisibility(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 8<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.DefaultSymbolVisibility = &v
+		case 9<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 9<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.EnforceProtoLimits = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -20228,7 +19563,7 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FeatureSet: unexpected data after JSON value")
+			return errors.New(descriptorFeatureSetErrTrailingData)
 		}
 		return nil
 	}
@@ -20291,11 +19626,11 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSet: unexpected data after JSON value")
+		return errors.New(descriptorFeatureSetErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
@@ -20303,15 +19638,15 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -20327,21 +19662,21 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FeatureSet: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFeatureSetErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid integer " + string(raw))
+					return errors.New(descriptorFeatureSetErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFeatureSetErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FeatureSet: invalid string " + string(raw))
 			}
@@ -20353,13 +19688,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 0:
 			var ev FeatureSet_FieldPresence
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_FieldPresence_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.FieldPresence: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_FieldPresence(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_FieldPresence(iv)
 			}
 			x := ev
@@ -20367,13 +19702,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 1:
 			var ev FeatureSet_EnumType
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_EnumType_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.EnumType: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_EnumType(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_EnumType(iv)
 			}
 			x := ev
@@ -20381,13 +19716,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 2:
 			var ev FeatureSet_RepeatedFieldEncoding
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_RepeatedFieldEncoding_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.RepeatedFieldEncoding: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_RepeatedFieldEncoding(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_RepeatedFieldEncoding(iv)
 			}
 			x := ev
@@ -20395,13 +19730,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 3:
 			var ev FeatureSet_Utf8Validation
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_Utf8Validation_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.Utf8Validation: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_Utf8Validation(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_Utf8Validation(iv)
 			}
 			x := ev
@@ -20409,13 +19744,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 4:
 			var ev FeatureSet_MessageEncoding
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_MessageEncoding_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.MessageEncoding: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_MessageEncoding(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_MessageEncoding(iv)
 			}
 			x := ev
@@ -20423,13 +19758,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 5:
 			var ev FeatureSet_JsonFormat
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_JsonFormat_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.JsonFormat: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_JsonFormat(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_JsonFormat(iv)
 			}
 			x := ev
@@ -20437,13 +19772,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 6:
 			var ev FeatureSet_EnforceNamingStyle
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_EnforceNamingStyle_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.EnforceNamingStyle: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_EnforceNamingStyle(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_EnforceNamingStyle(iv)
 			}
 			x := ev
@@ -20451,13 +19786,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 7:
 			var ev FeatureSet_VisibilityFeature_DefaultSymbolVisibility
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_VisibilityFeature_DefaultSymbolVisibility_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_VisibilityFeature_DefaultSymbolVisibility(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_VisibilityFeature_DefaultSymbolVisibility(iv)
 			}
 			x := ev
@@ -20465,13 +19800,13 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 		case 8:
 			var ev FeatureSet_ProtoLimitsFeature_EnforceProtoLimits
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits: " + strconv.Quote(sv))
 				}
 				ev = FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(iv)
 			}
 			x := ev
@@ -20521,7 +19856,7 @@ func (m *FeatureSet_VisibilityFeature) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -20556,73 +19891,73 @@ func (m *FeatureSet_VisibilityFeature) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FeatureSet_VisibilityFeature) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
+		num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
 		switch typ {
-		case 0:
+		case descriptorWireVarint:
 			_, n = binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+		case descriptorWireFixed64:
+			if len(b) < descriptorFixed64Size {
 				goto errParse
 			}
-			n = 8
-		case 2:
+			n = descriptorFixed64Size
+		case descriptorWireBytes:
 			ln, k := binary.Uvarint(b)
 			if k <= 0 || ln > uint64(len(b)-k) {
 				goto errParse
 			}
 			n = k + int(ln)
-		case 3:
-			var stk [16]int32
+		case descriptorWireStartGroup:
+			var stk [descriptorSkipStackSize]int32
 			open := append(stk[:0], num)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > descriptorMaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & descriptorTagTypeMask {
+				case descriptorWireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case descriptorWireFixed64:
+					k = descriptorFixed64Size
+				case descriptorWireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case descriptorWireStartGroup:
+					open = append(open, int32(t>>descriptorTagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case descriptorWireEndGroup:
+					if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case descriptorWireFixed32:
+					k = descriptorFixed32Size
 				default:
 					goto errParse
 				}
@@ -20631,11 +19966,11 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeDepth(b []byte, depth int) erro
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+		case descriptorWireFixed32:
+			if len(b) < descriptorFixed32Size {
 				goto errParse
 			}
-			n = 4
+			n = descriptorFixed32Size
 		default:
 			goto errParse
 		}
@@ -20644,9 +19979,9 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeDepth(b []byte, depth int) erro
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -20694,7 +20029,7 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value")
+			return errors.New(descriptorFeatureSetVisibilityFeatureErrTrailingData)
 		}
 		return nil
 	}
@@ -20710,7 +20045,7 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value")
+		return errors.New(descriptorFeatureSetVisibilityFeatureErrTrailingData)
 	}
 	return nil
 }
@@ -20755,7 +20090,7 @@ func (m *FeatureSet_ProtoLimitsFeature) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -20790,73 +20125,73 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
+		num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
 		switch typ {
-		case 0:
+		case descriptorWireVarint:
 			_, n = binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+		case descriptorWireFixed64:
+			if len(b) < descriptorFixed64Size {
 				goto errParse
 			}
-			n = 8
-		case 2:
+			n = descriptorFixed64Size
+		case descriptorWireBytes:
 			ln, k := binary.Uvarint(b)
 			if k <= 0 || ln > uint64(len(b)-k) {
 				goto errParse
 			}
 			n = k + int(ln)
-		case 3:
-			var stk [16]int32
+		case descriptorWireStartGroup:
+			var stk [descriptorSkipStackSize]int32
 			open := append(stk[:0], num)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > descriptorMaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & descriptorTagTypeMask {
+				case descriptorWireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case descriptorWireFixed64:
+					k = descriptorFixed64Size
+				case descriptorWireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case descriptorWireStartGroup:
+					open = append(open, int32(t>>descriptorTagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case descriptorWireEndGroup:
+					if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case descriptorWireFixed32:
+					k = descriptorFixed32Size
 				default:
 					goto errParse
 				}
@@ -20865,11 +20200,11 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeDepth(b []byte, depth int) err
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+		case descriptorWireFixed32:
+			if len(b) < descriptorFixed32Size {
 				goto errParse
 			}
-			n = 4
+			n = descriptorFixed32Size
 		default:
 			goto errParse
 		}
@@ -20878,9 +20213,9 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeDepth(b []byte, depth int) err
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -20928,7 +20263,7 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value")
+			return errors.New(descriptorFeatureSetProtoLimitsFeatureErrTrailingData)
 		}
 		return nil
 	}
@@ -20944,7 +20279,7 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value")
+		return errors.New(descriptorFeatureSetProtoLimitsFeatureErrTrailingData)
 	}
 	return nil
 }
@@ -21004,16 +20339,14 @@ func (m *FeatureSetDefaults) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Defaults {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.MinimumEdition != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.MinimumEdition))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.MinimumEdition)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.MaximumEdition != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.MaximumEdition))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.MaximumEdition)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -21034,7 +20367,7 @@ func (m *FeatureSetDefaults) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -21054,46 +20387,44 @@ func (m *FeatureSetDefaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.MaximumEdition != nil {
 		u = uint64(int64((*m.MaximumEdition)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.MinimumEdition != nil {
 		u = uint64(int64((*m.MinimumEdition)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
 	}
-	for j := len(m.Defaults) - 1; j >= 0; j-- {
-		{
-			n, err := m.Defaults[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x0a
+	for _, v := range slices.Backward(m.Defaults) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -21113,147 +20444,139 @@ func (m *FeatureSetDefaults) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FeatureSetDefaults) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &FeatureSetDefaults_FeatureSetEditionDefault{}
-				m.Defaults = append(m.Defaults, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x20), x)
-					continue
-				}
-				v := e
-				m.MinimumEdition = &v
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &FeatureSetDefaults_FeatureSetEditionDefault{}
+			m.Defaults = append(m.Defaults, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x28), x)
-					continue
-				}
-				v := e
-				m.MaximumEdition = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+		case 4<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.MinimumEdition = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			v := e
+			m.MaximumEdition = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -21277,11 +20600,9 @@ func (m *FeatureSetDefaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Defaults) > 0 {
 		b = append(b, "\"defaults\":["...)
 		for j := range m.Defaults {
-			{
-				var err error
-				if b, err = m.Defaults[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Defaults[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -21337,7 +20658,7 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value")
+			return errors.New(descriptorFeatureSetDefaultsErrTrailingData)
 		}
 		return nil
 	}
@@ -21407,11 +20728,11 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value")
+		return errors.New(descriptorFeatureSetDefaultsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
@@ -21419,15 +20740,15 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 		case 1, 2:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -21443,21 +20764,21 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid integer " + string(raw))
+					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid string " + string(raw))
 			}
@@ -21475,13 +20796,13 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 		case 1:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+					return errors.New(descriptorFeatureSetDefaultsErrInvalidEdition + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -21489,13 +20810,13 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 		case 2:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
+					return errors.New(descriptorFeatureSetDefaultsErrInvalidEdition + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -21560,19 +20881,15 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Edition != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Edition))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Edition)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.OverridableFeatures != nil {
-		{
-			l := m.OverridableFeatures.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.OverridableFeatures.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.FixedFeatures != nil {
-		{
-			l := m.FixedFeatures.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.FixedFeatures.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -21593,7 +20910,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) AppendBinary(b []byte) ([]
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -21612,54 +20929,50 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMarshalToSizedBuffer(
 		copy(b[i:], m.unknownFields)
 	}
 	if m.FixedFeatures != nil {
-		{
-			n, err := m.FixedFeatures.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x2a
+		n, err := m.FixedFeatures.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	if m.OverridableFeatures != nil {
-		{
-			n, err := m.OverridableFeatures.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
-		}
-	}
-	if m.Edition != nil {
-		u = uint64(int64((*m.Edition)))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	if m.OverridableFeatures != nil {
+		n, err := m.OverridableFeatures.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+	}
+	if m.Edition != nil {
+		u = uint64(int64((*m.Edition)))
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -21679,151 +20992,143 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMerge(b []byte) error
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Edition(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x18), x)
-					continue
-				}
-				v := e
-				m.Edition = &v
-				continue
-			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.OverridableFeatures == nil {
-					m.OverridableFeatures = &FeatureSet{}
-				}
-				mv := m.OverridableFeatures
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.FixedFeatures == nil {
-					m.FixedFeatures = &FeatureSet{}
-				}
-				mv := m.FixedFeatures
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			e := Edition(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Edition = &v
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.OverridableFeatures == nil {
+				m.OverridableFeatures = &FeatureSet{}
+			}
+			mv := m.OverridableFeatures
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 5<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.FixedFeatures == nil {
+				m.FixedFeatures = &FeatureSet{}
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
+			mv := m.FixedFeatures
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -21857,21 +21162,17 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoAppendJSON(b []byte) 
 	}
 	if m.OverridableFeatures != nil {
 		b = append(b, "\"overridableFeatures\":"...)
-		{
-			var err error
-			if b, err = m.OverridableFeatures.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.OverridableFeatures.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if m.FixedFeatures != nil {
 		b = append(b, "\"fixedFeatures\":"...)
-		{
-			var err error
-			if b, err = m.FixedFeatures.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.FixedFeatures.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -21902,7 +21203,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value")
+			return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrTrailingData)
 		}
 		return nil
 	}
@@ -21953,11 +21254,11 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value")
+		return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
@@ -21965,15 +21266,15 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 		case 0:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -21989,21 +21290,21 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer " + string(raw))
+					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid string " + string(raw))
 			}
@@ -22015,13 +21316,13 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 		case 0:
 			var ev Edition
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := Edition_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
 				}
 				ev = Edition(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = Edition(iv)
 			}
 			x := ev
@@ -22121,10 +21422,8 @@ func (m *SourceCodeInfo) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Location {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -22145,7 +21444,7 @@ func (m *SourceCodeInfo) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -22163,24 +21462,22 @@ func (m *SourceCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.Location) - 1; j >= 0; j-- {
-		{
-			n, err := m.Location[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x0a
+	for _, v := range slices.Backward(m.Location) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -22200,115 +21497,113 @@ func (m *SourceCodeInfo) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *SourceCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &SourceCodeInfo_Location{}
-				m.Location = append(m.Location, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &SourceCodeInfo_Location{}
+			m.Location = append(m.Location, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -22332,11 +21627,9 @@ func (m *SourceCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Location) > 0 {
 		b = append(b, "\"location\":["...)
 		for j := range m.Location {
-			{
-				var err error
-				if b, err = m.Location[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Location[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -22370,7 +21663,7 @@ func (m *SourceCodeInfo) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value")
+			return errors.New(descriptorSourceCodeInfoErrTrailingData)
 		}
 		return nil
 	}
@@ -22432,7 +21725,7 @@ func (m *SourceCodeInfo) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value")
+		return errors.New(descriptorSourceCodeInfoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
@@ -22605,25 +21898,25 @@ func (m *SourceCodeInfo_Location) ProtoSize() (n int) {
 	if len(m.Path) > 0 {
 		l := 0
 		for _, v := range m.Path {
-			l += (bits.Len64((uint64(int64(v)))|1) + 6) / 7
+			l += (bits.Len64(uint64(int64(v))|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if len(m.Span) > 0 {
 		l := 0
 		for _, v := range m.Span {
-			l += (bits.Len64((uint64(int64(v)))|1) + 6) / 7
+			l += (bits.Len64(uint64(int64(v))|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.LeadingComments != nil {
-		n += 1 + len((*m.LeadingComments)) + (bits.Len64((uint64(len((*m.LeadingComments))))|1)+6)/7
+		n += 1 + len((*m.LeadingComments)) + (bits.Len64(uint64(len((*m.LeadingComments)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.TrailingComments != nil {
-		n += 1 + len((*m.TrailingComments)) + (bits.Len64((uint64(len((*m.TrailingComments))))|1)+6)/7
+		n += 1 + len((*m.TrailingComments)) + (bits.Len64(uint64(len((*m.TrailingComments)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	for _, v := range m.LeadingDetachedComments {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -22644,7 +21937,7 @@ func (m *SourceCodeInfo_Location) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -22662,93 +21955,93 @@ func (m *SourceCodeInfo_Location) ProtoMarshalToSizedBuffer(b []byte) (int, erro
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.LeadingDetachedComments) - 1; j >= 0; j-- {
-		i -= len(m.LeadingDetachedComments[j])
-		copy(b[i:], m.LeadingDetachedComments[j])
-		u = uint64(len(m.LeadingDetachedComments[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.LeadingDetachedComments) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x32
+		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.TrailingComments != nil {
 		i -= len((*m.TrailingComments))
 		copy(b[i:], (*m.TrailingComments))
 		u = uint64(len((*m.TrailingComments)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x22
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if m.LeadingComments != nil {
 		i -= len((*m.LeadingComments))
 		copy(b[i:], (*m.LeadingComments))
 		u = uint64(len((*m.LeadingComments)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if len(m.Span) > 0 {
 		start := i
-		for j := len(m.Span) - 1; j >= 0; j-- {
-			u = uint64(int64(m.Span[j]))
-			if u < 0x80 {
+		for _, v := range slices.Backward(m.Span) {
+			u = uint64(int64(v))
+			if u < descriptorVarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if len(m.Path) > 0 {
 		start := i
-		for j := len(m.Path) - 1; j >= 0; j-- {
-			u = uint64(int64(m.Path[j]))
-			if u < 0x80 {
+		for _, v := range slices.Backward(m.Path) {
+			u = uint64(int64(v))
+			if u < descriptorVarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -22768,193 +22061,175 @@ func (m *SourceCodeInfo_Location) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *SourceCodeInfo_Location) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.Path = append(m.Path, int32(x))
-				}
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
 				if n <= 0 {
 					goto errParse
 				}
-				b = b[n:]
+				v = v[n:]
 				m.Path = append(m.Path, int32(x))
-				continue
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.Span = append(m.Span, int32(x))
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Span = append(m.Span, int32(x))
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.LeadingComments = &v
-				continue
-			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.TrailingComments = &v
-				continue
-			}
-		case 6:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.LeadingDetachedComments = append(m.LeadingDetachedComments, string(x))
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			m.Path = append(m.Path, int32(x))
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
+					goto errParse
+				}
+				v = v[n:]
+				m.Span = append(m.Span, int32(x))
+			}
+		case 2<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			m.Span = append(m.Span, int32(x))
+		case 3<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.LeadingComments = &v
+		case 4<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.TrailingComments = &v
+		case 6<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.LeadingDetachedComments = append(m.LeadingDetachedComments, string(x))
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -23003,8 +22278,8 @@ func (m *SourceCodeInfo_Location) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.LeadingComments)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -23022,8 +22297,8 @@ func (m *SourceCodeInfo_Location) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.TrailingComments)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -23042,8 +22317,8 @@ func (m *SourceCodeInfo_Location) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := m.LeadingDetachedComments[j][ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -23081,7 +22356,7 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value")
+			return errors.New(descriptorSourceCodeInfoLocationErrTrailingData)
 		}
 		return nil
 	}
@@ -23155,22 +22430,22 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value")
+		return errors.New(descriptorSourceCodeInfoLocationErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0, 1:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		case 2, 3, 4:
-			class = 5
+			class = descriptorClassString
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -23186,21 +22461,21 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid integer " + string(raw))
+					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid string " + string(raw))
 			}
@@ -23262,10 +22537,8 @@ func (m *GeneratedCodeInfo) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Annotation {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -23286,7 +22559,7 @@ func (m *GeneratedCodeInfo) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -23304,24 +22577,22 @@ func (m *GeneratedCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.Annotation) - 1; j >= 0; j-- {
-		{
-			n, err := m.Annotation[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x0a
+	for _, v := range slices.Backward(m.Annotation) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < descriptorVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -23341,115 +22612,113 @@ func (m *GeneratedCodeInfo) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *GeneratedCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &GeneratedCodeInfo_Annotation{}
-				m.Annotation = append(m.Annotation, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &GeneratedCodeInfo_Annotation{}
+			m.Annotation = append(m.Annotation, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -23473,11 +22742,9 @@ func (m *GeneratedCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Annotation) > 0 {
 		b = append(b, "\"annotation\":["...)
 		for j := range m.Annotation {
-			{
-				var err error
-				if b, err = m.Annotation[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Annotation[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -23511,7 +22778,7 @@ func (m *GeneratedCodeInfo) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value")
+			return errors.New(descriptorGeneratedCodeInfoErrTrailingData)
 		}
 		return nil
 	}
@@ -23573,7 +22840,7 @@ func (m *GeneratedCodeInfo) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value")
+		return errors.New(descriptorGeneratedCodeInfoErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
@@ -23662,21 +22929,21 @@ func (m *GeneratedCodeInfo_Annotation) ProtoSize() (n int) {
 	if len(m.Path) > 0 {
 		l := 0
 		for _, v := range m.Path {
-			l += (bits.Len64((uint64(int64(v)))|1) + 6) / 7
+			l += (bits.Len64(uint64(int64(v))|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		n += 1 + l + (bits.Len64(uint64(l)|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.SourceFile != nil {
-		n += 1 + len((*m.SourceFile)) + (bits.Len64((uint64(len((*m.SourceFile))))|1)+6)/7
+		n += 1 + len((*m.SourceFile)) + (bits.Len64(uint64(len((*m.SourceFile)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Begin != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Begin))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Begin)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.End != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.End))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.End)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	if m.Semantic != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Semantic))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Semantic)))|1)+descriptorVarintPayloadBits-1)/descriptorVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -23697,7 +22964,7 @@ func (m *GeneratedCodeInfo_Annotation) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(descriptorErrSizeChanged)
 	}
 	return b, nil
 }
@@ -23717,76 +22984,76 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMarshalToSizedBuffer(b []byte) (int,
 	}
 	if m.Semantic != nil {
 		u = uint64(int64((*m.Semantic)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.End != nil {
 		u = uint64(int64((*m.End)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.Begin != nil {
 		u = uint64(int64((*m.Begin)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
 	}
 	if m.SourceFile != nil {
 		i -= len((*m.SourceFile))
 		copy(b[i:], (*m.SourceFile))
 		u = uint64(len((*m.SourceFile)))
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	if len(m.Path) > 0 {
 		start := i
-		for j := len(m.Path) - 1; j >= 0; j-- {
-			u = uint64(int64(m.Path[j]))
-			if u < 0x80 {
+		for _, v := range slices.Backward(m.Path) {
+			u = uint64(int64(v))
+			if u < descriptorVarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < descriptorVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -23806,178 +23073,162 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *GeneratedCodeInfo_Annotation) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= descriptorMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.Path = append(m.Path, int32(x))
-				}
-				continue
+		switch t {
+		case 1<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
 				if n <= 0 {
 					goto errParse
 				}
-				b = b[n:]
+				v = v[n:]
 				m.Path = append(m.Path, int32(x))
-				continue
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.SourceFile = &v
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Begin = &v
-				continue
-			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.End = &v
-				continue
-			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := GeneratedCodeInfo_Annotation_Semantic(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x28), x)
-					continue
-				}
-				v := e
-				m.Semantic = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		case 1<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			m.Path = append(m.Path, int32(x))
+		case 2<<descriptorTagTypeBits | descriptorWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.SourceFile = &v
+		case 3<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			v := int32(x)
+			m.Begin = &v
+		case 4<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := int32(x)
+			m.End = &v
+		case 5<<descriptorTagTypeBits | descriptorWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := GeneratedCodeInfo_Annotation_Semantic(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint), x)
+				continue
+			}
+			v := e
+			m.Semantic = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
+			switch typ {
+			case descriptorWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case descriptorWireFixed64:
+				if len(b) < descriptorFixed64Size {
+					goto errParse
+				}
+				n = descriptorFixed64Size
+			case descriptorWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case descriptorWireStartGroup:
+				var stk [descriptorSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > descriptorMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & descriptorTagTypeMask {
+					case descriptorWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case descriptorWireFixed64:
+						k = descriptorFixed64Size
+					case descriptorWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case descriptorWireStartGroup:
+						open = append(open, int32(t>>descriptorTagTypeBits))
+						k = 0
+					case descriptorWireEndGroup:
+						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case descriptorWireFixed32:
+						k = descriptorFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case descriptorWireFixed32:
+				if len(b) < descriptorFixed32Size {
+					goto errParse
+				}
+				n = descriptorFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(descriptorErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(descriptorErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -24017,8 +23268,8 @@ func (m *GeneratedCodeInfo_Annotation) ProtoAppendJSON(b []byte) ([]byte, error)
 			switch c := (*m.SourceFile)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -24074,7 +23325,7 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value")
+			return errors.New(descriptorGeneratedCodeInfoAnnotationErrTrailingData)
 		}
 		return nil
 	}
@@ -24148,31 +23399,31 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value")
+		return errors.New(descriptorGeneratedCodeInfoAnnotationErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := descriptorClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0, 2, 3:
-			class, bits = 1, 32
+			class, bits = descriptorClassSigned, 32
 		case 1:
-			class = 5
+			class = descriptorClassString
 		case 4:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = descriptorClassNone
 			case raw[0] == '"':
-				class = 5
+				class = descriptorClassString
 			default:
-				class, bits = 1, 32
+				class, bits = descriptorClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case descriptorClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -24188,21 +23439,21 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+						return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer " + string(raw))
+					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case descriptorClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid string " + string(raw))
 			}
@@ -24225,13 +23476,13 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 		case 4:
 			var ev GeneratedCodeInfo_Annotation_Semantic
 			switch class {
-			case 5:
+			case descriptorClassString:
 				n, ok := GeneratedCodeInfo_Annotation_Semantic_value[sv]
 				if !ok {
 					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid value for enum google.protobuf.GeneratedCodeInfo.Annotation.Semantic: " + strconv.Quote(sv))
 				}
 				ev = GeneratedCodeInfo_Annotation_Semantic(n)
-			case 1:
+			case descriptorClassSigned:
 				ev = GeneratedCodeInfo_Annotation_Semantic(iv)
 			}
 			x := ev

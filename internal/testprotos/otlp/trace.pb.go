@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"math/big"
 	"math/bits"
 	"slices"
@@ -19,6 +20,87 @@ import (
 	"unicode/utf8"
 
 	wktpb "github.com/canonical/cotorp/internal/testprotos/wkt"
+)
+
+// Wire types.
+const (
+	traceWireVarint     = 0
+	traceWireFixed64    = 1
+	traceWireBytes      = 2
+	traceWireStartGroup = 3
+	traceWireEndGroup   = 4
+	traceWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	traceTagTypeBits    = 3
+	traceTagTypeMask    = 1<<3 - 1
+	traceMaxFieldNumber = 1<<29 - 1
+)
+
+// Map entries are encoded as messages with these field numbers.
+const (
+	traceMapKeyField   = 1
+	traceMapValueField = 2
+)
+
+// Encoded sizes.
+const (
+	traceFixed32Size       = 4
+	traceFixed64Size       = 8
+	traceVarintPayloadBits = 7    // value bits per varint byte
+	traceVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	traceMaxDepth      = 10000 // maximum message and group nesting
+	traceSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON scalar parse classes.
+const (
+	traceClassNone     = 0
+	traceClassSigned   = 1
+	traceClassUnsigned = 2
+	traceClassString   = 5
+	traceClassBytes    = 6
+	traceClassHex      = 7
+)
+
+// ProtoJSON limits.
+const (
+	traceMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
+	traceBase64Quantum   = 4   // base64 characters per padded block
+)
+
+// Hexadecimal digits for \u escapes in JSON strings.
+const traceHexDigits = "0123456789abcdef"
+
+// Error messages used more than once.
+const (
+	traceErrSizeChanged             = "proto: message size changed during marshal"
+	traceSpanCodesEntryKeyErrUTF8   = "proto: field cotorp.test.otlp.Span.CodesEntry.key contains invalid UTF-8"
+	traceSpanNameErrUTF8            = "proto: field cotorp.test.otlp.Span.name contains invalid UTF-8"
+	traceSpanTraceStateErrUTF8      = "proto: field cotorp.test.otlp.Span.trace_state contains invalid UTF-8"
+	traceErrParse                   = "proto: cannot parse invalid wire-format data"
+	traceErrDepth                   = "proto: exceeded maximum recursion depth"
+	traceSpanErrTrailingData        = "proto: cotorp.test.otlp.Span: unexpected data after JSON value"
+	traceSpanErrNotObject           = "proto: cotorp.test.otlp.Span: expected a JSON object"
+	traceSpanErrNullElement         = "proto: cotorp.test.otlp.Span: null is not allowed in repeated fields or map values"
+	traceSpanErrInvalidInteger      = "proto: cotorp.test.otlp.Span: invalid integer "
+	traceSpanErrInvalidBytes        = "proto: cotorp.test.otlp.Span: invalid bytes "
+	traceSpanErrInvalidHex          = "proto: cotorp.test.otlp.Span: invalid hex bytes "
+	traceSpanLinkErrTrailingData    = "proto: cotorp.test.otlp.Span.Link: unexpected data after JSON value"
+	traceSpanLinkErrInvalidHex      = "proto: cotorp.test.otlp.Span.Link: invalid hex bytes "
+	traceStatusMessageErrUTF8       = "proto: field cotorp.test.otlp.Status.message contains invalid UTF-8"
+	traceStatusErrTrailingData      = "proto: cotorp.test.otlp.Status: unexpected data after JSON value"
+	traceStatusErrInvalidInteger    = "proto: cotorp.test.otlp.Status: invalid integer "
+	traceAnyValueStringValueErrUTF8 = "proto: field cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8"
+	traceAnyValueErrTrailingData    = "proto: cotorp.test.otlp.AnyValue: unexpected data after JSON value"
+	traceAnyValueErrInvalidBytes    = "proto: cotorp.test.otlp.AnyValue: invalid bytes "
+	traceNothingErrTrailingData     = "proto: cotorp.test.otlp.Nothing: unexpected data after JSON value"
 )
 
 type Span_SpanKind int32
@@ -60,7 +142,7 @@ func (x Span_SpanKind) String() string {
 // IsValid reports whether x is a declared value of Span_SpanKind.
 func (x Span_SpanKind) IsValid() bool {
 	switch x {
-	case 0, 1, 2, 3:
+	case Span_SPAN_KIND_UNSPECIFIED, Span_SPAN_KIND_INTERNAL, Span_SPAN_KIND_SERVER, Span_SPAN_KIND_CLIENT:
 		return true
 	}
 	return false
@@ -102,7 +184,7 @@ func (x Status_StatusCode) String() string {
 // IsValid reports whether x is a declared value of Status_StatusCode.
 func (x Status_StatusCode) IsValid() bool {
 	switch x {
-	case 0, 1, 2:
+	case Status_STATUS_CODE_UNSET, Status_STATUS_CODE_OK, Status_STATUS_CODE_ERROR:
 		return true
 	}
 	return false
@@ -237,51 +319,47 @@ func (m *Span) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.TraceId) > 0 {
-		n += 1 + len(m.TraceId) + (bits.Len64((uint64(len(m.TraceId)))|1)+6)/7
+		n += 1 + len(m.TraceId) + (bits.Len64(uint64(len(m.TraceId))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if len(m.SpanId) > 0 {
-		n += 1 + len(m.SpanId) + (bits.Len64((uint64(len(m.SpanId)))|1)+6)/7
+		n += 1 + len(m.SpanId) + (bits.Len64(uint64(len(m.SpanId))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if len(m.TraceState) > 0 {
-		n += 1 + len(m.TraceState) + (bits.Len64((uint64(len(m.TraceState)))|1)+6)/7
+		n += 1 + len(m.TraceState) + (bits.Len64(uint64(len(m.TraceState))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if len(m.ParentSpanId) > 0 {
-		n += 1 + len(m.ParentSpanId) + (bits.Len64((uint64(len(m.ParentSpanId)))|1)+6)/7
+		n += 1 + len(m.ParentSpanId) + (bits.Len64(uint64(len(m.ParentSpanId))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if len(m.Name) > 0 {
-		n += 1 + len(m.Name) + (bits.Len64((uint64(len(m.Name)))|1)+6)/7
+		n += 1 + len(m.Name) + (bits.Len64(uint64(len(m.Name))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if m.Kind != 0 {
-		n += 1 + (bits.Len64((uint64(int64(m.Kind)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(m.Kind))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if m.StartTimeUnixNano != 0 {
-		n += 1 + 8
+		n += 1 + traceFixed64Size
 	}
 	for _, v := range m.Links {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if m.Status != nil {
-		{
-			l := m.Status.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Status.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	for _, v := range m.HexList {
-		n += 2 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 2 + len(v) + (bits.Len64(uint64(len(v))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if len(m.Plain) > 0 {
-		n += 2 + len(m.Plain) + (bits.Len64((uint64(len(m.Plain)))|1)+6)/7
+		n += 2 + len(m.Plain) + (bits.Len64(uint64(len(m.Plain))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if m.NullValue != nil {
-		n += 2 + (bits.Len64((uint64(int64((*m.NullValue))))|1)+6)/7
+		n += 2 + (bits.Len64(uint64(int64((*m.NullValue)))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	for k, v := range m.Codes {
 		_, _ = k, v
-		l := 1 + len(k) + (bits.Len64((uint64(len(k)))|1)+6)/7 + 1 + (bits.Len64((uint64(int64(v)))|1)+6)/7
-		n += 2 + l + (bits.Len64((uint64(l))|1)+6)/7
+		l := 1 + len(k) + (bits.Len64(uint64(len(k))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits + 1 + (bits.Len64(uint64(int64(v))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
+		n += 2 + l + (bits.Len64(uint64(l)|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -302,7 +380,7 @@ func (m *Span) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(traceErrSizeChanged)
 	}
 	return b, nil
 }
@@ -326,222 +404,213 @@ func (m *Span) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
-		for j := len(keys) - 1; j >= 0; j-- {
-			k := keys[j]
+		for _, k := range slices.Backward(keys) {
 			v := m.Codes[k]
 			start := i
 			u = uint64(int64(v))
-			if u < 0x80 {
+			if u < traceVarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x10
+			b[i] = traceMapValueField<<traceTagTypeBits | traceWireVarint
 			if !utf8.ValidString(k) {
-				return 0, errors.New("proto: field cotorp.test.otlp.Span.CodesEntry.key contains invalid UTF-8")
+				return 0, errors.New(traceSpanCodesEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
 			u = uint64(len(k))
-			if u < 0x80 {
+			if u < traceVarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x0a
+			b[i] = traceMapKeyField<<traceTagTypeBits | traceWireBytes
 			u = uint64(start - i)
-			if u < 0x80 {
+			if u < traceVarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i -= 2
-			b[i] = 0xba
-			b[i+1] = 0x06
+			binary.PutUvarint(b[i:], 103<<traceTagTypeBits|traceWireBytes)
 		}
 	}
 	if m.NullValue != nil {
 		u = uint64(int64((*m.NullValue)))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xb0
-		b[i+1] = 0x06
+		binary.PutUvarint(b[i:], 102<<traceTagTypeBits|traceWireVarint)
 	}
 	if len(m.Plain) > 0 {
 		i -= len(m.Plain)
 		copy(b[i:], m.Plain)
 		u = uint64(len(m.Plain))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xaa
-		b[i+1] = 0x06
+		binary.PutUvarint(b[i:], 101<<traceTagTypeBits|traceWireBytes)
 	}
-	for j := len(m.HexList) - 1; j >= 0; j-- {
-		i -= len(m.HexList[j])
-		copy(b[i:], m.HexList[j])
-		u = uint64(len(m.HexList[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.HexList) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0xa2
-		b[i+1] = 0x06
+		binary.PutUvarint(b[i:], 100<<traceTagTypeBits|traceWireBytes)
 	}
 	if m.Status != nil {
-		{
-			n, err := m.Status.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x7a
+		n, err := m.Status.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < traceVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 15<<traceTagTypeBits | traceWireBytes
 	}
-	for j := len(m.Links) - 1; j >= 0; j-- {
-		{
-			n, err := m.Links[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x6a
+	for _, v := range slices.Backward(m.Links) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < traceVarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 13<<traceTagTypeBits | traceWireBytes
 	}
 	if m.StartTimeUnixNano != 0 {
-		i -= 8
+		i -= traceFixed64Size
 		binary.LittleEndian.PutUint64(b[i:], uint64(m.StartTimeUnixNano))
 		i--
-		b[i] = 0x39
+		b[i] = 7<<traceTagTypeBits | traceWireFixed64
 	}
 	if m.Kind != 0 {
 		u = uint64(int64(m.Kind))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<traceTagTypeBits | traceWireVarint
 	}
 	if len(m.Name) > 0 {
 		if !utf8.ValidString(m.Name) {
-			return 0, errors.New("proto: field cotorp.test.otlp.Span.name contains invalid UTF-8")
+			return 0, errors.New(traceSpanNameErrUTF8)
 		}
 		i -= len(m.Name)
 		copy(b[i:], m.Name)
 		u = uint64(len(m.Name))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x2a
+		b[i] = 5<<traceTagTypeBits | traceWireBytes
 	}
 	if len(m.ParentSpanId) > 0 {
 		i -= len(m.ParentSpanId)
 		copy(b[i:], m.ParentSpanId)
 		u = uint64(len(m.ParentSpanId))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x22
+		b[i] = 4<<traceTagTypeBits | traceWireBytes
 	}
 	if len(m.TraceState) > 0 {
 		if !utf8.ValidString(m.TraceState) {
-			return 0, errors.New("proto: field cotorp.test.otlp.Span.trace_state contains invalid UTF-8")
+			return 0, errors.New(traceSpanTraceStateErrUTF8)
 		}
 		i -= len(m.TraceState)
 		copy(b[i:], m.TraceState)
 		u = uint64(len(m.TraceState))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<traceTagTypeBits | traceWireBytes
 	}
 	if len(m.SpanId) > 0 {
 		i -= len(m.SpanId)
 		copy(b[i:], m.SpanId)
 		u = uint64(len(m.SpanId))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<traceTagTypeBits | traceWireBytes
 	}
 	if len(m.TraceId) > 0 {
 		i -= len(m.TraceId)
 		copy(b[i:], m.TraceId)
 		u = uint64(len(m.TraceId))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<traceTagTypeBits | traceWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -561,268 +630,228 @@ func (m *Span) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Span) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= traceMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.TraceId = append([]byte{}, x...)
-				continue
+		switch t {
+		case 1<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.SpanId = append([]byte{}, x...)
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.TraceId = append([]byte{}, x...)
+		case 2<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field cotorp.test.otlp.Span.trace_state contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.TraceState = string(x)
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.SpanId = append([]byte{}, x...)
+		case 3<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.ParentSpanId = append([]byte{}, x...)
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(traceSpanTraceStateErrUTF8)
 			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field cotorp.test.otlp.Span.name contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.Name = string(x)
-				continue
+			b = b[n:]
+			m.TraceState = string(x)
+		case 4<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Kind = Span_SpanKind(int32(x))
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.ParentSpanId = append([]byte{}, x...)
+		case 5<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 7:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				m.StartTimeUnixNano = x
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(traceSpanNameErrUTF8)
 			}
-		case 13:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &Span_Link{}
-				m.Links = append(m.Links, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+			m.Name = string(x)
+		case 6<<traceTagTypeBits | traceWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
 			}
-		case 15:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Status == nil {
-					m.Status = &Status{}
-				}
-				mv := m.Status
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			b = b[n:]
+			m.Kind = Span_SpanKind(int32(x))
+		case 7<<traceTagTypeBits | traceWireFixed64:
+			if len(b) < traceFixed64Size {
+				goto errParse
 			}
-		case 100:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.HexList = append(m.HexList, append([]byte{}, x...))
-				continue
+			x, n := binary.LittleEndian.Uint64(b), traceFixed64Size
+			b = b[n:]
+			m.StartTimeUnixNano = x
+		case 13<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 101:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.Plain = append([]byte{}, x...)
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &Span_Link{}
+			m.Links = append(m.Links, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-		case 102:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := wktpb.NullValue(int32(x))
-				m.NullValue = &v
-				continue
+			b = b[n:]
+		case 15<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 103:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Status == nil {
+				m.Status = &Status{}
+			}
+			mv := m.Status
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 100<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.HexList = append(m.HexList, append([]byte{}, x...))
+		case 101<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.Plain = append([]byte{}, x...)
+		case 102<<traceTagTypeBits | traceWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := wktpb.NullValue(int32(x))
+			m.NullValue = &v
+		case 103<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			var mk string
+			var mv Status_StatusCode
+			for len(v) > 0 {
+				t, n := binary.Uvarint(v)
+				if n <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 					goto errParse
 				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				var mk string
-				var mv Status_StatusCode
-				for len(v) > 0 {
-					t, n := binary.Uvarint(v)
-					if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				v = v[n:]
+				switch t {
+				case traceMapKeyField<<traceTagTypeBits | traceWireBytes:
+					ln, n := binary.Uvarint(v)
+					if n <= 0 || ln > uint64(len(v)-n) {
 						goto errParse
 					}
-					num, typ := int32(t>>3), int(t&7)
+					x := v[n : n+int(ln)]
+					n += int(ln)
+					if !utf8.Valid(x) {
+						return errors.New(traceSpanCodesEntryKeyErrUTF8)
+					}
+					mk = string(x)
 					v = v[n:]
-					if num == 1 && typ == 2 {
-						ln, n := binary.Uvarint(v)
-						if n <= 0 || ln > uint64(len(v)-n) {
-							goto errParse
-						}
-						x := v[n : n+int(ln)]
-						n += int(ln)
-						if !utf8.Valid(x) {
-							return errors.New("proto: field cotorp.test.otlp.Span.CodesEntry.key contains invalid UTF-8")
-						}
-						mk = string(x)
-						v = v[n:]
-						continue
+				case traceMapValueField<<traceTagTypeBits | traceWireVarint:
+					x, n := binary.Uvarint(v)
+					if n <= 0 {
+						goto errParse
 					}
-					if num == 2 && typ == 0 {
-						x, n := binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-						mv = Status_StatusCode(int32(x))
-						v = v[n:]
-						continue
-					}
+					mv = Status_StatusCode(int32(x))
+					v = v[n:]
+				default:
+					num, typ := int32(t>>traceTagTypeBits), t&traceTagTypeMask
 					switch typ {
-					case 0:
+					case traceWireVarint:
 						_, n = binary.Uvarint(v)
 						if n <= 0 {
 							goto errParse
 						}
-					case 1:
-						if len(v) < 8 {
+					case traceWireFixed64:
+						if len(v) < traceFixed64Size {
 							goto errParse
 						}
-						n = 8
-					case 2:
+						n = traceFixed64Size
+					case traceWireBytes:
 						ln, k := binary.Uvarint(v)
 						if k <= 0 || ln > uint64(len(v)-k) {
 							goto errParse
 						}
 						n = k + int(ln)
-					case 3:
-						var stk [16]int32
+					case traceWireStartGroup:
+						var stk [traceSkipStackSize]int32
 						open := append(stk[:0], num)
 						n = 0
 						for len(open) > 0 {
-							if depth+len(open) > 10000 {
+							if depth+len(open) > traceMaxDepth {
 								goto errDepth
 							}
 							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+							if k <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 								goto errParse
 							}
 							n += k
-							switch t & 7 {
-							case 0:
+							switch t & traceTagTypeMask {
+							case traceWireVarint:
 								_, k = binary.Uvarint(v[n:])
 								if k <= 0 {
 									goto errParse
 								}
-							case 1:
-								k = 8
-							case 2:
+							case traceWireFixed64:
+								k = traceFixed64Size
+							case traceWireBytes:
 								ln, k2 := binary.Uvarint(v[n:])
 								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
 									goto errParse
 								}
 								k = k2 + int(ln)
-							case 3:
-								open = append(open, int32(t>>3))
+							case traceWireStartGroup:
+								open = append(open, int32(t>>traceTagTypeBits))
 								k = 0
-							case 4:
-								if open[len(open)-1] != int32(t>>3) {
+							case traceWireEndGroup:
+								if open[len(open)-1] != int32(t>>traceTagTypeBits) {
 									goto errParse
 								}
 								open = open[:len(open)-1]
 								k = 0
-							case 5:
-								k = 4
+							case traceWireFixed32:
+								k = traceFixed32Size
 							default:
 								goto errParse
 							}
@@ -831,104 +860,105 @@ func (m *Span) ProtoMergeDepth(b []byte, depth int) error {
 							}
 							n += k
 						}
-					case 5:
-						if len(v) < 4 {
+					case traceWireFixed32:
+						if len(v) < traceFixed32Size {
 							goto errParse
 						}
-						n = 4
+						n = traceFixed32Size
 					default:
 						goto errParse
 					}
 					v = v[n:]
 				}
-				if m.Codes == nil {
-					m.Codes = make(map[string]Status_StatusCode)
-				}
-				m.Codes[mk] = mv
-				b = b[n:]
-				continue
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
+			if m.Codes == nil {
+				m.Codes = make(map[string]Status_StatusCode)
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			m.Codes[mk] = mv
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>traceTagTypeBits), t&traceTagTypeMask
+			switch typ {
+			case traceWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case traceWireFixed64:
+				if len(b) < traceFixed64Size {
+					goto errParse
+				}
+				n = traceFixed64Size
+			case traceWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case traceWireStartGroup:
+				var stk [traceSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > traceMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & traceTagTypeMask {
+					case traceWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case traceWireFixed64:
+						k = traceFixed64Size
+					case traceWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case traceWireStartGroup:
+						open = append(open, int32(t>>traceTagTypeBits))
+						k = 0
+					case traceWireEndGroup:
+						if open[len(open)-1] != int32(t>>traceTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case traceWireFixed32:
+						k = traceFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case traceWireFixed32:
+				if len(b) < traceFixed32Size {
+					goto errParse
+				}
+				n = traceFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(traceErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(traceErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -951,24 +981,20 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if len(m.TraceId) > 0 {
 		b = append(b, "\"traceId\":"...)
-		{
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, hex.EncodedLen(len(m.TraceId)))[:l+hex.EncodedLen(len(m.TraceId))]
-			hex.Encode(b[l:], m.TraceId)
-			b = append(b, '"')
-		}
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, hex.EncodedLen(len(m.TraceId)))[:l+hex.EncodedLen(len(m.TraceId))]
+		hex.Encode(b[l:], m.TraceId)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.SpanId) > 0 {
 		b = append(b, "\"spanId\":"...)
-		{
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, hex.EncodedLen(len(m.SpanId)))[:l+hex.EncodedLen(len(m.SpanId))]
-			hex.Encode(b[l:], m.SpanId)
-			b = append(b, '"')
-		}
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, hex.EncodedLen(len(m.SpanId)))[:l+hex.EncodedLen(len(m.SpanId))]
+		hex.Encode(b[l:], m.SpanId)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.TraceState) > 0 {
@@ -981,8 +1007,8 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := m.TraceState[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -992,13 +1018,11 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.ParentSpanId) > 0 {
 		b = append(b, "\"parentSpanId\":"...)
-		{
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, hex.EncodedLen(len(m.ParentSpanId)))[:l+hex.EncodedLen(len(m.ParentSpanId))]
-			hex.Encode(b[l:], m.ParentSpanId)
-			b = append(b, '"')
-		}
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, hex.EncodedLen(len(m.ParentSpanId)))[:l+hex.EncodedLen(len(m.ParentSpanId))]
+		hex.Encode(b[l:], m.ParentSpanId)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Name) > 0 {
@@ -1011,8 +1035,8 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := m.Name[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -1035,11 +1059,9 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Links) > 0 {
 		b = append(b, "\"links\":["...)
 		for j := range m.Links {
-			{
-				var err error
-				if b, err = m.Links[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Links[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -1048,24 +1070,20 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Status != nil {
 		b = append(b, "\"status\":"...)
-		{
-			var err error
-			if b, err = m.Status.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Status.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.HexList) > 0 {
 		b = append(b, "\"hexList\":["...)
 		for j := range m.HexList {
-			{
-				b = append(b, '"')
-				l := len(b)
-				b = slices.Grow(b, hex.EncodedLen(len(m.HexList[j])))[:l+hex.EncodedLen(len(m.HexList[j]))]
-				hex.Encode(b[l:], m.HexList[j])
-				b = append(b, '"')
-			}
+			b = append(b, '"')
+			l := len(b)
+			b = slices.Grow(b, hex.EncodedLen(len(m.HexList[j])))[:l+hex.EncodedLen(len(m.HexList[j]))]
+			hex.Encode(b[l:], m.HexList[j])
+			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -1073,14 +1091,12 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.Plain) > 0 {
 		b = append(b, "\"plain\":"...)
-		{
-			n := base64.StdEncoding.EncodedLen(len(m.Plain))
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, n)[:l+n]
-			base64.StdEncoding.Encode(b[l:], m.Plain)
-			b = append(b, '"')
-		}
+		n := base64.StdEncoding.EncodedLen(len(m.Plain))
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, n)[:l+n]
+		base64.StdEncoding.Encode(b[l:], m.Plain)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.NullValue != nil {
@@ -1105,8 +1121,8 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := k[ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -1146,12 +1162,12 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.otlp.Span: unexpected data after JSON value")
+			return errors.New(traceSpanErrTrailingData)
 		}
 		return nil
 	}
 	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.otlp.Span: expected a JSON object")
+		return errors.New(traceSpanErrNotObject)
 	}
 	type job struct {
 		f   int
@@ -1228,7 +1244,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 					return err
 				}
 				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.otlp.Span: null is not allowed in repeated fields or map values")
+					return errors.New(traceSpanErrNullElement)
 				}
 				jobs = append(jobs, job{f: f, raw: e})
 			}
@@ -1239,7 +1255,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			ad := json.NewDecoder(bytes.NewReader(raw))
 			ad.UseNumber()
 			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New("proto: cotorp.test.otlp.Span: expected a JSON object")
+				return errors.New(traceSpanErrNotObject)
 			}
 			for ad.More() {
 				kt, err := ad.Token()
@@ -1252,7 +1268,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 					return err
 				}
 				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.otlp.Span: null is not allowed in repeated fields or map values")
+					return errors.New(traceSpanErrNullElement)
 				}
 				jobs = append(jobs, job{f: f, key: ks, raw: e})
 			}
@@ -1262,11 +1278,11 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.otlp.Span: unexpected data after JSON value")
+		return errors.New(traceSpanErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := traceClassNone
 		bits := 64
 		var iv int64
 		var uv uint64
@@ -1274,25 +1290,25 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 		var by []byte
 		switch jb.f {
 		case 6:
-			class, bits = 2, 64
+			class, bits = traceClassUnsigned, 64
 		case 2, 4:
-			class = 5
+			class = traceClassString
 		case 10:
-			class = 6
+			class = traceClassBytes
 		case 0, 1, 3, 9:
-			class = 7
+			class = traceClassHex
 		case 5, 11, 12:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = traceClassNone
 			case raw[0] == '"':
-				class = 5
+				class = traceClassString
 			default:
-				class, bits = 1, 32
+				class, bits = traceClassSigned, 32
 			}
 		}
 		switch class {
-		case 1, 2:
+		case traceClassSigned, traceClassUnsigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -1303,7 +1319,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 				return errors.New("proto: cotorp.test.otlp.Span: invalid number " + string(raw))
 			}
 			var err error
-			if class == 1 {
+			if class == traceClassSigned {
 				iv, err = strconv.ParseInt(s, 10, bits)
 			} else {
 				uv, err = strconv.ParseUint(s, 10, bits)
@@ -1312,38 +1328,38 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.otlp.Span: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > traceMaxJSONExponent || e < -traceMaxJSONExponent {
+						return errors.New(traceSpanErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.otlp.Span: invalid integer " + string(raw))
+					return errors.New(traceSpanErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if class == 1 {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-						return errors.New("proto: cotorp.test.otlp.Span: invalid integer " + string(raw))
+				if class == traceClassSigned {
+					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+						return errors.New(traceSpanErrInvalidInteger + string(raw))
 					}
 					iv = n.Int64()
 				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
-						return errors.New("proto: cotorp.test.otlp.Span: invalid integer " + string(raw))
+					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+						return errors.New(traceSpanErrInvalidInteger + string(raw))
 					}
 					uv = n.Uint64()
 				}
 			}
-		case 5:
+		case traceClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.otlp.Span: invalid string " + string(raw))
 			}
 			if err := json.Unmarshal(raw, &sv); err != nil {
 				return err
 			}
-		case 6:
+		case traceClassBytes:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: cotorp.test.otlp.Span: invalid bytes " + string(raw))
+				return errors.New(traceSpanErrInvalidBytes + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -1353,17 +1369,17 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			if strings.ContainsAny(s, "-_") {
 				enc = base64.URLEncoding
 			}
-			if len(s)%4 != 0 {
+			if len(s)%traceBase64Quantum != 0 {
 				enc = enc.WithPadding(base64.NoPadding)
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New("proto: cotorp.test.otlp.Span: invalid bytes " + string(raw))
+				return errors.New(traceSpanErrInvalidBytes + string(raw))
 			}
-		case 7:
+		case traceClassHex:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: cotorp.test.otlp.Span: invalid hex bytes " + string(raw))
+				return errors.New(traceSpanErrInvalidHex + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -1371,7 +1387,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			// Either case is accepted.
 			var err error
 			if by, err = hex.DecodeString(s); err != nil {
-				return errors.New("proto: cotorp.test.otlp.Span: invalid hex bytes " + string(raw))
+				return errors.New(traceSpanErrInvalidHex + string(raw))
 			}
 		}
 		switch jb.f {
@@ -1388,13 +1404,13 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 		case 5:
 			var ev Span_SpanKind
 			switch class {
-			case 5:
+			case traceClassString:
 				n, ok := Span_SpanKind_value[sv]
 				if !ok {
 					return errors.New("proto: cotorp.test.otlp.Span: invalid value for enum cotorp.test.otlp.Span.SpanKind: " + strconv.Quote(sv))
 				}
 				ev = Span_SpanKind(n)
-			case 1:
+			case traceClassSigned:
 				ev = Span_SpanKind(iv)
 			}
 			m.Kind = ev
@@ -1420,13 +1436,13 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 		case 11:
 			var ev wktpb.NullValue
 			switch class {
-			case 5:
+			case traceClassString:
 				n, ok := wktpb.NullValue_value[sv]
 				if !ok {
 					return errors.New("proto: cotorp.test.otlp.Span: invalid value for enum google.protobuf.NullValue: " + strconv.Quote(sv))
 				}
 				ev = wktpb.NullValue(n)
-			case 1:
+			case traceClassSigned:
 				ev = wktpb.NullValue(iv)
 			}
 			x := ev
@@ -1435,13 +1451,13 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			k := jb.key
 			var ev Status_StatusCode
 			switch class {
-			case 5:
+			case traceClassString:
 				n, ok := Status_StatusCode_value[sv]
 				if !ok {
 					return errors.New("proto: cotorp.test.otlp.Span: invalid value for enum cotorp.test.otlp.Status.StatusCode: " + strconv.Quote(sv))
 				}
 				ev = Status_StatusCode(n)
-			case 1:
+			case traceClassSigned:
 				ev = Status_StatusCode(iv)
 			}
 			if m.Codes == nil {
@@ -1492,10 +1508,10 @@ func (m *Span_Link) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.TraceId) > 0 {
-		n += 1 + len(m.TraceId) + (bits.Len64((uint64(len(m.TraceId)))|1)+6)/7
+		n += 1 + len(m.TraceId) + (bits.Len64(uint64(len(m.TraceId))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if len(m.SpanId) > 0 {
-		n += 1 + len(m.SpanId) + (bits.Len64((uint64(len(m.SpanId)))|1)+6)/7
+		n += 1 + len(m.SpanId) + (bits.Len64(uint64(len(m.SpanId))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1516,7 +1532,7 @@ func (m *Span_Link) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(traceErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1538,29 +1554,29 @@ func (m *Span_Link) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.SpanId)
 		copy(b[i:], m.SpanId)
 		u = uint64(len(m.SpanId))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<traceTagTypeBits | traceWireBytes
 	}
 	if len(m.TraceId) > 0 {
 		i -= len(m.TraceId)
 		copy(b[i:], m.TraceId)
 		u = uint64(len(m.TraceId))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<traceTagTypeBits | traceWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -1580,123 +1596,118 @@ func (m *Span_Link) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Span_Link) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= traceMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.TraceId = append([]byte{}, x...)
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.SpanId = append([]byte{}, x...)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.TraceId = append([]byte{}, x...)
+		case 2<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.SpanId = append([]byte{}, x...)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>traceTagTypeBits), t&traceTagTypeMask
+			switch typ {
+			case traceWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case traceWireFixed64:
+				if len(b) < traceFixed64Size {
+					goto errParse
+				}
+				n = traceFixed64Size
+			case traceWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case traceWireStartGroup:
+				var stk [traceSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > traceMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & traceTagTypeMask {
+					case traceWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case traceWireFixed64:
+						k = traceFixed64Size
+					case traceWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case traceWireStartGroup:
+						open = append(open, int32(t>>traceTagTypeBits))
+						k = 0
+					case traceWireEndGroup:
+						if open[len(open)-1] != int32(t>>traceTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case traceWireFixed32:
+						k = traceFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case traceWireFixed32:
+				if len(b) < traceFixed32Size {
+					goto errParse
+				}
+				n = traceFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(traceErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(traceErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1719,24 +1730,20 @@ func (m *Span_Link) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if len(m.TraceId) > 0 {
 		b = append(b, "\"traceId\":"...)
-		{
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, hex.EncodedLen(len(m.TraceId)))[:l+hex.EncodedLen(len(m.TraceId))]
-			hex.Encode(b[l:], m.TraceId)
-			b = append(b, '"')
-		}
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, hex.EncodedLen(len(m.TraceId)))[:l+hex.EncodedLen(len(m.TraceId))]
+		hex.Encode(b[l:], m.TraceId)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.SpanId) > 0 {
 		b = append(b, "\"spanId\":"...)
-		{
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, hex.EncodedLen(len(m.SpanId)))[:l+hex.EncodedLen(len(m.SpanId))]
-			hex.Encode(b[l:], m.SpanId)
-			b = append(b, '"')
-		}
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, hex.EncodedLen(len(m.SpanId)))[:l+hex.EncodedLen(len(m.SpanId))]
+		hex.Encode(b[l:], m.SpanId)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -1766,7 +1773,7 @@ func (m *Span_Link) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.otlp.Span.Link: unexpected data after JSON value")
+			return errors.New(traceSpanLinkErrTrailingData)
 		}
 		return nil
 	}
@@ -1815,21 +1822,21 @@ func (m *Span_Link) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.otlp.Span.Link: unexpected data after JSON value")
+		return errors.New(traceSpanLinkErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := traceClassNone
 		var by []byte
 		switch jb.f {
 		case 0, 1:
-			class = 7
+			class = traceClassHex
 		}
 		switch class {
-		case 7:
+		case traceClassHex:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: cotorp.test.otlp.Span.Link: invalid hex bytes " + string(raw))
+				return errors.New(traceSpanLinkErrInvalidHex + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -1837,7 +1844,7 @@ func (m *Span_Link) ProtoMergeJSON(b []byte) error {
 			// Either case is accepted.
 			var err error
 			if by, err = hex.DecodeString(s); err != nil {
-				return errors.New("proto: cotorp.test.otlp.Span.Link: invalid hex bytes " + string(raw))
+				return errors.New(traceSpanLinkErrInvalidHex + string(raw))
 			}
 		}
 		switch jb.f {
@@ -1889,10 +1896,10 @@ func (m *Status) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.Message) > 0 {
-		n += 1 + len(m.Message) + (bits.Len64((uint64(len(m.Message)))|1)+6)/7
+		n += 1 + len(m.Message) + (bits.Len64(uint64(len(m.Message))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	if m.Code != 0 {
-		n += 1 + (bits.Len64((uint64(int64(m.Code)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(m.Code))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1913,7 +1920,7 @@ func (m *Status) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(traceErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1933,32 +1940,32 @@ func (m *Status) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Code != 0 {
 		u = uint64(int64(m.Code))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<traceTagTypeBits | traceWireVarint
 	}
 	if len(m.Message) > 0 {
 		if !utf8.ValidString(m.Message) {
-			return 0, errors.New("proto: field cotorp.test.otlp.Status.message contains invalid UTF-8")
+			return 0, errors.New(traceStatusMessageErrUTF8)
 		}
 		i -= len(m.Message)
 		copy(b[i:], m.Message)
 		u = uint64(len(m.Message))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<traceTagTypeBits | traceWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -1978,124 +1985,119 @@ func (m *Status) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Status) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= traceMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field cotorp.test.otlp.Status.message contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.Message = string(x)
-				continue
+		switch t {
+		case 2<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Code = Status_StatusCode(int32(x))
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(traceStatusMessageErrUTF8)
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			b = b[n:]
+			m.Message = string(x)
+		case 3<<traceTagTypeBits | traceWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Code = Status_StatusCode(int32(x))
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>traceTagTypeBits), t&traceTagTypeMask
+			switch typ {
+			case traceWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case traceWireFixed64:
+				if len(b) < traceFixed64Size {
+					goto errParse
+				}
+				n = traceFixed64Size
+			case traceWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case traceWireStartGroup:
+				var stk [traceSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > traceMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & traceTagTypeMask {
+					case traceWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case traceWireFixed64:
+						k = traceFixed64Size
+					case traceWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case traceWireStartGroup:
+						open = append(open, int32(t>>traceTagTypeBits))
+						k = 0
+					case traceWireEndGroup:
+						if open[len(open)-1] != int32(t>>traceTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case traceWireFixed32:
+						k = traceFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case traceWireFixed32:
+				if len(b) < traceFixed32Size {
+					goto errParse
+				}
+				n = traceFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(traceErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(traceErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2126,8 +2128,8 @@ func (m *Status) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := m.Message[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -2167,7 +2169,7 @@ func (m *Status) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.otlp.Status: unexpected data after JSON value")
+			return errors.New(traceStatusErrTrailingData)
 		}
 		return nil
 	}
@@ -2216,29 +2218,29 @@ func (m *Status) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.otlp.Status: unexpected data after JSON value")
+		return errors.New(traceStatusErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := traceClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0:
-			class = 5
+			class = traceClassString
 		case 1:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = traceClassNone
 			case raw[0] == '"':
-				class = 5
+				class = traceClassString
 			default:
-				class, bits = 1, 32
+				class, bits = traceClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case traceClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -2254,21 +2256,21 @@ func (m *Status) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.otlp.Status: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > traceMaxJSONExponent || e < -traceMaxJSONExponent {
+						return errors.New(traceStatusErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.otlp.Status: invalid integer " + string(raw))
+					return errors.New(traceStatusErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.otlp.Status: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(traceStatusErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case traceClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.otlp.Status: invalid string " + string(raw))
 			}
@@ -2282,13 +2284,13 @@ func (m *Status) ProtoMergeJSON(b []byte) error {
 		case 1:
 			var ev Status_StatusCode
 			switch class {
-			case 5:
+			case traceClassString:
 				n, ok := Status_StatusCode_value[sv]
 				if !ok {
 					return errors.New("proto: cotorp.test.otlp.Status: invalid value for enum cotorp.test.otlp.Status.StatusCode: " + strconv.Quote(sv))
 				}
 				ev = Status_StatusCode(n)
-			case 1:
+			case traceClassSigned:
 				ev = Status_StatusCode(iv)
 			}
 			m.Code = ev
@@ -2363,9 +2365,9 @@ func (m *AnyValue) ProtoSize() (n int) {
 	}
 	switch o := m.Value.(type) {
 	case *AnyValue_StringValue:
-		n += 1 + len(o.StringValue) + (bits.Len64((uint64(len(o.StringValue)))|1)+6)/7
+		n += 1 + len(o.StringValue) + (bits.Len64(uint64(len(o.StringValue))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	case *AnyValue_BytesValue:
-		n += 1 + len(o.BytesValue) + (bits.Len64((uint64(len(o.BytesValue)))|1)+6)/7
+		n += 1 + len(o.BytesValue) + (bits.Len64(uint64(len(o.BytesValue))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2386,7 +2388,7 @@ func (m *AnyValue) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(traceErrSizeChanged)
 	}
 	return b, nil
 }
@@ -2408,32 +2410,32 @@ func (m *AnyValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(o.BytesValue)
 		copy(b[i:], o.BytesValue)
 		u = uint64(len(o.BytesValue))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x3a
+		b[i] = 7<<traceTagTypeBits | traceWireBytes
 	}
 	if o, ok := m.Value.(*AnyValue_StringValue); ok {
 		if !utf8.ValidString(o.StringValue) {
-			return 0, errors.New("proto: field cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8")
+			return 0, errors.New(traceAnyValueStringValueErrUTF8)
 		}
 		i -= len(o.StringValue)
 		copy(b[i:], o.StringValue)
 		u = uint64(len(o.StringValue))
-		if u < 0x80 {
+		if u < traceVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<traceTagTypeBits | traceWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -2453,126 +2455,121 @@ func (m *AnyValue) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *AnyValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= traceMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.Value = &AnyValue_StringValue{StringValue: string(x)}
-				continue
-			}
-		case 7:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.Value = &AnyValue_BytesValue{BytesValue: append([]byte{}, x...)}
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(traceAnyValueStringValueErrUTF8)
+			}
+			b = b[n:]
+			m.Value = &AnyValue_StringValue{StringValue: string(x)}
+		case 7<<traceTagTypeBits | traceWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.Value = &AnyValue_BytesValue{BytesValue: append([]byte{}, x...)}
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>traceTagTypeBits), t&traceTagTypeMask
+			switch typ {
+			case traceWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case traceWireFixed64:
+				if len(b) < traceFixed64Size {
+					goto errParse
+				}
+				n = traceFixed64Size
+			case traceWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case traceWireStartGroup:
+				var stk [traceSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > traceMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & traceTagTypeMask {
+					case traceWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case traceWireFixed64:
+						k = traceFixed64Size
+					case traceWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case traceWireStartGroup:
+						open = append(open, int32(t>>traceTagTypeBits))
+						k = 0
+					case traceWireEndGroup:
+						if open[len(open)-1] != int32(t>>traceTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case traceWireFixed32:
+						k = traceFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case traceWireFixed32:
+				if len(b) < traceFixed32Size {
+					goto errParse
+				}
+				n = traceFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(traceErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(traceErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2603,8 +2600,8 @@ func (m *AnyValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := o.StringValue[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -2614,14 +2611,12 @@ func (m *AnyValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if o, ok := m.Value.(*AnyValue_BytesValue); ok {
 		b = append(b, "\"bytesValue\":"...)
-		{
-			n := base64.StdEncoding.EncodedLen(len(o.BytesValue))
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, n)[:l+n]
-			base64.StdEncoding.Encode(b[l:], o.BytesValue)
-			b = append(b, '"')
-		}
+		n := base64.StdEncoding.EncodedLen(len(o.BytesValue))
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, n)[:l+n]
+		base64.StdEncoding.Encode(b[l:], o.BytesValue)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -2651,7 +2646,7 @@ func (m *AnyValue) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.otlp.AnyValue: unexpected data after JSON value")
+			return errors.New(traceAnyValueErrTrailingData)
 		}
 		return nil
 	}
@@ -2706,31 +2701,31 @@ func (m *AnyValue) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.otlp.AnyValue: unexpected data after JSON value")
+		return errors.New(traceAnyValueErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := traceClassNone
 		var sv string
 		var by []byte
 		switch jb.f {
 		case 0:
-			class = 5
+			class = traceClassString
 		case 1:
-			class = 6
+			class = traceClassBytes
 		}
 		switch class {
-		case 5:
+		case traceClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.otlp.AnyValue: invalid string " + string(raw))
 			}
 			if err := json.Unmarshal(raw, &sv); err != nil {
 				return err
 			}
-		case 6:
+		case traceClassBytes:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: cotorp.test.otlp.AnyValue: invalid bytes " + string(raw))
+				return errors.New(traceAnyValueErrInvalidBytes + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -2740,12 +2735,12 @@ func (m *AnyValue) ProtoMergeJSON(b []byte) error {
 			if strings.ContainsAny(s, "-_") {
 				enc = base64.URLEncoding
 			}
-			if len(s)%4 != 0 {
+			if len(s)%traceBase64Quantum != 0 {
 				enc = enc.WithPadding(base64.NoPadding)
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New("proto: cotorp.test.otlp.AnyValue: invalid bytes " + string(raw))
+				return errors.New(traceAnyValueErrInvalidBytes + string(raw))
 			}
 		}
 		switch jb.f {
@@ -2798,7 +2793,7 @@ func (m *Nothing) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(traceErrSizeChanged)
 	}
 	return b, nil
 }
@@ -2833,73 +2828,73 @@ func (m *Nothing) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Nothing) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= traceMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
+		num, typ := int32(t>>traceTagTypeBits), t&traceTagTypeMask
 		switch typ {
-		case 0:
+		case traceWireVarint:
 			_, n = binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+		case traceWireFixed64:
+			if len(b) < traceFixed64Size {
 				goto errParse
 			}
-			n = 8
-		case 2:
+			n = traceFixed64Size
+		case traceWireBytes:
 			ln, k := binary.Uvarint(b)
 			if k <= 0 || ln > uint64(len(b)-k) {
 				goto errParse
 			}
 			n = k + int(ln)
-		case 3:
-			var stk [16]int32
+		case traceWireStartGroup:
+			var stk [traceSkipStackSize]int32
 			open := append(stk[:0], num)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > traceMaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>traceTagTypeBits == 0 || t>>traceTagTypeBits > traceMaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & traceTagTypeMask {
+				case traceWireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case traceWireFixed64:
+					k = traceFixed64Size
+				case traceWireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case traceWireStartGroup:
+					open = append(open, int32(t>>traceTagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case traceWireEndGroup:
+					if open[len(open)-1] != int32(t>>traceTagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case traceWireFixed32:
+					k = traceFixed32Size
 				default:
 					goto errParse
 				}
@@ -2908,11 +2903,11 @@ func (m *Nothing) ProtoMergeDepth(b []byte, depth int) error {
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+		case traceWireFixed32:
+			if len(b) < traceFixed32Size {
 				goto errParse
 			}
-			n = 4
+			n = traceFixed32Size
 		default:
 			goto errParse
 		}
@@ -2921,9 +2916,9 @@ func (m *Nothing) ProtoMergeDepth(b []byte, depth int) error {
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(traceErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(traceErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2971,7 +2966,7 @@ func (m *Nothing) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.otlp.Nothing: unexpected data after JSON value")
+			return errors.New(traceNothingErrTrailingData)
 		}
 		return nil
 	}
@@ -2991,7 +2986,7 @@ func (m *Nothing) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.otlp.Nothing: unexpected data after JSON value")
+		return errors.New(traceNothingErrTrailingData)
 	}
 	return nil
 }

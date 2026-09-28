@@ -25,7 +25,7 @@ ignored.
 | `cmd/cotorp` | CLI: flags, input resolution, writing output files. |
 | `internal/parser` | Lexer, recursive-descent parser and AST for proto2, proto3 and editions. |
 | `internal/desc` | Linker: symbol tables, protoc-style name resolution, lowering of every syntax to per-field editions features, and validation. |
-| `internal/gengo` | Go generator. `gengo.go` handles naming, packages and imports; `message.go` handles types and getters; `methods.go` handles binary size, marshal, unmarshal and required checks; `json.go` handles ProtoJSON, including the well-known types; `kinds.go` holds per-kind snippets. |
+| `internal/gengo` | Go generator. `gengo.go` handles naming, packages and imports; `message.go` handles types and getters; `methods.go` handles binary size, marshal, unmarshal and required checks; `json.go` handles ProtoJSON, including the well-known types; `kinds.go` holds per-kind snippets; `consts.go` holds the file-level constants. |
 | `internal/compiler` | Loads files from `-I` paths plus the bundled includes, and links imports in dependency order. |
 | `internal/wkt` | Embedded `google/protobuf/*.proto` files, copied unmodified from protoc 36.1. Do not edit them; they are under Google's license (`internal/wkt/LICENSE`). |
 | `internal/testprotos` | Test `.proto` sources (`proto/`), the committed generated packages, and the compatibility, fuzz and staleness tests. |
@@ -58,10 +58,28 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **Stdlib imports are tracked.** Reference a stdlib package only through
   `fg.std("import/path")`, which records the import and returns the package
   name. Writing `binary.` or `math.` directly into generated code leads to a
-  missing-import or unused-import compile error. Use `fg.errExpr(msg)` for
-  errors.
+  missing-import or unused-import compile error.
+- **No magic numbers or repeated error strings in generated code.**
+  - Numbers with a fixed meaning (wire types, sizes, limits, parse classes)
+    are written as `fg.c("Name")`, which declares the constant from
+    `constGroups` in `consts.go` at the top of the file. Add new ones there.
+    Schema data (field numbers, enum values, tag sizes) stays literal.
+  - Errors are built with `fg.errExpr(hint, msg)` or
+    `fg.errConcat(hint, msg, parts...)`. A message used more than once in a
+    file becomes a constant named by `hint` (`"ErrParse"`, or
+    `fg.owner(fullName)+"ErrX"` for per-message text); otherwise it stays an
+    inline literal.
+  - Constant names are the file's prefix (the lowerCamel `.proto` base
+    name) plus a suffix, because several files may share a Go package.
+    Names are deduplicated against the package within one run.
+- **No bare `{ }` blocks.** Emitted snippets must not need their own scope;
+  they already sit in an `if`, `for` or `case` body.
 - **Adding a local variable name** to generated method bodies means adding it
   to `localNames` in `gengo.go`, so that import aliases cannot shadow it.
+- **`ProtoMergeDepth` switches on the whole tag.** Each field contributes
+  `case num<<TagTypeBits | WireX:` cases (two for packable repeated fields);
+  the `default` case splits the tag into `num` and `typ` and skips or keeps
+  the unknown field. Map entries decode with the same pattern.
 - **`goto` rules in `ProtoMergeDepth`:**
   - Decode failures `goto errParse` and depth failures `goto errDepth`; both
     labels sit at the end of the function.
@@ -76,9 +94,8 @@ proves little. CI installs protoc 36.1 and fails if it is missing
     only when `fg.usesU` is set during `fg.capture`.
 - **Wire output must stay byte-identical to protoc** for messages without
   maps. Map entries are sorted by key.
-- **Generated code must build at Go 1.21.** Do not use newer language or
-  library features in emitted code (for example `new(expr)` or range over int).
-  Tests may use anything supported by the `go.mod` version.
+- **Generated code must build at Go 1.27**, the `go.mod` version. It uses
+  `slices.Backward` for the back-to-front marshal loops.
 - **Naming follows protoc-gen-go** (`camelCase` in `names.go`, `_` suffixes
   for conflicts, `Msg_Field` oneof wrappers). Changing a name is a breaking
   change for users.

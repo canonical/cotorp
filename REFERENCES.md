@@ -60,7 +60,7 @@ Installed at `/nix/store/4hdzvycn5mkg3xm1ggscp3mxz8005c3m-protobuf-36.1`.
 
 - **All 130 `.proto` files** in the module, used as a parser corpus
   (`COTORP_CORPUS` in `internal/parser/corpus_test.go`) and as a code
-  generation corpus that must build and vet at Go 1.21. The corpus run is a
+  generation corpus that must build and vet at Go 1.27. The corpus run is a
   manual script, not part of `go test`.
 - **`src/google/protobuf/go_features.proto`**: its location was checked;
   cotorp bundles the protoc distribution's copy instead.
@@ -186,5 +186,5 @@ this work. Correctness relies on the protoc-based tests.
     `math.Copysign`;
   - `new(expr)` (Go 1.26) is used only in cotorp's tests, never in
     generated code.
-- **The varint size formula** `(bits.Len64(v|1)+6)/7`: derived, and checked
+- **The varint size formula** `(bits.Len64(v|1)+7-1)/7`: derived, and checked
   by the protoc byte-comparison tests.

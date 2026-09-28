@@ -5,6 +5,7 @@ package gengo
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/canonical/cotorp/internal/desc"
 )
@@ -48,14 +49,12 @@ func (fg *fileGen) genSize(mi *messageInfo) {
 func (fg *fileGen) sizeSingular(f *desc.Field, v string) {
 	ts := tagSize(f.Number, wireType(f))
 	if f.Kind == desc.KindMessage {
-		fg.P("{")
 		fg.P("l := ", v, ".ProtoSize()")
 		if f.Delimited {
 			fg.P("n += ", 2*ts, " + l")
 		} else {
 			fg.P("n += ", ts, " + l + ", fg.sizeVarint("uint64(l)"))
 		}
-		fg.P("}")
 		return
 	}
 	fg.P("n += ", ts, " + ", fg.sizeExpr(f.Kind, v))
@@ -82,8 +81,10 @@ func (fg *fileGen) sizeField(fi *fieldInfo) {
 	case f.Repeated && f.Packed:
 		pts := tagSize(f.Number, wireBytes)
 		fg.P("if len(", fv, ") > 0 {")
-		if fs := fixedSize(f.Kind); fs > 0 {
-			fg.P("l := len(", fv, ") * ", fs)
+		if fs := fixedSize(f.Kind); fs == 1 {
+			fg.P("l := len(", fv, ")")
+		} else if fs > 0 {
+			fg.P("l := len(", fv, ") * ", fg.fixedSizeExpr(f.Kind))
 		} else {
 			fg.P("l := 0")
 			fg.P("for _, v := range ", fv, " {")
@@ -93,8 +94,8 @@ func (fg *fileGen) sizeField(fi *fieldInfo) {
 		fg.P("n += ", pts, " + l + ", fg.sizeVarint("uint64(l)"))
 		fg.P("}")
 	case f.Repeated:
-		if fs := fixedSize(f.Kind); fs > 0 {
-			fg.P("n += len(", fv, ") * ", ts+fs)
+		if fixedSize(f.Kind) > 0 {
+			fg.P("n += len(", fv, ") * (", ts, " + ", fg.fixedSizeExpr(f.Kind), ")")
 			return
 		}
 		fg.P("for _, v := range ", fv, " {")
@@ -140,7 +141,7 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 	fg.P("return b[:l], err")
 	fg.P("}")
 	fg.P("if n != size {")
-	fg.P("return b[:l], ", fg.errExpr(errSizeMsg))
+	fg.P("return b[:l], ", fg.errExpr("ErrSizeChanged", errSizeMsg))
 	fg.P("}")
 	fg.P("return b, nil")
 	fg.P("}")
@@ -148,11 +149,10 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 
 	fg.usesU = false
 	body := fg.capture(func() {
-		for j := len(mi.byNum) - 1; j >= 0; j-- {
-			fi := mi.byNum[j]
+		for _, fi := range slices.Backward(mi.byNum) {
 			if fi.oneof != nil {
 				fg.P("if o, ok := m.", fi.oneof.goName, ".(*", fi.wrapper, "); ok {")
-				fg.marshalSingular(fi.f, "o."+fi.goName, fi.f.Number)
+				fg.marshalSingular(fi.f, "o."+fi.goName)
 				fg.P("}")
 				continue
 			}
@@ -180,30 +180,24 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 	fg.P()
 }
 
-func (fg *fileGen) writeTag(num int32, wt int) {
-	tb := tagBytes(num, wt)
-	if len(tb) == 1 {
-		fg.P("i--")
-		fg.P(fmt.Sprintf("b[i] = 0x%02x", tb[0]))
+// writeTag emits code writing the tag of field f with wire type wt
+// backwards at b[:i].
+func (fg *fileGen) writeTag(f *desc.Field, wt int) {
+	tag := fg.tagExpr(fg.fieldNum(f), wt)
+	if n := tagSize(f.Number, wt); n > 1 {
+		fg.P("i -= ", n)
+		fg.P(fg.std("encoding/binary"), ".PutUvarint(b[i:], ", tag, ")")
 		return
 	}
-	fg.P("i -= ", len(tb))
-	for j, c := range tb {
-		if j == 0 {
-			fg.P(fmt.Sprintf("b[i] = 0x%02x", c))
-		} else {
-			fg.P(fmt.Sprintf("b[i+%d] = 0x%02x", j, c))
-		}
-	}
+	fg.P("i--")
+	fg.P("b[i] = ", tag)
 }
 
-// marshalSingular emits code writing present value v (with tag) for field
-// number num.
-func (fg *fileGen) marshalSingular(f *desc.Field, v string, num int32) {
+// marshalSingular emits code writing present value v (with tag) of field f.
+func (fg *fileGen) marshalSingular(f *desc.Field, v string) {
 	if f.Kind == desc.KindMessage {
-		fg.P("{")
 		if f.Delimited {
-			fg.writeTag(num, wireEndGroup)
+			fg.writeTag(f, wireEndGroup)
 		}
 		fg.P("n, err := ", v, ".ProtoMarshalToSizedBuffer(b[:i])")
 		fg.P("if err != nil {")
@@ -211,21 +205,20 @@ func (fg *fileGen) marshalSingular(f *desc.Field, v string, num int32) {
 		fg.P("}")
 		fg.P("i -= n")
 		if f.Delimited {
-			fg.writeTag(num, wireStartGroup)
+			fg.writeTag(f, wireStartGroup)
 		} else {
 			fg.encVarint("uint64(n)")
-			fg.writeTag(num, wireBytes)
+			fg.writeTag(f, wireBytes)
 		}
-		fg.P("}")
 		return
 	}
 	if f.Kind == desc.KindString && f.ValidateUTF8 {
 		fg.P("if !", fg.std("unicode/utf8"), ".ValidString(", v, ") {")
-		fg.P("return 0, ", fg.errExpr(fmt.Sprintf(errInvalidUTF8F, f.FullName)))
+		fg.P("return 0, ", fg.errExpr(fg.owner(f.FullName)+"ErrUTF8", fmt.Sprintf(errInvalidUTF8F, f.FullName)))
 		fg.P("}")
 	}
 	fg.encode(f.Kind, v)
-	fg.writeTag(num, wireType(f))
+	fg.writeTag(f, wireType(f))
 }
 
 func (fg *fileGen) marshalField(fi *fieldInfo) {
@@ -235,10 +228,10 @@ func (fg *fileGen) marshalField(fi *fieldInfo) {
 	case f.IsMap:
 		entry := func() {
 			fg.P("start := i")
-			fg.marshalSingular(f.MapValue, "v", 2)
-			fg.marshalSingular(f.MapKey, "k", 1)
+			fg.marshalSingular(f.MapValue, "v")
+			fg.marshalSingular(f.MapKey, "k")
 			fg.encVarint("uint64(start - i)")
-			fg.writeTag(f.Number, wireBytes)
+			fg.writeTag(f, wireBytes)
 		}
 		fg.P("if len(", fv, ") > 0 {")
 		if f.MapKey.Kind == desc.KindBool {
@@ -256,8 +249,7 @@ func (fg *fileGen) marshalField(fi *fieldInfo) {
 			fg.P("keys = append(keys, k)")
 			fg.P("}")
 			fg.P(fg.std("slices"), ".Sort(keys)")
-			fg.P("for j := len(keys) - 1; j >= 0; j-- {")
-			fg.P("k := keys[j]")
+			fg.P("for _, k := range ", fg.std("slices"), ".Backward(keys) {")
 			fg.P("v := ", fv, "[k]")
 			entry()
 			fg.P("}")
@@ -266,27 +258,27 @@ func (fg *fileGen) marshalField(fi *fieldInfo) {
 	case f.Repeated && f.Packed:
 		fg.P("if len(", fv, ") > 0 {")
 		fg.P("start := i")
-		fg.P("for j := len(", fv, ") - 1; j >= 0; j-- {")
-		fg.encode(f.Kind, fv+"[j]")
+		fg.P("for _, v := range ", fg.std("slices"), ".Backward(", fv, ") {")
+		fg.encode(f.Kind, "v")
 		fg.P("}")
 		fg.encVarint("uint64(start - i)")
-		fg.writeTag(f.Number, wireBytes)
+		fg.writeTag(f, wireBytes)
 		fg.P("}")
 	case f.Repeated:
-		fg.P("for j := len(", fv, ") - 1; j >= 0; j-- {")
-		fg.marshalSingular(f, fv+"[j]", f.Number)
+		fg.P("for _, v := range ", fg.std("slices"), ".Backward(", fv, ") {")
+		fg.marshalSingular(f, "v")
 		fg.P("}")
 	case f.Kind == desc.KindMessage, f.HasPresence && f.Kind == desc.KindBytes:
 		fg.P("if ", fv, " != nil {")
-		fg.marshalSingular(f, fv, f.Number)
+		fg.marshalSingular(f, fv)
 		fg.P("}")
 	case f.HasPresence:
 		fg.P("if ", fv, " != nil {")
-		fg.marshalSingular(f, "(*"+fv+")", f.Number)
+		fg.marshalSingular(f, "(*"+fv+")")
 		fg.P("}")
 	default:
 		fg.P("if ", fg.nonZeroExpr(f.Kind, fv), " {")
-		fg.marshalSingular(f, fv, f.Number)
+		fg.marshalSingular(f, fv)
 		fg.P("}")
 	}
 }
@@ -318,57 +310,62 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 	fg.P()
 	fg.P("// ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.")
 	fg.P("func (m *", name, ") ProtoMergeDepth(b []byte, depth int) error {")
-	fg.P("if depth >= ", maxDepth, " {")
+	fg.P("if depth >= ", fg.c("MaxDepth"), " {")
 	fg.P("goto errDepth")
 	fg.P("}")
 	fg.P("for len(b) > 0 {")
-	fg.decodeTag("b")
+	fg.P("t, n := ", fg.std("encoding/binary"), ".Uvarint(b)")
+	fg.emitCheckTag("t", "n")
 	fg.P("start := b")
 	fg.P("b = b[n:]")
 	if len(mi.byNum) > 0 {
-		fg.P("switch num {")
+		fg.P("switch t {")
 		for _, fi := range mi.byNum {
-			fg.P("case ", fi.f.Number, ":")
 			fg.unmarshalField(fi)
 		}
-		fg.P("}")
+		fg.P("default:")
 	}
 	fg.P("// Unknown field, or a known field with an unexpected wire type.")
+	fg.splitTag()
 	fg.emitSkip("b")
 	fg.P("m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)")
 	fg.P("b = b[n:]")
+	if len(mi.byNum) > 0 {
+		fg.P("}")
+	}
 	fg.P("}")
 	fg.P("return nil")
 	fg.P("errParse:")
-	fg.P("return ", fg.errExpr(errParseMsg))
+	fg.P("return ", fg.errExpr("ErrParse", errParseMsg))
 	fg.P("errDepth:")
-	fg.P("return ", fg.errExpr(errDepthMsg))
+	fg.P("return ", fg.errExpr("ErrDepth", errDepthMsg))
 	fg.P("}")
 	fg.P()
 }
 
-// decodeTag emits code decoding a tag from buf into num, typ and n.
-func (fg *fileGen) decodeTag(buf string) {
-	fg.P("t, n := ", fg.std("encoding/binary"), ".Uvarint(", buf, ")")
-	fg.P("if n <= 0 || t>>3 == 0 || t>>3 > ", desc.MaxFieldNumber, " {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("num, typ := int32(t>>3), int(t&7)")
+// splitTag emits code splitting tag t into the variables num and typ used
+// by emitSkip.
+func (fg *fileGen) splitTag() {
+	fg.P("num, typ := int32(t>>", fg.c("TagTypeBits"), "), t&", fg.c("TagTypeMask"))
 }
 
-// appendUnknownVarint emits code preserving raw varint x of field num as an
+// appendUnknownVarint emits code preserving raw varint x of field f as an
 // unknown field; it is used for unrecognized closed-enum values.
-func (fg *fileGen) appendUnknownVarint(num int32) {
-	fg.P("m.unknownFields = ", fg.std("encoding/binary"), ".AppendUvarint(append(m.unknownFields, ", byteList(tagBytes(num, wireVarint)), "), x)")
+func (fg *fileGen) appendUnknownVarint(f *desc.Field) {
+	bin := fg.std("encoding/binary")
+	fg.P("m.unknownFields = ", bin, ".AppendUvarint(", bin, ".AppendUvarint(m.unknownFields, ", fg.tagExpr(fg.fieldNum(f), wireVarint), "), x)")
 }
 
 func isClosedEnum(f *desc.Field) bool {
 	return f.Kind == desc.KindEnum && f.EnumType.Closed
 }
 
+// unmarshalField emits the cases of the ProtoMergeDepth tag switch that
+// decode field fi.
 func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 	f := fi.f
 	fv := "m." + fi.goName
+	num := fg.fieldNum(f)
 
 	switch {
 	case f.IsMap:
@@ -397,36 +394,33 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 			}
 		}
 		if f.Delimited {
-			fg.P("if typ == ", wireStartGroup, " {")
+			fg.P("case ", fg.tagExpr(num, wireStartGroup), ":")
 			fg.P("var n int")
-			fg.emitSkipGroup("b")
+			fg.emitSkipGroup("b", num)
 			target()
 			fg.P("if err := mv.ProtoMergeDepth(b[:n-", tagSize(f.Number, wireEndGroup), "], depth+1); err != nil {")
 			fg.P("return err")
 			fg.P("}")
 			fg.P("b = b[n:]")
-			fg.P("continue")
-			fg.P("}")
 			return
 		}
-		fg.P("if typ == ", wireBytes, " {")
+		fg.P("case ", fg.tagExpr(num, wireBytes), ":")
 		fg.decBytes("v", "b")
 		target()
 		fg.P("if err := mv.ProtoMergeDepth(v, depth+1); err != nil {")
 		fg.P("return err")
 		fg.P("}")
 		fg.P("b = b[n:]")
-		fg.P("continue")
-		fg.P("}")
 		return
 	}
 
 	if f.Repeated && f.Kind.Packable() {
 		// Accept packed encoding regardless of the declared form.
-		fg.P("if typ == ", wireBytes, " {")
+		fg.P("case ", fg.tagExpr(num, wireBytes), ":")
 		fg.decBytes("v", "b")
 		fg.P("b = b[n:]")
-		if fs := fixedSize(f.Kind); fs > 1 {
+		if fixedSize(f.Kind) > 1 {
+			fs := fg.fixedSizeExpr(f.Kind)
 			fg.P("if len(v)%", fs, " != 0 {")
 			fg.P("goto errParse")
 			fg.P("}")
@@ -439,7 +433,7 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 		fg.P("v = v[n:]")
 		if isClosedEnum(f) {
 			fg.P("if e := ", expr, "; !e.IsValid() {")
-			fg.appendUnknownVarint(f.Number)
+			fg.appendUnknownVarint(f)
 			fg.P("} else {")
 			fg.P(fv, " = append(", fv, ", e)")
 			fg.P("}")
@@ -447,17 +441,15 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 			fg.P(fv, " = append(", fv, ", ", expr, ")")
 		}
 		fg.P("}")
-		fg.P("continue")
-		fg.P("}")
 	}
 
-	fg.P("if typ == ", wireType(f), " {")
+	fg.P("case ", fg.tagExpr(num, wireType(f)), ":")
 	expr := fg.decodeScalar(f, "b")
 	fg.P("b = b[n:]")
 	if isClosedEnum(f) {
 		fg.P("e := ", expr)
 		fg.P("if !e.IsValid() {")
-		fg.appendUnknownVarint(f.Number)
+		fg.appendUnknownVarint(f)
 		fg.P("continue")
 		fg.P("}")
 		expr = "e"
@@ -473,30 +465,28 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 	default:
 		fg.P(fv, " = ", expr)
 	}
-	fg.P("continue")
-	fg.P("}")
 }
 
+// unmarshalMap emits the ProtoMergeDepth case that decodes one entry of map
+// field fi.
 func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 	f := fi.f
 	fv := "m." + fi.goName
 	key, val := f.MapKey, f.MapValue
-	fg.P("if typ == ", wireBytes, " {")
+	fg.P("case ", fg.tagExpr(fg.fieldNum(f), wireBytes), ":")
 	fg.decBytes("v", "b")
 	fg.P("var mk ", fg.scalarGoType(key))
 	fg.P("var mv ", fg.scalarGoType(val))
 	fg.P("for len(v) > 0 {")
-	fg.decodeTag("v")
+	fg.P("t, n := ", fg.std("encoding/binary"), ".Uvarint(v)")
+	fg.emitCheckTag("t", "n")
 	fg.P("v = v[n:]")
-	// Key.
-	fg.P("if num == 1 && typ == ", wireType(key), " {")
+	fg.P("switch t {")
+	fg.P("case ", fg.tagExpr(fg.fieldNum(key), wireType(key)), ":")
 	kexpr := fg.decodeScalar(key, "v")
 	fg.P("mk = ", kexpr)
 	fg.P("v = v[n:]")
-	fg.P("continue")
-	fg.P("}")
-	// Value.
-	fg.P("if num == 2 && typ == ", wireType(val), " {")
+	fg.P("case ", fg.tagExpr(fg.fieldNum(val), wireType(val)), ":")
 	if val.Kind == desc.KindMessage {
 		fg.decBytes("x", "v")
 		fg.P("if mv == nil {")
@@ -510,10 +500,11 @@ func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 		fg.P("mv = ", vexpr)
 	}
 	fg.P("v = v[n:]")
-	fg.P("continue")
-	fg.P("}")
+	fg.P("default:")
+	fg.splitTag()
 	fg.emitSkip("v")
 	fg.P("v = v[n:]")
+	fg.P("}")
 	fg.P("}")
 	if val.Kind == desc.KindMessage {
 		fg.P("if mv == nil {")
@@ -532,8 +523,6 @@ func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 	fg.P("}")
 	fg.P(fv, "[mk] = mv")
 	fg.P("b = b[n:]")
-	fg.P("continue")
-	fg.P("}")
 }
 
 // --- Required fields --------------------------------------------------------
@@ -556,7 +545,7 @@ func (fg *fileGen) genCheckInitialized(mi *messageInfo) {
 		fv := "m." + fi.goName
 		if f.Required {
 			fg.P("if ", fv, " == nil {")
-			fg.P("return ", fg.errExpr(fmt.Sprintf(errRequiredFmt, f.FullName)))
+			fg.P("return ", fg.errExpr(fg.owner(f.FullName)+"ErrRequired", fmt.Sprintf(errRequiredFmt, f.FullName)))
 			fg.P("}")
 		}
 		var sub *desc.Message

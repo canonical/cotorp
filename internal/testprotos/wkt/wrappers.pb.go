@@ -18,6 +18,72 @@ import (
 	"unicode/utf8"
 )
 
+// Wire types.
+const (
+	wrappersWireVarint     = 0
+	wrappersWireFixed64    = 1
+	wrappersWireBytes      = 2
+	wrappersWireStartGroup = 3
+	wrappersWireEndGroup   = 4
+	wrappersWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	wrappersTagTypeBits    = 3
+	wrappersTagTypeMask    = 1<<3 - 1
+	wrappersMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	wrappersFixed32Size       = 4
+	wrappersFixed64Size       = 8
+	wrappersVarintPayloadBits = 7    // value bits per varint byte
+	wrappersVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	wrappersMaxDepth      = 10000 // maximum message and group nesting
+	wrappersSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON scalar parse classes.
+const (
+	wrappersClassNone     = 0
+	wrappersClassSigned   = 1
+	wrappersClassUnsigned = 2
+	wrappersClassFloat    = 3
+	wrappersClassBool     = 4
+	wrappersClassString   = 5
+	wrappersClassBytes    = 6
+)
+
+// ProtoJSON limits.
+const (
+	wrappersMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
+	wrappersBase64Quantum   = 4   // base64 characters per padded block
+)
+
+// Hexadecimal digits for \u escapes in JSON strings.
+const wrappersHexDigits = "0123456789abcdef"
+
+// Error messages used more than once.
+const (
+	wrappersErrSizeChanged               = "proto: message size changed during marshal"
+	wrappersErrParse                     = "proto: cannot parse invalid wire-format data"
+	wrappersErrDepth                     = "proto: exceeded maximum recursion depth"
+	wrappersDoubleValueErrInvalidNumber  = "proto: google.protobuf.DoubleValue: invalid number "
+	wrappersFloatValueErrInvalidNumber   = "proto: google.protobuf.FloatValue: invalid number "
+	wrappersInt64ValueErrInvalidInteger  = "proto: google.protobuf.Int64Value: invalid integer "
+	wrappersUInt64ValueErrInvalidInteger = "proto: google.protobuf.UInt64Value: invalid integer "
+	wrappersInt32ValueErrInvalidInteger  = "proto: google.protobuf.Int32Value: invalid integer "
+	wrappersUInt32ValueErrInvalidInteger = "proto: google.protobuf.UInt32Value: invalid integer "
+	wrappersStringValueValueErrUTF8      = "proto: field google.protobuf.StringValue.value contains invalid UTF-8"
+	wrappersBytesValueErrInvalidBytes    = "proto: google.protobuf.BytesValue: invalid bytes "
+)
+
 // Wrapper message for `double`.
 //
 // The JSON representation for `DoubleValue` is JSON number.
@@ -56,7 +122,7 @@ func (m *DoubleValue) ProtoSize() (n int) {
 		return 0
 	}
 	if math.Float64bits(m.Value) != 0 {
-		n += 1 + 8
+		n += 1 + wrappersFixed64Size
 	}
 	n += len(m.unknownFields)
 	return n
@@ -77,7 +143,7 @@ func (m *DoubleValue) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -95,10 +161,10 @@ func (m *DoubleValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if math.Float64bits(m.Value) != 0 {
-		i -= 8
+		i -= wrappersFixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits(m.Value))
 		i--
-		b[i] = 0x09
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireFixed64
 	}
 	return len(b) - i, nil
 }
@@ -118,109 +184,107 @@ func (m *DoubleValue) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *DoubleValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				m.Value = math.Float64frombits(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireFixed64:
+			if len(b) < wrappersFixed64Size {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x, n := binary.LittleEndian.Uint64(b), wrappersFixed64Size
+			b = b[n:]
+			m.Value = math.Float64frombits(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -278,15 +342,15 @@ func (m *DoubleValue) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		bits := 64
 		var fv float64
 		switch jb.f {
 		case 0:
-			class, bits = 3, 64
+			class, bits = wrappersClassFloat, 64
 		}
 		switch class {
-		case 3:
+		case wrappersClassFloat:
 			s := string(raw)
 			special := false
 			if raw[0] == '"' {
@@ -304,11 +368,11 @@ func (m *DoubleValue) ProtoMergeJSON(b []byte) error {
 			}
 			if !special {
 				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New("proto: google.protobuf.DoubleValue: invalid number " + string(raw))
+					return errors.New(wrappersDoubleValueErrInvalidNumber + string(raw))
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New("proto: google.protobuf.DoubleValue: invalid number " + string(raw))
+					return errors.New(wrappersDoubleValueErrInvalidNumber + string(raw))
 				}
 			}
 		}
@@ -358,7 +422,7 @@ func (m *FloatValue) ProtoSize() (n int) {
 		return 0
 	}
 	if math.Float32bits(m.Value) != 0 {
-		n += 1 + 4
+		n += 1 + wrappersFixed32Size
 	}
 	n += len(m.unknownFields)
 	return n
@@ -379,7 +443,7 @@ func (m *FloatValue) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -397,10 +461,10 @@ func (m *FloatValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if math.Float32bits(m.Value) != 0 {
-		i -= 4
+		i -= wrappersFixed32Size
 		binary.LittleEndian.PutUint32(b[i:], math.Float32bits(m.Value))
 		i--
-		b[i] = 0x0d
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireFixed32
 	}
 	return len(b) - i, nil
 }
@@ -420,109 +484,107 @@ func (m *FloatValue) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FloatValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 5 {
-				if len(b) < 4 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint32(b), 4
-				b = b[n:]
-				m.Value = math.Float32frombits(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireFixed32:
+			if len(b) < wrappersFixed32Size {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x, n := binary.LittleEndian.Uint32(b), wrappersFixed32Size
+			b = b[n:]
+			m.Value = math.Float32frombits(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -580,15 +642,15 @@ func (m *FloatValue) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		bits := 64
 		var fv float64
 		switch jb.f {
 		case 0:
-			class, bits = 3, 32
+			class, bits = wrappersClassFloat, 32
 		}
 		switch class {
-		case 3:
+		case wrappersClassFloat:
 			s := string(raw)
 			special := false
 			if raw[0] == '"' {
@@ -606,11 +668,11 @@ func (m *FloatValue) ProtoMergeJSON(b []byte) error {
 			}
 			if !special {
 				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New("proto: google.protobuf.FloatValue: invalid number " + string(raw))
+					return errors.New(wrappersFloatValueErrInvalidNumber + string(raw))
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New("proto: google.protobuf.FloatValue: invalid number " + string(raw))
+					return errors.New(wrappersFloatValueErrInvalidNumber + string(raw))
 				}
 			}
 		}
@@ -660,7 +722,7 @@ func (m *Int64Value) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Value != 0 {
-		n += 1 + (bits.Len64((uint64(m.Value))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(m.Value)|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -681,7 +743,7 @@ func (m *Int64Value) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -701,15 +763,15 @@ func (m *Int64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Value != 0 {
 		u = uint64(m.Value)
-		if u < 0x80 {
+		if u < wrappersVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -729,109 +791,107 @@ func (m *Int64Value) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Int64Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Value = int64(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = int64(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -882,15 +942,15 @@ func (m *Int64Value) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 64
+			class, bits = wrappersClassSigned, 64
 		}
 		switch class {
-		case 1:
+		case wrappersClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -906,17 +966,17 @@ func (m *Int64Value) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.Int64Value: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+						return errors.New(wrappersInt64ValueErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.Int64Value: invalid integer " + string(raw))
+					return errors.New(wrappersInt64ValueErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.Int64Value: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(wrappersInt64ValueErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -967,7 +1027,7 @@ func (m *UInt64Value) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Value != 0 {
-		n += 1 + (bits.Len64((m.Value)|1)+6)/7
+		n += 1 + (bits.Len64(m.Value|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -988,7 +1048,7 @@ func (m *UInt64Value) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1008,15 +1068,15 @@ func (m *UInt64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Value != 0 {
 		u = m.Value
-		if u < 0x80 {
+		if u < wrappersVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -1036,109 +1096,107 @@ func (m *UInt64Value) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *UInt64Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Value = x
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = x
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1189,15 +1247,15 @@ func (m *UInt64Value) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		bits := 64
 		var uv uint64
 		switch jb.f {
 		case 0:
-			class, bits = 2, 64
+			class, bits = wrappersClassUnsigned, 64
 		}
 		switch class {
-		case 2:
+		case wrappersClassUnsigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -1213,17 +1271,17 @@ func (m *UInt64Value) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.UInt64Value: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+						return errors.New(wrappersUInt64ValueErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.UInt64Value: invalid integer " + string(raw))
+					return errors.New(wrappersUInt64ValueErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
-					return errors.New("proto: google.protobuf.UInt64Value: invalid integer " + string(raw))
+				if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+					return errors.New(wrappersUInt64ValueErrInvalidInteger + string(raw))
 				}
 				uv = n.Uint64()
 			}
@@ -1274,7 +1332,7 @@ func (m *Int32Value) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Value != 0 {
-		n += 1 + (bits.Len64((uint64(int64(m.Value)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(m.Value))|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1295,7 +1353,7 @@ func (m *Int32Value) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1315,15 +1373,15 @@ func (m *Int32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Value != 0 {
 		u = uint64(int64(m.Value))
-		if u < 0x80 {
+		if u < wrappersVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -1343,109 +1401,107 @@ func (m *Int32Value) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Int32Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Value = int32(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = int32(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1494,15 +1550,15 @@ func (m *Int32Value) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = wrappersClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case wrappersClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -1518,17 +1574,17 @@ func (m *Int32Value) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.Int32Value: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+						return errors.New(wrappersInt32ValueErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.Int32Value: invalid integer " + string(raw))
+					return errors.New(wrappersInt32ValueErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: google.protobuf.Int32Value: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(wrappersInt32ValueErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -1579,7 +1635,7 @@ func (m *UInt32Value) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Value != 0 {
-		n += 1 + (bits.Len64((uint64(m.Value))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(m.Value)|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1600,7 +1656,7 @@ func (m *UInt32Value) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1620,15 +1676,15 @@ func (m *UInt32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Value != 0 {
 		u = uint64(m.Value)
-		if u < 0x80 {
+		if u < wrappersVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -1648,109 +1704,107 @@ func (m *UInt32Value) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *UInt32Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Value = uint32(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = uint32(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1799,15 +1853,15 @@ func (m *UInt32Value) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		bits := 64
 		var uv uint64
 		switch jb.f {
 		case 0:
-			class, bits = 2, 32
+			class, bits = wrappersClassUnsigned, 32
 		}
 		switch class {
-		case 2:
+		case wrappersClassUnsigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -1823,17 +1877,17 @@ func (m *UInt32Value) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: google.protobuf.UInt32Value: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+						return errors.New(wrappersUInt32ValueErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: google.protobuf.UInt32Value: invalid integer " + string(raw))
+					return errors.New(wrappersUInt32ValueErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
-					return errors.New("proto: google.protobuf.UInt32Value: invalid integer " + string(raw))
+				if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+					return errors.New(wrappersUInt32ValueErrInvalidInteger + string(raw))
 				}
 				uv = n.Uint64()
 			}
@@ -1905,7 +1959,7 @@ func (m *BoolValue) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1930,7 +1984,7 @@ func (m *BoolValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -1950,109 +2004,107 @@ func (m *BoolValue) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *BoolValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Value = x != 0
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = x != 0
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2105,14 +2157,14 @@ func (m *BoolValue) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		var bv bool
 		switch jb.f {
 		case 0:
-			class = 4
+			class = wrappersClassBool
 		}
 		switch class {
-		case 4:
+		case wrappersClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -2167,7 +2219,7 @@ func (m *StringValue) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.Value) > 0 {
-		n += 1 + len(m.Value) + (bits.Len64((uint64(len(m.Value)))|1)+6)/7
+		n += 1 + len(m.Value) + (bits.Len64(uint64(len(m.Value))|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2188,7 +2240,7 @@ func (m *StringValue) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -2208,20 +2260,20 @@ func (m *StringValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if len(m.Value) > 0 {
 		if !utf8.ValidString(m.Value) {
-			return 0, errors.New("proto: field google.protobuf.StringValue.value contains invalid UTF-8")
+			return 0, errors.New(wrappersStringValueValueErrUTF8)
 		}
 		i -= len(m.Value)
 		copy(b[i:], m.Value)
 		u = uint64(len(m.Value))
-		if u < 0x80 {
+		if u < wrappersVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -2241,114 +2293,112 @@ func (m *StringValue) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *StringValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field google.protobuf.StringValue.value contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.Value = string(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(wrappersStringValueValueErrUTF8)
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Value = string(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2376,8 +2426,8 @@ func (m *StringValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 		switch c := m.Value[ci]; {
 		case c == '"' || c == '\\':
 			b = append(b, '\\', c)
-		case c < 0x20:
-			b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+		case c < ' ':
+			b = append(b, '\\', 'u', '0', '0', wrappersHexDigits[c>>4], wrappersHexDigits[c&0xf])
 		default:
 			b = append(b, c)
 		}
@@ -2411,14 +2461,14 @@ func (m *StringValue) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		var sv string
 		switch jb.f {
 		case 0:
-			class = 5
+			class = wrappersClassString
 		}
 		switch class {
-		case 5:
+		case wrappersClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: google.protobuf.StringValue: invalid string " + string(raw))
 			}
@@ -2472,7 +2522,7 @@ func (m *BytesValue) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.Value) > 0 {
-		n += 1 + len(m.Value) + (bits.Len64((uint64(len(m.Value)))|1)+6)/7
+		n += 1 + len(m.Value) + (bits.Len64(uint64(len(m.Value))|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2493,7 +2543,7 @@ func (m *BytesValue) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(wrappersErrSizeChanged)
 	}
 	return b, nil
 }
@@ -2515,15 +2565,15 @@ func (m *BytesValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.Value)
 		copy(b[i:], m.Value)
 		u = uint64(len(m.Value))
-		if u < 0x80 {
+		if u < wrappersVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<wrappersTagTypeBits | wrappersWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -2543,111 +2593,109 @@ func (m *BytesValue) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *BytesValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= wrappersMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.Value = append([]byte{}, x...)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<wrappersTagTypeBits | wrappersWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.Value = append([]byte{}, x...)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
+			switch typ {
+			case wrappersWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case wrappersWireFixed64:
+				if len(b) < wrappersFixed64Size {
+					goto errParse
+				}
+				n = wrappersFixed64Size
+			case wrappersWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case wrappersWireStartGroup:
+				var stk [wrappersSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > wrappersMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & wrappersTagTypeMask {
+					case wrappersWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case wrappersWireFixed64:
+						k = wrappersFixed64Size
+					case wrappersWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case wrappersWireStartGroup:
+						open = append(open, int32(t>>wrappersTagTypeBits))
+						k = 0
+					case wrappersWireEndGroup:
+						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case wrappersWireFixed32:
+						k = wrappersFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case wrappersWireFixed32:
+				if len(b) < wrappersFixed32Size {
+					goto errParse
+				}
+				n = wrappersFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(wrappersErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(wrappersErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2667,14 +2715,12 @@ func (m *BytesValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		m = &BytesValue{}
 	}
-	{
-		n := base64.StdEncoding.EncodedLen(len(m.Value))
-		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, n)[:l+n]
-		base64.StdEncoding.Encode(b[l:], m.Value)
-		b = append(b, '"')
-	}
+	n := base64.StdEncoding.EncodedLen(len(m.Value))
+	b = append(b, '"')
+	l := len(b)
+	b = slices.Grow(b, n)[:l+n]
+	base64.StdEncoding.Encode(b[l:], m.Value)
+	b = append(b, '"')
 	return b, nil
 }
 
@@ -2703,17 +2749,17 @@ func (m *BytesValue) ProtoMergeJSON(b []byte) error {
 	jobs := []job{{f: 0, raw: raw}}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := wrappersClassNone
 		var by []byte
 		switch jb.f {
 		case 0:
-			class = 6
+			class = wrappersClassBytes
 		}
 		switch class {
-		case 6:
+		case wrappersClassBytes:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: google.protobuf.BytesValue: invalid bytes " + string(raw))
+				return errors.New(wrappersBytesValueErrInvalidBytes + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -2723,12 +2769,12 @@ func (m *BytesValue) ProtoMergeJSON(b []byte) error {
 			if strings.ContainsAny(s, "-_") {
 				enc = base64.URLEncoding
 			}
-			if len(s)%4 != 0 {
+			if len(s)%wrappersBase64Quantum != 0 {
 				enc = enc.WithPadding(base64.NoPadding)
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New("proto: google.protobuf.BytesValue: invalid bytes " + string(raw))
+				return errors.New(wrappersBytesValueErrInvalidBytes + string(raw))
 			}
 		}
 		switch jb.f {

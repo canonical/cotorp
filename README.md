@@ -45,8 +45,11 @@ cotorp -I proto -go_out . -module example.com/app \
 ```
 
 Each `.proto` file produces exactly one self-contained `.pb.go` file, so a Go
-package can be generated across several invocations. Generated code requires
-Go 1.21 or later.
+package can be generated across several invocations. The exception is two
+`.proto` files with the same base name (for example `a/types.proto` and
+`b/types.proto`) in one Go package: generate them in the same invocation, so
+that their file-level constants get distinct names. Generated code requires
+Go 1.27 or later.
 
 ## Generated API
 

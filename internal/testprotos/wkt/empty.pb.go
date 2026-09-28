@@ -13,6 +13,38 @@ import (
 	"strconv"
 )
 
+// Wire types.
+const (
+	emptyWireVarint     = 0
+	emptyWireFixed64    = 1
+	emptyWireBytes      = 2
+	emptyWireStartGroup = 3
+	emptyWireEndGroup   = 4
+	emptyWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	emptyTagTypeBits    = 3
+	emptyTagTypeMask    = 1<<3 - 1
+	emptyMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	emptyFixed32Size = 4
+	emptyFixed64Size = 8
+)
+
+// Decoding limits.
+const (
+	emptyMaxDepth      = 10000 // maximum message and group nesting
+	emptySkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// Error message used more than once.
+const emptyEmptyErrTrailingData = "proto: google.protobuf.Empty: unexpected data after JSON value"
+
 // A generic empty message that you can re-use to avoid defining duplicated
 // empty messages in your APIs. A typical example is to use it as the request
 // or the response type of an API method. For instance:
@@ -95,73 +127,73 @@ func (m *Empty) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Empty) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= emptyMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>emptyTagTypeBits == 0 || t>>emptyTagTypeBits > emptyMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
+		num, typ := int32(t>>emptyTagTypeBits), t&emptyTagTypeMask
 		switch typ {
-		case 0:
+		case emptyWireVarint:
 			_, n = binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+		case emptyWireFixed64:
+			if len(b) < emptyFixed64Size {
 				goto errParse
 			}
-			n = 8
-		case 2:
+			n = emptyFixed64Size
+		case emptyWireBytes:
 			ln, k := binary.Uvarint(b)
 			if k <= 0 || ln > uint64(len(b)-k) {
 				goto errParse
 			}
 			n = k + int(ln)
-		case 3:
-			var stk [16]int32
+		case emptyWireStartGroup:
+			var stk [emptySkipStackSize]int32
 			open := append(stk[:0], num)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > emptyMaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>emptyTagTypeBits == 0 || t>>emptyTagTypeBits > emptyMaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & emptyTagTypeMask {
+				case emptyWireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case emptyWireFixed64:
+					k = emptyFixed64Size
+				case emptyWireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case emptyWireStartGroup:
+					open = append(open, int32(t>>emptyTagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case emptyWireEndGroup:
+					if open[len(open)-1] != int32(t>>emptyTagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case emptyWireFixed32:
+					k = emptyFixed32Size
 				default:
 					goto errParse
 				}
@@ -170,11 +202,11 @@ func (m *Empty) ProtoMergeDepth(b []byte, depth int) error {
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+		case emptyWireFixed32:
+			if len(b) < emptyFixed32Size {
 				goto errParse
 			}
-			n = 4
+			n = emptyFixed32Size
 		default:
 			goto errParse
 		}
@@ -233,7 +265,7 @@ func (m *Empty) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: google.protobuf.Empty: unexpected data after JSON value")
+			return errors.New(emptyEmptyErrTrailingData)
 		}
 		return nil
 	}
@@ -249,7 +281,7 @@ func (m *Empty) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Empty: unexpected data after JSON value")
+		return errors.New(emptyEmptyErrTrailingData)
 	}
 	return nil
 }

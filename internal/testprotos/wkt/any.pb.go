@@ -12,6 +12,43 @@ import (
 	"unicode/utf8"
 )
 
+// Wire types.
+const (
+	anyWireVarint     = 0
+	anyWireFixed64    = 1
+	anyWireBytes      = 2
+	anyWireStartGroup = 3
+	anyWireEndGroup   = 4
+	anyWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	anyTagTypeBits    = 3
+	anyTagTypeMask    = 1<<3 - 1
+	anyMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	anyFixed32Size       = 4
+	anyFixed64Size       = 8
+	anyVarintPayloadBits = 7    // value bits per varint byte
+	anyVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	anyMaxDepth      = 10000 // maximum message and group nesting
+	anySkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// Error messages used more than once.
+const (
+	anyAnyTypeUrlErrUTF8 = "proto: field google.protobuf.Any.type_url contains invalid UTF-8"
+	anyAnyErrUnsupported = "proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have"
+)
+
 // `Any` contains an arbitrary serialized protocol buffer message along with a
 // URL that describes the type of the serialized message.
 //
@@ -111,10 +148,10 @@ func (m *Any) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.TypeUrl) > 0 {
-		n += 1 + len(m.TypeUrl) + (bits.Len64((uint64(len(m.TypeUrl)))|1)+6)/7
+		n += 1 + len(m.TypeUrl) + (bits.Len64(uint64(len(m.TypeUrl))|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
 	}
 	if len(m.Value) > 0 {
-		n += 1 + len(m.Value) + (bits.Len64((uint64(len(m.Value)))|1)+6)/7
+		n += 1 + len(m.Value) + (bits.Len64(uint64(len(m.Value))|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -157,32 +194,32 @@ func (m *Any) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.Value)
 		copy(b[i:], m.Value)
 		u = uint64(len(m.Value))
-		if u < 0x80 {
+		if u < anyVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + anyVarintPayloadBits - 1) / anyVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<anyTagTypeBits | anyWireBytes
 	}
 	if len(m.TypeUrl) > 0 {
 		if !utf8.ValidString(m.TypeUrl) {
-			return 0, errors.New("proto: field google.protobuf.Any.type_url contains invalid UTF-8")
+			return 0, errors.New(anyAnyTypeUrlErrUTF8)
 		}
 		i -= len(m.TypeUrl)
 		copy(b[i:], m.TypeUrl)
 		u = uint64(len(m.TypeUrl))
-		if u < 0x80 {
+		if u < anyVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + anyVarintPayloadBits - 1) / anyVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<anyTagTypeBits | anyWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -202,120 +239,115 @@ func (m *Any) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= anyMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>anyTagTypeBits == 0 || t>>anyTagTypeBits > anyMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field google.protobuf.Any.type_url contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.TypeUrl = string(x)
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.Value = append([]byte{}, x...)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<anyTagTypeBits | anyWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(anyAnyTypeUrlErrUTF8)
+			}
+			b = b[n:]
+			m.TypeUrl = string(x)
+		case 2<<anyTagTypeBits | anyWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.Value = append([]byte{}, x...)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>anyTagTypeBits), t&anyTagTypeMask
+			switch typ {
+			case anyWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case anyWireFixed64:
+				if len(b) < anyFixed64Size {
+					goto errParse
+				}
+				n = anyFixed64Size
+			case anyWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case anyWireStartGroup:
+				var stk [anySkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > anyMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>anyTagTypeBits == 0 || t>>anyTagTypeBits > anyMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & anyTagTypeMask {
+					case anyWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case anyWireFixed64:
+						k = anyFixed64Size
+					case anyWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case anyWireStartGroup:
+						open = append(open, int32(t>>anyTagTypeBits))
+						k = 0
+					case anyWireEndGroup:
+						if open[len(open)-1] != int32(t>>anyTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case anyWireFixed32:
+						k = anyFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case anyWireFixed32:
+				if len(b) < anyFixed32Size {
+					goto errParse
+				}
+				n = anyFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
@@ -338,7 +370,7 @@ func (m *Any) MarshalJSON() ([]byte, error) {
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Any) ProtoAppendJSON(b []byte) ([]byte, error) {
-	return nil, errors.New("proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have")
+	return nil, errors.New(anyAnyErrUnsupported)
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -354,5 +386,5 @@ func (m *Any) ProtoMergeJSON(b []byte) error {
 	if string(bytes.TrimSpace(b)) == "null" {
 		return nil
 	}
-	return errors.New("proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have")
+	return errors.New(anyAnyErrUnsupported)
 }

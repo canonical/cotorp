@@ -24,11 +24,11 @@ func (fg *fileGen) genEnum(e *desc.Enum) {
 	fg.P("// ", name, "_name maps ", name, " numbers to their names.")
 	fg.P("var ", name, "_name = map[int32]string{")
 	seen := map[int32]bool{}
-	var distinct []int32
+	var distinct []string // one value name per number
 	for _, v := range e.Values {
 		if !seen[v.Number] {
 			seen[v.Number] = true
-			distinct = append(distinct, v.Number)
+			distinct = append(distinct, fg.g.valNames[v])
 			fg.P(v.Number, ": ", strconv.Quote(v.Name), ",")
 		}
 	}
@@ -55,14 +55,7 @@ func (fg *fileGen) genEnum(e *desc.Enum) {
 	fg.P("// IsValid reports whether x is a declared value of ", name, ".")
 	fg.P("func (x ", name, ") IsValid() bool {")
 	fg.P("switch x {")
-	cases := ""
-	for i, n := range distinct {
-		if i > 0 {
-			cases += ", "
-		}
-		cases += strconv.Itoa(int(n))
-	}
-	fg.P("case ", cases, ":")
+	fg.P("case ", joinComma(distinct), ":")
 	fg.P("return true")
 	fg.P("}")
 	fg.P("return false")

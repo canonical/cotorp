@@ -237,13 +237,59 @@ func TestValid(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			os.WriteFile(filepath.Join(build, "go.mod"), []byte("module example.com\n\ngo 1.22\n"), 0o644)
+			os.WriteFile(filepath.Join(build, "go.mod"), []byte("module example.com\n\ngo 1.27\n"), 0o644)
 			cmd := exec.Command("go", "vet", "./...")
 			cmd.Dir = build
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("generated code does not build: %v\n%s", err, out)
 			}
 		})
+	}
+}
+
+// TestSharedPackage generates several files into one Go package in a single
+// run, including two with the same base name, and checks that their
+// file-level constants do not collide.
+func TestSharedPackage(t *testing.T) {
+	const opts = `syntax = "proto3"; option go_package = "example.com/p";`
+	msg := func(name string) string {
+		return opts + " message " + name + ` { string s = 1; repeated string r = 2; map<string, int32> m = 3; }`
+	}
+	files := []testFile{
+		{"x.proto", msg("A")},
+		{"sub/x.proto", msg("B")},
+		{"x2.proto", msg("C")},
+	}
+	dir := writeFiles(t, files)
+	c := New([]string{dir})
+	var loaded []*desc.File
+	for _, f := range files {
+		d, err := c.Load(f.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loaded = append(loaded, d)
+	}
+	outs, err := gengo.New(gengo.Options{Module: "example.com", Paths: "source_relative"}).Generate(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := t.TempDir()
+	for _, o := range outs {
+		// Flatten sub/x.pb.go so that all files share one directory.
+		name := strings.ReplaceAll(o.Name, "/", "_")
+		if err := os.WriteFile(filepath.Join(build, name), o.Content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if testing.Short() {
+		return
+	}
+	os.WriteFile(filepath.Join(build, "go.mod"), []byte("module example.com/p\n\ngo 1.27\n"), 0o644)
+	cmd := exec.Command("go", "vet", "./...")
+	cmd.Dir = build
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not build: %v\n%s", err, out)
 	}
 }
 

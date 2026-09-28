@@ -60,6 +60,8 @@ type Generator struct {
 	msgInfos map[*desc.Message]*messageInfo
 	// pkgIdents records package-level identifiers per Go import path.
 	pkgIdents map[string]map[string]bool
+	// constPrefixes records the constant prefixes used per Go import path.
+	constPrefixes map[string]map[string]bool
 }
 
 type goPackage struct {
@@ -70,13 +72,14 @@ type goPackage struct {
 // New returns a Generator.
 func New(opts Options) *Generator {
 	return &Generator{
-		opts:      opts,
-		pkgs:      map[*desc.File]goPackage{},
-		msgNames:  map[*desc.Message]string{},
-		enmNames:  map[*desc.Enum]string{},
-		valNames:  map[*desc.EnumValue]string{},
-		msgInfos:  map[*desc.Message]*messageInfo{},
-		pkgIdents: map[string]map[string]bool{},
+		opts:          opts,
+		pkgs:          map[*desc.File]goPackage{},
+		msgNames:      map[*desc.Message]string{},
+		enmNames:      map[*desc.Enum]string{},
+		valNames:      map[*desc.EnumValue]string{},
+		msgInfos:      map[*desc.Message]*messageInfo{},
+		pkgIdents:     map[string]map[string]bool{},
+		constPrefixes: map[string]map[string]bool{},
 	}
 }
 
@@ -318,6 +321,7 @@ func (g *Generator) newMessageInfo(m *desc.Message, idents map[string]bool) *mes
 		oi := &oneofInfo{o: o, goName: unique(camelCase(o.Name))}
 		oi.getter = "Get" + oi.goName
 		oi.iface = "is" + mi.goName + "_" + oi.goName
+		idents[oi.iface] = true
 		oneofs[o] = oi
 		mi.oneofs = append(mi.oneofs, oi)
 	}
@@ -355,6 +359,12 @@ type fileGen struct {
 	// usesU records use of the marshal scratch variable u in the function
 	// body currently being generated.
 	usesU bool
+
+	// File-level constants (see consts.go).
+	prefix string            // name prefix for this file's constants
+	consts map[string]string // constGroups suffix -> declared name
+	errs   []*errConst
+	errIdx map[string]int // error text -> index in errs
 }
 
 func (g *Generator) generateFile(f *desc.File, pkg goPackage) (_ []byte, err error) {
@@ -368,6 +378,9 @@ func (g *Generator) generateFile(f *desc.File, pkg goPackage) (_ []byte, err err
 		}
 	}()
 	fg := &fileGen{g: g, f: f, pkg: pkg, imports: map[string]string{}, aliases: map[string]bool{}, stdImports: map[string]bool{}}
+	fg.prefix = g.newConstPrefix(f, pkg)
+	fg.consts = map[string]string{}
+	fg.errIdx = map[string]int{}
 	for _, e := range f.AllEnums {
 		fg.genEnum(e)
 	}
@@ -404,12 +417,31 @@ func (g *Generator) generateFile(f *desc.File, pkg goPackage) (_ []byte, err err
 		}
 		hdr.WriteString(")\n\n")
 	}
-	src := append(hdr.Bytes(), fg.buf.Bytes()...)
+	body, errs := fg.resolveErrs(fg.buf.Bytes())
+	fg.writeConsts(&hdr, errs)
+	src := append(hdr.Bytes(), body...)
 	formatted, err := format.Source(src)
 	if err != nil {
 		return nil, fmt.Errorf("%s: internal error: generated invalid Go code: %v\n%s", f.Path, err, numberLines(src))
 	}
 	return formatted, nil
+}
+
+// newConstPrefix picks the constant name prefix for f, unique among the
+// files generated into the same package by this Generator.
+func (g *Generator) newConstPrefix(f *desc.File, pkg goPackage) string {
+	used := g.constPrefixes[pkg.importPath]
+	if used == nil {
+		used = map[string]bool{}
+		g.constPrefixes[pkg.importPath] = used
+	}
+	base := constPrefix(f.Path)
+	prefix := base
+	for i := 2; used[prefix]; i++ {
+		prefix = fmt.Sprintf("%s%d", base, i)
+	}
+	used[prefix] = true
+	return prefix
 }
 
 func numberLines(src []byte) string {

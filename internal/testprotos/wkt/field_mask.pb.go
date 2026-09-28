@@ -15,6 +15,43 @@ import (
 	"unicode/utf8"
 )
 
+// Wire types.
+const (
+	fieldMaskWireVarint     = 0
+	fieldMaskWireFixed64    = 1
+	fieldMaskWireBytes      = 2
+	fieldMaskWireStartGroup = 3
+	fieldMaskWireEndGroup   = 4
+	fieldMaskWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	fieldMaskTagTypeBits    = 3
+	fieldMaskTagTypeMask    = 1<<3 - 1
+	fieldMaskMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	fieldMaskFixed32Size       = 4
+	fieldMaskFixed64Size       = 8
+	fieldMaskVarintPayloadBits = 7    // value bits per varint byte
+	fieldMaskVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	fieldMaskMaxDepth      = 10000 // maximum message and group nesting
+	fieldMaskSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// Error messages used more than once.
+const (
+	fieldMaskFieldMaskPathsErrUTF8           = "proto: field google.protobuf.FieldMask.paths contains invalid UTF-8"
+	fieldMaskFieldMaskErrUnrepresentablePath = "proto: google.protobuf.FieldMask: path cannot be represented in JSON: "
+)
+
 // `FieldMask` represents a set of symbolic field paths, for example:
 //
 //	paths: "f.a"
@@ -243,7 +280,7 @@ func (m *FieldMask) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Paths {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+fieldMaskVarintPayloadBits-1)/fieldMaskVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -282,22 +319,22 @@ func (m *FieldMask) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.Paths) - 1; j >= 0; j-- {
-		if !utf8.ValidString(m.Paths[j]) {
-			return 0, errors.New("proto: field google.protobuf.FieldMask.paths contains invalid UTF-8")
+	for _, v := range slices.Backward(m.Paths) {
+		if !utf8.ValidString(v) {
+			return 0, errors.New(fieldMaskFieldMaskPathsErrUTF8)
 		}
-		i -= len(m.Paths[j])
-		copy(b[i:], m.Paths[j])
-		u = uint64(len(m.Paths[j]))
-		if u < 0x80 {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < fieldMaskVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + fieldMaskVarintPayloadBits - 1) / fieldMaskVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<fieldMaskTagTypeBits | fieldMaskWireBytes
 	}
 	return len(b) - i, nil
 }
@@ -317,108 +354,106 @@ func (m *FieldMask) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= fieldMaskMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>fieldMaskTagTypeBits == 0 || t>>fieldMaskTagTypeBits > fieldMaskMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				if !utf8.Valid(x) {
-					return errors.New("proto: field google.protobuf.FieldMask.paths contains invalid UTF-8")
-				}
-				b = b[n:]
-				m.Paths = append(m.Paths, string(x))
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<fieldMaskTagTypeBits | fieldMaskWireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			if !utf8.Valid(x) {
+				return errors.New(fieldMaskFieldMaskPathsErrUTF8)
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Paths = append(m.Paths, string(x))
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>fieldMaskTagTypeBits), t&fieldMaskTagTypeMask
+			switch typ {
+			case fieldMaskWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case fieldMaskWireFixed64:
+				if len(b) < fieldMaskFixed64Size {
+					goto errParse
+				}
+				n = fieldMaskFixed64Size
+			case fieldMaskWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case fieldMaskWireStartGroup:
+				var stk [fieldMaskSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > fieldMaskMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>fieldMaskTagTypeBits == 0 || t>>fieldMaskTagTypeBits > fieldMaskMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & fieldMaskTagTypeMask {
+					case fieldMaskWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case fieldMaskWireFixed64:
+						k = fieldMaskFixed64Size
+					case fieldMaskWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case fieldMaskWireStartGroup:
+						open = append(open, int32(t>>fieldMaskTagTypeBits))
+						k = 0
+					case fieldMaskWireEndGroup:
+						if open[len(open)-1] != int32(t>>fieldMaskTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case fieldMaskWireFixed32:
+						k = fieldMaskFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case fieldMaskWireFixed32:
+				if len(b) < fieldMaskFixed32Size {
+					goto errParse
+				}
+				n = fieldMaskFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
@@ -452,12 +487,12 @@ func (m *FieldMask) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := p[ci]; {
 				case c == '_':
 					if ci+1 >= len(p) || p[ci+1] < 'a' || p[ci+1] > 'z' {
-						return nil, errors.New("proto: google.protobuf.FieldMask: path cannot be represented in JSON: " + strconv.Quote(p))
+						return nil, errors.New(fieldMaskFieldMaskErrUnrepresentablePath + strconv.Quote(p))
 					}
 					ci++
 					b = append(b, p[ci]-('a'-'A'))
-				case c >= 'A' && c <= 'Z', c < 0x20, c == '"', c == '\\', c == ',':
-					return nil, errors.New("proto: google.protobuf.FieldMask: path cannot be represented in JSON: " + strconv.Quote(p))
+				case c >= 'A' && c <= 'Z', c < ' ', c == '"', c == '\\', c == ',':
+					return nil, errors.New(fieldMaskFieldMaskErrUnrepresentablePath + strconv.Quote(p))
 				default:
 					b = append(b, c)
 				}

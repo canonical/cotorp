@@ -21,6 +21,102 @@ import (
 	commonpb "github.com/canonical/cotorp/internal/testprotos/common"
 )
 
+// Wire types.
+const (
+	proto2WireVarint     = 0
+	proto2WireFixed64    = 1
+	proto2WireBytes      = 2
+	proto2WireStartGroup = 3
+	proto2WireEndGroup   = 4
+	proto2WireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	proto2TagTypeBits    = 3
+	proto2TagTypeMask    = 1<<3 - 1
+	proto2MaxFieldNumber = 1<<29 - 1
+)
+
+// Map entries are encoded as messages with these field numbers.
+const (
+	proto2MapKeyField   = 1
+	proto2MapValueField = 2
+)
+
+// Encoded sizes.
+const (
+	proto2Fixed32Size       = 4
+	proto2Fixed64Size       = 8
+	proto2VarintPayloadBits = 7    // value bits per varint byte
+	proto2VarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	proto2MaxDepth      = 10000 // maximum message and group nesting
+	proto2SkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON scalar parse classes.
+const (
+	proto2ClassNone     = 0
+	proto2ClassSigned   = 1
+	proto2ClassUnsigned = 2
+	proto2ClassFloat    = 3
+	proto2ClassBool     = 4
+	proto2ClassString   = 5
+	proto2ClassBytes    = 6
+)
+
+// ProtoJSON limits.
+const (
+	proto2MaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
+	proto2Base64Quantum   = 4   // base64 characters per padded block
+)
+
+// Hexadecimal digits for \u escapes in JSON strings.
+const proto2HexDigits = "0123456789abcdef"
+
+// Error messages used more than once.
+const (
+	proto2ErrSizeChanged                      = "proto: message size changed during marshal"
+	proto2ErrParse                            = "proto: cannot parse invalid wire-format data"
+	proto2ErrDepth                            = "proto: exceeded maximum recursion depth"
+	proto2DefaultsErrTrailingData             = "proto: cotorp.test.proto2.Defaults: unexpected data after JSON value"
+	proto2DefaultsErrInvalidNumber            = "proto: cotorp.test.proto2.Defaults: invalid number "
+	proto2DefaultsErrInvalidInteger           = "proto: cotorp.test.proto2.Defaults: invalid integer "
+	proto2DefaultsErrInvalidBytes             = "proto: cotorp.test.proto2.Defaults: invalid bytes "
+	proto2DefaultsErrInvalidClosed            = "proto: cotorp.test.proto2.Defaults: invalid value for enum cotorp.test.proto2.Closed: "
+	proto2RequiredErrTrailingData             = "proto: cotorp.test.proto2.Required: unexpected data after JSON value"
+	proto2RequiredErrNotObject                = "proto: cotorp.test.proto2.Required: expected a JSON object"
+	proto2RequiredErrNullElement              = "proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values"
+	proto2RequiredErrInvalidInteger           = "proto: cotorp.test.proto2.Required: invalid integer "
+	proto2RequiredInnerErrTrailingData        = "proto: cotorp.test.proto2.Required.Inner: unexpected data after JSON value"
+	proto2GroupsErrTrailingData               = "proto: cotorp.test.proto2.Groups: unexpected data after JSON value"
+	proto2GroupsErrInvalidInteger             = "proto: cotorp.test.proto2.Groups: invalid integer "
+	proto2GroupsOptGroupErrTrailingData       = "proto: cotorp.test.proto2.Groups.OptGroup: unexpected data after JSON value"
+	proto2GroupsOptGroupErrInvalidInteger     = "proto: cotorp.test.proto2.Groups.OptGroup: invalid integer "
+	proto2GroupsRepGroupErrTrailingData       = "proto: cotorp.test.proto2.Groups.RepGroup: unexpected data after JSON value"
+	proto2GroupsRepGroupErrInvalidInteger     = "proto: cotorp.test.proto2.Groups.RepGroup: invalid integer "
+	proto2GroupsRepGroupDeepErrTrailingData   = "proto: cotorp.test.proto2.Groups.RepGroup.Deep: unexpected data after JSON value"
+	proto2GroupsRepGroupDeepErrInvalidInteger = "proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid integer "
+	proto2ClosedEnumsErrTrailingData          = "proto: cotorp.test.proto2.ClosedEnums: unexpected data after JSON value"
+	proto2ClosedEnumsErrNotObject             = "proto: cotorp.test.proto2.ClosedEnums: expected a JSON object"
+	proto2ClosedEnumsErrNullElement           = "proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values"
+	proto2ClosedEnumsErrInvalidInteger        = "proto: cotorp.test.proto2.ClosedEnums: invalid integer "
+	proto2ClosedEnumsErrInvalidClosed         = "proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: "
+	proto2PackedErrTrailingData               = "proto: cotorp.test.proto2.Packed: unexpected data after JSON value"
+	proto2PackedErrInvalidNumber              = "proto: cotorp.test.proto2.Packed: invalid number "
+	proto2PackedErrInvalidInteger             = "proto: cotorp.test.proto2.Packed: invalid integer "
+	proto2ExtendableErrTrailingData           = "proto: cotorp.test.proto2.Extendable: unexpected data after JSON value"
+	proto2ExtendableErrInvalidInteger         = "proto: cotorp.test.proto2.Extendable: invalid integer "
+	proto2ScopeErrTrailingData                = "proto: cotorp.test.proto2.Scope: unexpected data after JSON value"
+	proto2Proto2StringsErrTrailingData        = "proto: cotorp.test.proto2.Proto2Strings: unexpected data after JSON value"
+	proto2ExtGroupErrTrailingData             = "proto: cotorp.test.proto2.ExtGroup: unexpected data after JSON value"
+	proto2ExtGroupErrInvalidInteger           = "proto: cotorp.test.proto2.ExtGroup: invalid integer "
+)
+
 type Closed int32
 
 const (
@@ -57,7 +153,7 @@ func (x Closed) String() string {
 // IsValid reports whether x is a declared value of Closed.
 func (x Closed) IsValid() bool {
 	switch x {
-	case 1, 2, 10:
+	case Closed_CLOSED_ONE, Closed_CLOSED_TWO, Closed_CLOSED_TEN:
 		return true
 	}
 	return false
@@ -96,7 +192,7 @@ func (x ClosedZero) String() string {
 // IsValid reports whether x is a declared value of ClosedZero.
 func (x ClosedZero) IsValid() bool {
 	switch x {
-	case 0, 1:
+	case ClosedZero_CLOSED_ZERO_ZERO, ClosedZero_CLOSED_ZERO_ONE:
 		return true
 	}
 	return false
@@ -312,64 +408,64 @@ func (m *Defaults) ProtoSize() (n int) {
 		return 0
 	}
 	if m.DInt32 != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.DInt32))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.DInt32)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DInt64 != nil {
-		n += 1 + (bits.Len64((uint64((*m.DInt64)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64((*m.DInt64))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DUint32 != nil {
-		n += 1 + (bits.Len64((uint64((*m.DUint32)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64((*m.DUint32))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DUint64 != nil {
-		n += 1 + (bits.Len64((*m.DUint64)|1)+6)/7
+		n += 1 + (bits.Len64((*m.DUint64)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DSint32 != nil {
-		n += 1 + (bits.Len64((uint64(uint32((*m.DSint32)<<1)^uint32((*m.DSint32)>>31)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(uint32((*m.DSint32)<<1)^uint32((*m.DSint32)>>31))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DSint64 != nil {
-		n += 1 + (bits.Len64((uint64((*m.DSint64)<<1)^uint64((*m.DSint64)>>63))|1)+6)/7
+		n += 1 + (bits.Len64((uint64((*m.DSint64)<<1)^uint64((*m.DSint64)>>63))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DFixed32 != nil {
-		n += 1 + 4
+		n += 1 + proto2Fixed32Size
 	}
 	if m.DFixed64 != nil {
-		n += 1 + 8
+		n += 1 + proto2Fixed64Size
 	}
 	if m.DSfixed32 != nil {
-		n += 1 + 4
+		n += 1 + proto2Fixed32Size
 	}
 	if m.DSfixed64 != nil {
-		n += 1 + 8
+		n += 1 + proto2Fixed64Size
 	}
 	if m.DFloat != nil {
-		n += 1 + 4
+		n += 1 + proto2Fixed32Size
 	}
 	if m.DDouble != nil {
-		n += 1 + 8
+		n += 1 + proto2Fixed64Size
 	}
 	if m.DNan != nil {
-		n += 1 + 8
+		n += 1 + proto2Fixed64Size
 	}
 	if m.DBool != nil {
 		n += 1 + 1
 	}
 	if m.DString != nil {
-		n += 1 + len((*m.DString)) + (bits.Len64((uint64(len((*m.DString))))|1)+6)/7
+		n += 1 + len((*m.DString)) + (bits.Len64(uint64(len((*m.DString)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DBytes != nil {
-		n += 2 + len(m.DBytes) + (bits.Len64((uint64(len(m.DBytes)))|1)+6)/7
+		n += 2 + len(m.DBytes) + (bits.Len64(uint64(len(m.DBytes))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DEnum != nil {
-		n += 2 + (bits.Len64((uint64(int64((*m.DEnum))))|1)+6)/7
+		n += 2 + (bits.Len64(uint64(int64((*m.DEnum)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DEnumNodefault != nil {
-		n += 2 + (bits.Len64((uint64(int64((*m.DEnumNodefault))))|1)+6)/7
+		n += 2 + (bits.Len64(uint64(int64((*m.DEnumNodefault)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.DFloatNegZero != nil {
-		n += 2 + 4
+		n += 2 + proto2Fixed32Size
 	}
 	if m.DDoubleInt != nil {
-		n += 2 + 8
+		n += 2 + proto2Fixed64Size
 	}
 	n += len(m.unknownFields)
 	return n
@@ -390,7 +486,7 @@ func (m *Defaults) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -409,73 +505,68 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.DDoubleInt != nil {
-		i -= 8
+		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DDoubleInt)))
 		i -= 2
-		b[i] = 0xa1
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 20<<proto2TagTypeBits|proto2WireFixed64)
 	}
 	if m.DFloatNegZero != nil {
-		i -= 4
+		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], math.Float32bits((*m.DFloatNegZero)))
 		i -= 2
-		b[i] = 0x9d
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 19<<proto2TagTypeBits|proto2WireFixed32)
 	}
 	if m.DEnumNodefault != nil {
 		u = uint64(int64((*m.DEnumNodefault)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0x90
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 18<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DEnum != nil {
 		u = uint64(int64((*m.DEnum)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0x88
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 17<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DBytes != nil {
 		i -= len(m.DBytes)
 		copy(b[i:], m.DBytes)
 		u = uint64(len(m.DBytes))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i -= 2
-		b[i] = 0x82
-		b[i+1] = 0x01
+		binary.PutUvarint(b[i:], 16<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.DString != nil {
 		i -= len((*m.DString))
 		copy(b[i:], (*m.DString))
 		u = uint64(len((*m.DString)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x7a
+		b[i] = 15<<proto2TagTypeBits | proto2WireBytes
 	}
 	if m.DBool != nil {
 		i--
@@ -485,121 +576,121 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x70
+		b[i] = 14<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.DNan != nil {
-		i -= 8
+		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DNan)))
 		i--
-		b[i] = 0x69
+		b[i] = 13<<proto2TagTypeBits | proto2WireFixed64
 	}
 	if m.DDouble != nil {
-		i -= 8
+		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DDouble)))
 		i--
-		b[i] = 0x61
+		b[i] = 12<<proto2TagTypeBits | proto2WireFixed64
 	}
 	if m.DFloat != nil {
-		i -= 4
+		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], math.Float32bits((*m.DFloat)))
 		i--
-		b[i] = 0x5d
+		b[i] = 11<<proto2TagTypeBits | proto2WireFixed32
 	}
 	if m.DSfixed64 != nil {
-		i -= 8
+		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], uint64((*m.DSfixed64)))
 		i--
-		b[i] = 0x51
+		b[i] = 10<<proto2TagTypeBits | proto2WireFixed64
 	}
 	if m.DSfixed32 != nil {
-		i -= 4
+		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], uint32((*m.DSfixed32)))
 		i--
-		b[i] = 0x4d
+		b[i] = 9<<proto2TagTypeBits | proto2WireFixed32
 	}
 	if m.DFixed64 != nil {
-		i -= 8
+		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], uint64((*m.DFixed64)))
 		i--
-		b[i] = 0x41
+		b[i] = 8<<proto2TagTypeBits | proto2WireFixed64
 	}
 	if m.DFixed32 != nil {
-		i -= 4
+		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], uint32((*m.DFixed32)))
 		i--
-		b[i] = 0x3d
+		b[i] = 7<<proto2TagTypeBits | proto2WireFixed32
 	}
 	if m.DSint64 != nil {
 		u = (uint64((*m.DSint64)<<1) ^ uint64((*m.DSint64)>>63))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.DSint32 != nil {
 		u = uint64(uint32((*m.DSint32)<<1) ^ uint32((*m.DSint32)>>31))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.DUint64 != nil {
 		u = (*m.DUint64)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x20
+		b[i] = 4<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.DUint32 != nil {
 		u = uint64((*m.DUint32))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x18
+		b[i] = 3<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.DInt64 != nil {
 		u = uint64((*m.DInt64))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.DInt32 != nil {
 		u = uint64(int64((*m.DInt32)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -619,332 +710,273 @@ func (m *Defaults) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.DInt32 = &v
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int64(x)
-				m.DInt64 = &v
-				continue
-			}
-		case 3:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := uint32(x)
-				m.DUint32 = &v
-				continue
-			}
-		case 4:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x
-				m.DUint64 = &v
-				continue
-			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(uint32(x)>>1) ^ -int32(x&1)
-				m.DSint32 = &v
-				continue
-			}
-		case 6:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int64(x>>1) ^ -int64(x&1)
-				m.DSint64 = &v
-				continue
-			}
-		case 7:
-			if typ == 5 {
-				if len(b) < 4 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint32(b), 4
-				b = b[n:]
-				v := x
-				m.DFixed32 = &v
-				continue
-			}
-		case 8:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				v := x
-				m.DFixed64 = &v
-				continue
-			}
-		case 9:
-			if typ == 5 {
-				if len(b) < 4 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint32(b), 4
-				b = b[n:]
-				v := int32(x)
-				m.DSfixed32 = &v
-				continue
-			}
-		case 10:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				v := int64(x)
-				m.DSfixed64 = &v
-				continue
-			}
-		case 11:
-			if typ == 5 {
-				if len(b) < 4 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint32(b), 4
-				b = b[n:]
-				v := math.Float32frombits(x)
-				m.DFloat = &v
-				continue
-			}
-		case 12:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				v := math.Float64frombits(x)
-				m.DDouble = &v
-				continue
-			}
-		case 13:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				v := math.Float64frombits(x)
-				m.DNan = &v
-				continue
-			}
-		case 14:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.DBool = &v
-				continue
-			}
-		case 15:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.DString = &v
-				continue
-			}
-		case 16:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.DBytes = append([]byte{}, x...)
-				continue
-			}
-		case 17:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Closed(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x88, 0x01), x)
-					continue
-				}
-				v := e
-				m.DEnum = &v
-				continue
-			}
-		case 18:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Closed(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x90, 0x01), x)
-					continue
-				}
-				v := e
-				m.DEnumNodefault = &v
-				continue
-			}
-		case 19:
-			if typ == 5 {
-				if len(b) < 4 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint32(b), 4
-				b = b[n:]
-				v := math.Float32frombits(x)
-				m.DFloatNegZero = &v
-				continue
-			}
-		case 20:
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				v := math.Float64frombits(x)
-				m.DDoubleInt = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.DInt32 = &v
+		case 2<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			b = b[n:]
+			v := int64(x)
+			m.DInt64 = &v
+		case 3<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			v := uint32(x)
+			m.DUint32 = &v
+		case 4<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := x
+			m.DUint64 = &v
+		case 5<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := int32(uint32(x)>>1) ^ -int32(x&1)
+			m.DSint32 = &v
+		case 6<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := int64(x>>1) ^ -int64(x&1)
+			m.DSint64 = &v
+		case 7<<proto2TagTypeBits | proto2WireFixed32:
+			if len(b) < proto2Fixed32Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint32(b), proto2Fixed32Size
+			b = b[n:]
+			v := x
+			m.DFixed32 = &v
+		case 8<<proto2TagTypeBits | proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint64(b), proto2Fixed64Size
+			b = b[n:]
+			v := x
+			m.DFixed64 = &v
+		case 9<<proto2TagTypeBits | proto2WireFixed32:
+			if len(b) < proto2Fixed32Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint32(b), proto2Fixed32Size
+			b = b[n:]
+			v := int32(x)
+			m.DSfixed32 = &v
+		case 10<<proto2TagTypeBits | proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint64(b), proto2Fixed64Size
+			b = b[n:]
+			v := int64(x)
+			m.DSfixed64 = &v
+		case 11<<proto2TagTypeBits | proto2WireFixed32:
+			if len(b) < proto2Fixed32Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint32(b), proto2Fixed32Size
+			b = b[n:]
+			v := math.Float32frombits(x)
+			m.DFloat = &v
+		case 12<<proto2TagTypeBits | proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint64(b), proto2Fixed64Size
+			b = b[n:]
+			v := math.Float64frombits(x)
+			m.DDouble = &v
+		case 13<<proto2TagTypeBits | proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint64(b), proto2Fixed64Size
+			b = b[n:]
+			v := math.Float64frombits(x)
+			m.DNan = &v
+		case 14<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			v := x != 0
+			m.DBool = &v
+		case 15<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.DString = &v
+		case 16<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.DBytes = append([]byte{}, x...)
+		case 17<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := Closed(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 17<<proto2TagTypeBits|proto2WireVarint), x)
+				continue
+			}
+			v := e
+			m.DEnum = &v
+		case 18<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := Closed(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 18<<proto2TagTypeBits|proto2WireVarint), x)
+				continue
+			}
+			v := e
+			m.DEnumNodefault = &v
+		case 19<<proto2TagTypeBits | proto2WireFixed32:
+			if len(b) < proto2Fixed32Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint32(b), proto2Fixed32Size
+			b = b[n:]
+			v := math.Float32frombits(x)
+			m.DFloatNegZero = &v
+		case 20<<proto2TagTypeBits | proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint64(b), proto2Fixed64Size
+			b = b[n:]
+			v := math.Float64frombits(x)
+			m.DDoubleInt = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -1086,8 +1118,8 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.DString)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -1097,14 +1129,12 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.DBytes != nil {
 		b = append(b, "\"dBytes\":"...)
-		{
-			n := base64.StdEncoding.EncodedLen(len(m.DBytes))
-			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, n)[:l+n]
-			base64.StdEncoding.Encode(b[l:], m.DBytes)
-			b = append(b, '"')
-		}
+		n := base64.StdEncoding.EncodedLen(len(m.DBytes))
+		b = append(b, '"')
+		l := len(b)
+		b = slices.Grow(b, n)[:l+n]
+		base64.StdEncoding.Encode(b[l:], m.DBytes)
+		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.DEnum != nil {
@@ -1184,7 +1214,7 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Defaults: unexpected data after JSON value")
+			return errors.New(proto2DefaultsErrTrailingData)
 		}
 		return nil
 	}
@@ -1269,11 +1299,11 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Defaults: unexpected data after JSON value")
+		return errors.New(proto2DefaultsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		var uv uint64
@@ -1283,35 +1313,35 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 		var by []byte
 		switch jb.f {
 		case 0, 4, 8:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		case 1, 5, 9:
-			class, bits = 1, 64
+			class, bits = proto2ClassSigned, 64
 		case 2, 6:
-			class, bits = 2, 32
+			class, bits = proto2ClassUnsigned, 32
 		case 3, 7:
-			class, bits = 2, 64
+			class, bits = proto2ClassUnsigned, 64
 		case 10, 18:
-			class, bits = 3, 32
+			class, bits = proto2ClassFloat, 32
 		case 11, 12, 19:
-			class, bits = 3, 64
+			class, bits = proto2ClassFloat, 64
 		case 13:
-			class = 4
+			class = proto2ClassBool
 		case 14:
-			class = 5
+			class = proto2ClassString
 		case 15:
-			class = 6
+			class = proto2ClassBytes
 		case 16, 17:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = proto2ClassNone
 			case raw[0] == '"':
-				class = 5
+				class = proto2ClassString
 			default:
-				class, bits = 1, 32
+				class, bits = proto2ClassSigned, 32
 			}
 		}
 		switch class {
-		case 1, 2:
+		case proto2ClassSigned, proto2ClassUnsigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -1319,10 +1349,10 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 				}
 			}
 			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid number " + string(raw))
+				return errors.New(proto2DefaultsErrInvalidNumber + string(raw))
 			}
 			var err error
-			if class == 1 {
+			if class == proto2ClassSigned {
 				iv, err = strconv.ParseInt(s, 10, bits)
 			} else {
 				uv, err = strconv.ParseUint(s, 10, bits)
@@ -1331,28 +1361,28 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Defaults: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Defaults: invalid integer " + string(raw))
+					return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if class == 1 {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-						return errors.New("proto: cotorp.test.proto2.Defaults: invalid integer " + string(raw))
+				if class == proto2ClassSigned {
+					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+						return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
 					}
 					iv = n.Int64()
 				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
-						return errors.New("proto: cotorp.test.proto2.Defaults: invalid integer " + string(raw))
+					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+						return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
 					}
 					uv = n.Uint64()
 				}
 			}
-		case 3:
+		case proto2ClassFloat:
 			s := string(raw)
 			special := false
 			if raw[0] == '"' {
@@ -1370,14 +1400,14 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 			}
 			if !special {
 				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New("proto: cotorp.test.proto2.Defaults: invalid number " + string(raw))
+					return errors.New(proto2DefaultsErrInvalidNumber + string(raw))
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New("proto: cotorp.test.proto2.Defaults: invalid number " + string(raw))
+					return errors.New(proto2DefaultsErrInvalidNumber + string(raw))
 				}
 			}
-		case 4:
+		case proto2ClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -1385,17 +1415,17 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 			default:
 				return errors.New("proto: cotorp.test.proto2.Defaults: invalid boolean " + string(raw))
 			}
-		case 5:
+		case proto2ClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.proto2.Defaults: invalid string " + string(raw))
 			}
 			if err := json.Unmarshal(raw, &sv); err != nil {
 				return err
 			}
-		case 6:
+		case proto2ClassBytes:
 			var s string
 			if raw[0] != '"' {
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid bytes " + string(raw))
+				return errors.New(proto2DefaultsErrInvalidBytes + string(raw))
 			}
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
@@ -1405,12 +1435,12 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 			if strings.ContainsAny(s, "-_") {
 				enc = base64.URLEncoding
 			}
-			if len(s)%4 != 0 {
+			if len(s)%proto2Base64Quantum != 0 {
 				enc = enc.WithPadding(base64.NoPadding)
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid bytes " + string(raw))
+				return errors.New(proto2DefaultsErrInvalidBytes + string(raw))
 			}
 		}
 		switch jb.f {
@@ -1464,13 +1494,13 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 		case 16:
 			var ev Closed
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := Closed_value[sv]
 				if !ok {
-					return errors.New("proto: cotorp.test.proto2.Defaults: invalid value for enum cotorp.test.proto2.Closed: " + strconv.Quote(sv))
+					return errors.New(proto2DefaultsErrInvalidClosed + strconv.Quote(sv))
 				}
 				ev = Closed(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = Closed(iv)
 			}
 			x := ev
@@ -1478,13 +1508,13 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 		case 17:
 			var ev Closed
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := Closed_value[sv]
 				if !ok {
-					return errors.New("proto: cotorp.test.proto2.Defaults: invalid value for enum cotorp.test.proto2.Closed: " + strconv.Quote(sv))
+					return errors.New(proto2DefaultsErrInvalidClosed + strconv.Quote(sv))
 				}
 				ev = Closed(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = Closed(iv)
 			}
 			x := ev
@@ -1591,35 +1621,29 @@ func (m *Required) ProtoSize() (n int) {
 		return 0
 	}
 	if m.ReqInt32 != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.ReqInt32))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.ReqInt32)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.ReqString != nil {
-		n += 1 + len((*m.ReqString)) + (bits.Len64((uint64(len((*m.ReqString))))|1)+6)/7
+		n += 1 + len((*m.ReqString)) + (bits.Len64(uint64(len((*m.ReqString)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.Inner != nil {
-		{
-			l := m.Inner.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Inner.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	for _, v := range m.Inners {
-		{
-			l := v.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := v.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	for k, v := range m.InnerMap {
 		_, _ = k, v
 		lv := v.ProtoSize()
-		l := 1 + len(k) + (bits.Len64((uint64(len(k)))|1)+6)/7 + 1 + lv + (bits.Len64((uint64(lv))|1)+6)/7
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		l := 1 + len(k) + (bits.Len64(uint64(len(k))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits + 1 + lv + (bits.Len64(uint64(lv)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	switch o := m.O.(type) {
 	case *Required_InnerOneof:
-		{
-			l := o.InnerOneof.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := o.InnerOneof.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1643,7 +1667,7 @@ func (m *Required) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -1662,23 +1686,21 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if o, ok := m.O.(*Required_InnerOneof); ok {
-		{
-			n, err := o.InnerOneof.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x32
+		n, err := o.InnerOneof.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < proto2VarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 6<<proto2TagTypeBits | proto2WireBytes
 	}
 	if len(m.InnerMap) > 0 {
 		keys := make([]string, 0, len(m.InnerMap))
@@ -1686,114 +1708,107 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
-		for j := len(keys) - 1; j >= 0; j-- {
-			k := keys[j]
+		for _, k := range slices.Backward(keys) {
 			v := m.InnerMap[k]
 			start := i
-			{
-				n, err := v.ProtoMarshalToSizedBuffer(b[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= n
-				u = uint64(n)
-				if u < 0x80 {
-					i--
-					b[i] = byte(u)
-				} else {
-					i -= (bits.Len64((u)|1) + 6) / 7
-					binary.PutUvarint(b[i:], u)
-				}
-				i--
-				b[i] = 0x12
+			n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+			if err != nil {
+				return 0, err
 			}
+			i -= n
+			u = uint64(n)
+			if u < proto2VarintContBit {
+				i--
+				b[i] = byte(u)
+			} else {
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+				binary.PutUvarint(b[i:], u)
+			}
+			i--
+			b[i] = proto2MapValueField<<proto2TagTypeBits | proto2WireBytes
 			i -= len(k)
 			copy(b[i:], k)
 			u = uint64(len(k))
-			if u < 0x80 {
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x0a
+			b[i] = proto2MapKeyField<<proto2TagTypeBits | proto2WireBytes
 			u = uint64(start - i)
-			if u < 0x80 {
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x2a
+			b[i] = 5<<proto2TagTypeBits | proto2WireBytes
 		}
 	}
-	for j := len(m.Inners) - 1; j >= 0; j-- {
-		{
-			n, err := m.Inners[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x22
+	for _, v := range slices.Backward(m.Inners) {
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < proto2VarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 4<<proto2TagTypeBits | proto2WireBytes
 	}
 	if m.Inner != nil {
-		{
-			n, err := m.Inner.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+		n, err := m.Inner.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		u = uint64(n)
+		if u < proto2VarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
 	}
 	if m.ReqString != nil {
 		i -= len((*m.ReqString))
 		copy(b[i:], (*m.ReqString))
 		u = uint64(len((*m.ReqString)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<proto2TagTypeBits | proto2WireBytes
 	}
 	if m.ReqInt32 != nil {
 		u = uint64(int64((*m.ReqInt32)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -1816,175 +1831,159 @@ func (m *Required) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.ReqInt32 = &v
-				continue
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.ReqString = &v
-				continue
+			b = b[n:]
+			v := int32(x)
+			m.ReqInt32 = &v
+		case 2<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Inner == nil {
-					m.Inner = &Required_Inner{}
-				}
-				mv := m.Inner
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.ReqString = &v
+		case 3<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				mv := &Required_Inner{}
-				m.Inners = append(m.Inners, mv)
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Inner == nil {
+				m.Inner = &Required_Inner{}
 			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
+			mv := m.Inner
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 4<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			mv := &Required_Inner{}
+			m.Inners = append(m.Inners, mv)
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 5<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			var mk string
+			var mv *Required_Inner
+			for len(v) > 0 {
+				t, n := binary.Uvarint(v)
+				if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 					goto errParse
 				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				var mk string
-				var mv *Required_Inner
-				for len(v) > 0 {
-					t, n := binary.Uvarint(v)
-					if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				v = v[n:]
+				switch t {
+				case proto2MapKeyField<<proto2TagTypeBits | proto2WireBytes:
+					ln, n := binary.Uvarint(v)
+					if n <= 0 || ln > uint64(len(v)-n) {
 						goto errParse
 					}
-					num, typ := int32(t>>3), int(t&7)
+					x := v[n : n+int(ln)]
+					n += int(ln)
+					mk = string(x)
 					v = v[n:]
-					if num == 1 && typ == 2 {
-						ln, n := binary.Uvarint(v)
-						if n <= 0 || ln > uint64(len(v)-n) {
-							goto errParse
-						}
-						x := v[n : n+int(ln)]
-						n += int(ln)
-						mk = string(x)
-						v = v[n:]
-						continue
+				case proto2MapValueField<<proto2TagTypeBits | proto2WireBytes:
+					ln, n := binary.Uvarint(v)
+					if n <= 0 || ln > uint64(len(v)-n) {
+						goto errParse
 					}
-					if num == 2 && typ == 2 {
-						ln, n := binary.Uvarint(v)
-						if n <= 0 || ln > uint64(len(v)-n) {
-							goto errParse
-						}
-						x := v[n : n+int(ln)]
-						n += int(ln)
-						if mv == nil {
-							mv = &Required_Inner{}
-						}
-						if err := mv.ProtoMergeDepth(x, depth+1); err != nil {
-							return err
-						}
-						v = v[n:]
-						continue
+					x := v[n : n+int(ln)]
+					n += int(ln)
+					if mv == nil {
+						mv = &Required_Inner{}
 					}
+					if err := mv.ProtoMergeDepth(x, depth+1); err != nil {
+						return err
+					}
+					v = v[n:]
+				default:
+					num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
 					switch typ {
-					case 0:
+					case proto2WireVarint:
 						_, n = binary.Uvarint(v)
 						if n <= 0 {
 							goto errParse
 						}
-					case 1:
-						if len(v) < 8 {
+					case proto2WireFixed64:
+						if len(v) < proto2Fixed64Size {
 							goto errParse
 						}
-						n = 8
-					case 2:
+						n = proto2Fixed64Size
+					case proto2WireBytes:
 						ln, k := binary.Uvarint(v)
 						if k <= 0 || ln > uint64(len(v)-k) {
 							goto errParse
 						}
 						n = k + int(ln)
-					case 3:
-						var stk [16]int32
+					case proto2WireStartGroup:
+						var stk [proto2SkipStackSize]int32
 						open := append(stk[:0], num)
 						n = 0
 						for len(open) > 0 {
-							if depth+len(open) > 10000 {
+							if depth+len(open) > proto2MaxDepth {
 								goto errDepth
 							}
 							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+							if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 								goto errParse
 							}
 							n += k
-							switch t & 7 {
-							case 0:
+							switch t & proto2TagTypeMask {
+							case proto2WireVarint:
 								_, k = binary.Uvarint(v[n:])
 								if k <= 0 {
 									goto errParse
 								}
-							case 1:
-								k = 8
-							case 2:
+							case proto2WireFixed64:
+								k = proto2Fixed64Size
+							case proto2WireBytes:
 								ln, k2 := binary.Uvarint(v[n:])
 								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
 									goto errParse
 								}
 								k = k2 + int(ln)
-							case 3:
-								open = append(open, int32(t>>3))
+							case proto2WireStartGroup:
+								open = append(open, int32(t>>proto2TagTypeBits))
 								k = 0
-							case 4:
-								if open[len(open)-1] != int32(t>>3) {
+							case proto2WireEndGroup:
+								if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
 									goto errParse
 								}
 								open = open[:len(open)-1]
 								k = 0
-							case 5:
-								k = 4
+							case proto2WireFixed32:
+								k = proto2Fixed32Size
 							default:
 								goto errParse
 							}
@@ -1993,128 +1992,126 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 							}
 							n += k
 						}
-					case 5:
-						if len(v) < 4 {
+					case proto2WireFixed32:
+						if len(v) < proto2Fixed32Size {
 							goto errParse
 						}
-						n = 4
+						n = proto2Fixed32Size
 					default:
 						goto errParse
 					}
 					v = v[n:]
 				}
-				if mv == nil {
-					mv = &Required_Inner{}
-				}
-				if m.InnerMap == nil {
-					m.InnerMap = make(map[string]*Required_Inner)
-				}
-				m.InnerMap[mk] = mv
-				b = b[n:]
-				continue
 			}
-		case 6:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				var mv *Required_Inner
-				if o, ok := m.O.(*Required_InnerOneof); ok && o.InnerOneof != nil {
-					mv = o.InnerOneof
-				} else {
-					mv = &Required_Inner{}
-					m.O = &Required_InnerOneof{InnerOneof: mv}
-				}
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
+			if mv == nil {
+				mv = &Required_Inner{}
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+			if m.InnerMap == nil {
+				m.InnerMap = make(map[string]*Required_Inner)
+			}
+			m.InnerMap[mk] = mv
+			b = b[n:]
+		case 6<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			var mv *Required_Inner
+			if o, ok := m.O.(*Required_InnerOneof); ok && o.InnerOneof != nil {
+				mv = o.InnerOneof
+			} else {
+				mv = &Required_Inner{}
+				m.O = &Required_InnerOneof{InnerOneof: mv}
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2180,8 +2177,8 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.ReqString)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -2191,22 +2188,18 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Inner != nil {
 		b = append(b, "\"inner\":"...)
-		{
-			var err error
-			if b, err = m.Inner.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Inner.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.Inners) > 0 {
 		b = append(b, "\"inners\":["...)
 		for j := range m.Inners {
-			{
-				var err error
-				if b, err = m.Inners[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Inners[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -2230,19 +2223,17 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := k[ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
 			}
 			b = append(b, '"')
 			b = append(b, ':')
-			{
-				var err error
-				if b, err = v.ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = v.ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -2251,11 +2242,9 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if o, ok := m.O.(*Required_InnerOneof); ok {
 		b = append(b, "\"innerOneof\":"...)
-		{
-			var err error
-			if b, err = o.InnerOneof.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = o.InnerOneof.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -2289,12 +2278,12 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Required: unexpected data after JSON value")
+			return errors.New(proto2RequiredErrTrailingData)
 		}
 		return nil
 	}
 	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Required: expected a JSON object")
+		return errors.New(proto2RequiredErrNotObject)
 	}
 	type job struct {
 		f   int
@@ -2365,7 +2354,7 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 					return err
 				}
 				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values")
+					return errors.New(proto2RequiredErrNullElement)
 				}
 				jobs = append(jobs, job{f: f, raw: e})
 			}
@@ -2376,7 +2365,7 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 			ad := json.NewDecoder(bytes.NewReader(raw))
 			ad.UseNumber()
 			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New("proto: cotorp.test.proto2.Required: expected a JSON object")
+				return errors.New(proto2RequiredErrNotObject)
 			}
 			for ad.More() {
 				kt, err := ad.Token()
@@ -2389,7 +2378,7 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 					return err
 				}
 				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values")
+					return errors.New(proto2RequiredErrNullElement)
 				}
 				jobs = append(jobs, job{f: f, key: ks, raw: e})
 			}
@@ -2399,22 +2388,22 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Required: unexpected data after JSON value")
+		return errors.New(proto2RequiredErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		case 1:
-			class = 5
+			class = proto2ClassString
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -2430,21 +2419,21 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Required: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2RequiredErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Required: invalid integer " + string(raw))
+					return errors.New(proto2RequiredErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.Required: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2RequiredErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case proto2ClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.proto2.Required: invalid string " + string(raw))
 			}
@@ -2548,7 +2537,7 @@ func (m *Required_Inner) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -2573,7 +2562,7 @@ func (m *Required_Inner) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			b[i] = 0
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -2596,110 +2585,108 @@ func (m *Required_Inner) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := x != 0
-				m.Flag = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := x != 0
+			m.Flag = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -2768,7 +2755,7 @@ func (m *Required_Inner) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Required.Inner: unexpected data after JSON value")
+			return errors.New(proto2RequiredInnerErrTrailingData)
 		}
 		return nil
 	}
@@ -2815,18 +2802,18 @@ func (m *Required_Inner) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Required.Inner: unexpected data after JSON value")
+		return errors.New(proto2RequiredInnerErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		var bv bool
 		switch jb.f {
 		case 0:
-			class = 4
+			class = proto2ClassBool
 		}
 		switch class {
-		case 4:
+		case proto2ClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -2891,19 +2878,15 @@ func (m *Groups) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Optgroup != nil {
-		{
-			l := m.Optgroup.ProtoSize()
-			n += 2 + l
-		}
+		l := m.Optgroup.ProtoSize()
+		n += 2 + l
 	}
 	for _, v := range m.Repgroup {
-		{
-			l := v.ProtoSize()
-			n += 2 + l
-		}
+		l := v.ProtoSize()
+		n += 2 + l
 	}
 	if m.After != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.After))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.After)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2924,7 +2907,7 @@ func (m *Groups) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -2944,41 +2927,37 @@ func (m *Groups) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.After != nil {
 		u = uint64(int64((*m.After)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x40
+		b[i] = 8<<proto2TagTypeBits | proto2WireVarint
 	}
-	for j := len(m.Repgroup) - 1; j >= 0; j-- {
-		{
-			i--
-			b[i] = 0x24
-			n, err := m.Repgroup[j].ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			i--
-			b[i] = 0x23
+	for _, v := range slices.Backward(m.Repgroup) {
+		i--
+		b[i] = 4<<proto2TagTypeBits | proto2WireEndGroup
+		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		i--
+		b[i] = 4<<proto2TagTypeBits | proto2WireStartGroup
 	}
 	if m.Optgroup != nil {
-		{
-			i--
-			b[i] = 0x0c
-			n, err := m.Optgroup.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			i--
-			b[i] = 0x0b
+		i--
+		b[i] = 1<<proto2TagTypeBits | proto2WireEndGroup
+		n, err := m.Optgroup.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		i--
+		b[i] = 1<<proto2TagTypeBits | proto2WireStartGroup
 	}
 	return len(b) - i, nil
 }
@@ -2998,200 +2977,56 @@ func (m *Groups) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 3 {
-				var n int
-				var stk [16]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > 10000 {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-						goto errParse
-					}
-					n += k
-					switch t & 7 {
-					case 0:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case 1:
-						k = 8
-					case 2:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case 3:
-						open = append(open, int32(t>>3))
-						k = 0
-					case 4:
-						if open[len(open)-1] != int32(t>>3) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case 5:
-						k = 4
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-				if m.Optgroup == nil {
-					m.Optgroup = &Groups_OptGroup{}
-				}
-				mv := m.Optgroup
-				if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 4:
-			if typ == 3 {
-				var n int
-				var stk [16]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > 10000 {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-						goto errParse
-					}
-					n += k
-					switch t & 7 {
-					case 0:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case 1:
-						k = 8
-					case 2:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case 3:
-						open = append(open, int32(t>>3))
-						k = 0
-					case 4:
-						if open[len(open)-1] != int32(t>>3) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case 5:
-						k = 4
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-				mv := &Groups_RepGroup{}
-				m.Repgroup = append(m.Repgroup, mv)
-				if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		case 8:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.After = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireStartGroup:
+			var n int
+			var stk [proto2SkipStackSize]int32
+			open := append(stk[:0], 1)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > proto2MaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & proto2TagTypeMask {
+				case proto2WireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case proto2WireFixed64:
+					k = proto2Fixed64Size
+				case proto2WireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case proto2WireStartGroup:
+					open = append(open, int32(t>>proto2TagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case proto2WireEndGroup:
+					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case proto2WireFixed32:
+					k = proto2Fixed32Size
 				default:
 					goto errParse
 				}
@@ -3200,22 +3035,158 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+			if m.Optgroup == nil {
+				m.Optgroup = &Groups_OptGroup{}
+			}
+			mv := m.Optgroup
+			if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 4<<proto2TagTypeBits | proto2WireStartGroup:
+			var n int
+			var stk [proto2SkipStackSize]int32
+			open := append(stk[:0], 4)
+			n = 0
+			for len(open) > 0 {
+				if depth+len(open) > proto2MaxDepth {
+					goto errDepth
+				}
+				t, k := binary.Uvarint(b[n:])
+				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+					goto errParse
+				}
+				n += k
+				switch t & proto2TagTypeMask {
+				case proto2WireVarint:
+					_, k = binary.Uvarint(b[n:])
+					if k <= 0 {
+						goto errParse
+					}
+				case proto2WireFixed64:
+					k = proto2Fixed64Size
+				case proto2WireBytes:
+					ln, k2 := binary.Uvarint(b[n:])
+					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+						goto errParse
+					}
+					k = k2 + int(ln)
+				case proto2WireStartGroup:
+					open = append(open, int32(t>>proto2TagTypeBits))
+					k = 0
+				case proto2WireEndGroup:
+					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+						goto errParse
+					}
+					open = open[:len(open)-1]
+					k = 0
+				case proto2WireFixed32:
+					k = proto2Fixed32Size
+				default:
+					goto errParse
+				}
+				if k > len(b)-n {
+					goto errParse
+				}
+				n += k
+			}
+			mv := &Groups_RepGroup{}
+			m.Repgroup = append(m.Repgroup, mv)
+			if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		case 8<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 4
+			b = b[n:]
+			v := int32(x)
+			m.After = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -3238,22 +3209,18 @@ func (m *Groups) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if m.Optgroup != nil {
 		b = append(b, "\"optgroup\":"...)
-		{
-			var err error
-			if b, err = m.Optgroup.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Optgroup.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
 	if len(m.Repgroup) > 0 {
 		b = append(b, "\"repgroup\":["...)
 		for j := range m.Repgroup {
-			{
-				var err error
-				if b, err = m.Repgroup[j].ProtoAppendJSON(b); err != nil {
-					return nil, err
-				}
+			var err error
+			if b, err = m.Repgroup[j].ProtoAppendJSON(b); err != nil {
+				return nil, err
 			}
 			b = append(b, ',')
 		}
@@ -3292,7 +3259,7 @@ func (m *Groups) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Groups: unexpected data after JSON value")
+			return errors.New(proto2GroupsErrTrailingData)
 		}
 		return nil
 	}
@@ -3362,19 +3329,19 @@ func (m *Groups) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups: unexpected data after JSON value")
+		return errors.New(proto2GroupsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 2:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -3390,17 +3357,17 @@ func (m *Groups) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Groups: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2GroupsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Groups: invalid integer " + string(raw))
+					return errors.New(proto2GroupsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.Groups: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2GroupsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -3466,10 +3433,10 @@ func (m *Groups_OptGroup) ProtoSize() (n int) {
 		return 0
 	}
 	if m.A != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.A))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.A)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.B != nil {
-		n += 1 + len((*m.B)) + (bits.Len64((uint64(len((*m.B))))|1)+6)/7
+		n += 1 + len((*m.B)) + (bits.Len64(uint64(len((*m.B)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -3490,7 +3457,7 @@ func (m *Groups_OptGroup) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -3512,27 +3479,27 @@ func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len((*m.B))
 		copy(b[i:], (*m.B))
 		u = uint64(len((*m.B)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
 	}
 	if m.A != nil {
 		u = uint64(int64((*m.A)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -3552,123 +3519,118 @@ func (m *Groups_OptGroup) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.A = &v
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.B = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 2<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			v := int32(x)
+			m.A = &v
+		case 3<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.B = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -3704,8 +3666,8 @@ func (m *Groups_OptGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.B)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -3740,7 +3702,7 @@ func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: unexpected data after JSON value")
+			return errors.New(proto2GroupsOptGroupErrTrailingData)
 		}
 		return nil
 	}
@@ -3789,22 +3751,22 @@ func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: unexpected data after JSON value")
+		return errors.New(proto2GroupsOptGroupErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		var sv string
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		case 1:
-			class = 5
+			class = proto2ClassString
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -3820,21 +3782,21 @@ func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2GroupsOptGroupErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid integer " + string(raw))
+					return errors.New(proto2GroupsOptGroupErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2GroupsOptGroupErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case proto2ClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid string " + string(raw))
 			}
@@ -3893,13 +3855,11 @@ func (m *Groups_RepGroup) ProtoSize() (n int) {
 		return 0
 	}
 	if m.C != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.C))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.C)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.Deep != nil {
-		{
-			l := m.Deep.ProtoSize()
-			n += 2 + l
-		}
+		l := m.Deep.ProtoSize()
+		n += 2 + l
 	}
 	n += len(m.unknownFields)
 	return n
@@ -3920,7 +3880,7 @@ func (m *Groups_RepGroup) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -3939,29 +3899,27 @@ func (m *Groups_RepGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Deep != nil {
-		{
-			i--
-			b[i] = 0x34
-			n, err := m.Deep.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			i--
-			b[i] = 0x33
+		i--
+		b[i] = 6<<proto2TagTypeBits | proto2WireEndGroup
+		n, err := m.Deep.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= n
+		i--
+		b[i] = 6<<proto2TagTypeBits | proto2WireStartGroup
 	}
 	if m.C != nil {
 		u = uint64(int64((*m.C)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -3981,144 +3939,64 @@ func (m *Groups_RepGroup) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.C = &v
-				continue
-			}
-		case 6:
-			if typ == 3 {
-				var n int
-				var stk [16]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > 10000 {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-						goto errParse
-					}
-					n += k
-					switch t & 7 {
-					case 0:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case 1:
-						k = 8
-					case 2:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case 3:
-						open = append(open, int32(t>>3))
-						k = 0
-					case 4:
-						if open[len(open)-1] != int32(t>>3) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case 5:
-						k = 4
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-				if m.Deep == nil {
-					m.Deep = &Groups_RepGroup_Deep{}
-				}
-				mv := m.Deep
-				if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 5<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
+			b = b[n:]
+			v := int32(x)
+			m.C = &v
+		case 6<<proto2TagTypeBits | proto2WireStartGroup:
+			var n int
+			var stk [proto2SkipStackSize]int32
+			open := append(stk[:0], 6)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > proto2MaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & proto2TagTypeMask {
+				case proto2WireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case proto2WireFixed64:
+					k = proto2Fixed64Size
+				case proto2WireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case proto2WireStartGroup:
+					open = append(open, int32(t>>proto2TagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case proto2WireEndGroup:
+					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case proto2WireFixed32:
+					k = proto2Fixed32Size
 				default:
 					goto errParse
 				}
@@ -4127,22 +4005,97 @@ func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+			if m.Deep == nil {
+				m.Deep = &Groups_RepGroup_Deep{}
+			}
+			mv := m.Deep
+			if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
+				return err
+			}
+			b = b[n:]
+		default:
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
 				goto errParse
 			}
-			n = 4
-		default:
-			goto errParse
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4170,11 +4123,9 @@ func (m *Groups_RepGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Deep != nil {
 		b = append(b, "\"deep\":"...)
-		{
-			var err error
-			if b, err = m.Deep.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Deep.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -4205,7 +4156,7 @@ func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: unexpected data after JSON value")
+			return errors.New(proto2GroupsRepGroupErrTrailingData)
 		}
 		return nil
 	}
@@ -4254,19 +4205,19 @@ func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: unexpected data after JSON value")
+		return errors.New(proto2GroupsRepGroupErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -4282,17 +4233,17 @@ func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2GroupsRepGroupErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: invalid integer " + string(raw))
+					return errors.New(proto2GroupsRepGroupErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2GroupsRepGroupErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -4344,7 +4295,7 @@ func (m *Groups_RepGroup_Deep) ProtoSize() (n int) {
 		return 0
 	}
 	if m.D != nil {
-		n += 1 + (bits.Len64((uint64((*m.D)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64((*m.D))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -4365,7 +4316,7 @@ func (m *Groups_RepGroup_Deep) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -4385,15 +4336,15 @@ func (m *Groups_RepGroup_Deep) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 	}
 	if m.D != nil {
 		u = uint64((*m.D))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x38
+		b[i] = 7<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -4413,110 +4364,108 @@ func (m *Groups_RepGroup_Deep) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 7:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int64(x)
-				m.D = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 7<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := int64(x)
+			m.D = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -4571,7 +4520,7 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: unexpected data after JSON value")
+			return errors.New(proto2GroupsRepGroupDeepErrTrailingData)
 		}
 		return nil
 	}
@@ -4618,19 +4567,19 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: unexpected data after JSON value")
+		return errors.New(proto2GroupsRepGroupDeepErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 64
+			class, bits = proto2ClassSigned, 64
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -4646,17 +4595,17 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid integer " + string(raw))
+					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -4753,26 +4702,26 @@ func (m *ClosedEnums) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Single != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Single))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Single)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	for _, v := range m.Rep {
-		n += 1 + (bits.Len64((uint64(int64(v)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if len(m.Packed) > 0 {
 		l := 0
 		for _, v := range m.Packed {
-			l += (bits.Len64((uint64(int64(v)))|1) + 6) / 7
+			l += (bits.Len64(uint64(int64(v))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	for k, v := range m.ByKey {
 		_, _ = k, v
-		l := 1 + (bits.Len64((uint64(int64(k)))|1)+6)/7 + 1 + (bits.Len64((uint64(int64(v)))|1)+6)/7
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		l := 1 + (bits.Len64(uint64(int64(k))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits + 1 + (bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	switch o := m.O.(type) {
 	case *ClosedEnums_InOneof:
-		n += 1 + (bits.Len64((uint64(int64(o.InOneof)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(o.InOneof))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -4793,7 +4742,7 @@ func (m *ClosedEnums) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -4813,15 +4762,15 @@ func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
 		u = uint64(int64(o.InOneof))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x28
+		b[i] = 5<<proto2TagTypeBits | proto2WireVarint
 	}
 	if len(m.ByKey) > 0 {
 		keys := make([]int32, 0, len(m.ByKey))
@@ -4829,88 +4778,87 @@ func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
-		for j := len(keys) - 1; j >= 0; j-- {
-			k := keys[j]
+		for _, k := range slices.Backward(keys) {
 			v := m.ByKey[k]
 			start := i
 			u = uint64(int64(v))
-			if u < 0x80 {
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x10
+			b[i] = proto2MapValueField<<proto2TagTypeBits | proto2WireVarint
 			u = uint64(int64(k))
-			if u < 0x80 {
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x08
+			b[i] = proto2MapKeyField<<proto2TagTypeBits | proto2WireVarint
 			u = uint64(start - i)
-			if u < 0x80 {
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 			i--
-			b[i] = 0x22
+			b[i] = 4<<proto2TagTypeBits | proto2WireBytes
 		}
 	}
 	if len(m.Packed) > 0 {
 		start := i
-		for j := len(m.Packed) - 1; j >= 0; j-- {
-			u = uint64(int64(m.Packed[j]))
-			if u < 0x80 {
+		for _, v := range slices.Backward(m.Packed) {
+			u = uint64(int64(v))
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
 	}
-	for j := len(m.Rep) - 1; j >= 0; j-- {
-		u = uint64(int64(m.Rep[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.Rep) {
+		u = uint64(int64(v))
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<proto2TagTypeBits | proto2WireVarint
 	}
 	if m.Single != nil {
 		u = uint64(int64((*m.Single)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -4930,198 +4878,181 @@ func (m *ClosedEnums) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := Closed(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 1<<proto2TagTypeBits|proto2WireVarint), x)
+				continue
+			}
+			v := e
+			m.Single = &v
+		case 2<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
 				if n <= 0 {
 					goto errParse
 				}
-				b = b[n:]
-				e := Closed(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x08), x)
-					continue
+				v = v[n:]
+				if e := Closed(int32(x)); !e.IsValid() {
+					m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint), x)
+				} else {
+					m.Rep = append(m.Rep, e)
 				}
-				v := e
-				m.Single = &v
+			}
+		case 2<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := Closed(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint), x)
 				continue
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
+			m.Rep = append(m.Rep, e)
+		case 3<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
 					goto errParse
 				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
+				v = v[n:]
+				if e := Closed(int32(x)); !e.IsValid() {
+					m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint), x)
+				} else {
+					m.Packed = append(m.Packed, e)
+				}
+			}
+		case 3<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			e := Closed(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint), x)
+				continue
+			}
+			m.Packed = append(m.Packed, e)
+		case 4<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			var mk int32
+			var mv ClosedZero
+			for len(v) > 0 {
+				t, n := binary.Uvarint(v)
+				if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+					goto errParse
+				}
+				v = v[n:]
+				switch t {
+				case proto2MapKeyField<<proto2TagTypeBits | proto2WireVarint:
 					x, n := binary.Uvarint(v)
 					if n <= 0 {
 						goto errParse
 					}
+					mk = int32(x)
 					v = v[n:]
-					if e := Closed(int32(x)); !e.IsValid() {
-						m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x10), x)
-					} else {
-						m.Rep = append(m.Rep, e)
-					}
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Closed(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x10), x)
-					continue
-				}
-				m.Rep = append(m.Rep, e)
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
+				case proto2MapValueField<<proto2TagTypeBits | proto2WireVarint:
 					x, n := binary.Uvarint(v)
 					if n <= 0 {
 						goto errParse
 					}
+					mv = ClosedZero(int32(x))
 					v = v[n:]
-					if e := Closed(int32(x)); !e.IsValid() {
-						m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x18), x)
-					} else {
-						m.Packed = append(m.Packed, e)
-					}
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Closed(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x18), x)
-					continue
-				}
-				m.Packed = append(m.Packed, e)
-				continue
-			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				var mk int32
-				var mv ClosedZero
-				for len(v) > 0 {
-					t, n := binary.Uvarint(v)
-					if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-						goto errParse
-					}
-					num, typ := int32(t>>3), int(t&7)
-					v = v[n:]
-					if num == 1 && typ == 0 {
-						x, n := binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-						mk = int32(x)
-						v = v[n:]
-						continue
-					}
-					if num == 2 && typ == 0 {
-						x, n := binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-						mv = ClosedZero(int32(x))
-						v = v[n:]
-						continue
-					}
+				default:
+					num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
 					switch typ {
-					case 0:
+					case proto2WireVarint:
 						_, n = binary.Uvarint(v)
 						if n <= 0 {
 							goto errParse
 						}
-					case 1:
-						if len(v) < 8 {
+					case proto2WireFixed64:
+						if len(v) < proto2Fixed64Size {
 							goto errParse
 						}
-						n = 8
-					case 2:
+						n = proto2Fixed64Size
+					case proto2WireBytes:
 						ln, k := binary.Uvarint(v)
 						if k <= 0 || ln > uint64(len(v)-k) {
 							goto errParse
 						}
 						n = k + int(ln)
-					case 3:
-						var stk [16]int32
+					case proto2WireStartGroup:
+						var stk [proto2SkipStackSize]int32
 						open := append(stk[:0], num)
 						n = 0
 						for len(open) > 0 {
-							if depth+len(open) > 10000 {
+							if depth+len(open) > proto2MaxDepth {
 								goto errDepth
 							}
 							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+							if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 								goto errParse
 							}
 							n += k
-							switch t & 7 {
-							case 0:
+							switch t & proto2TagTypeMask {
+							case proto2WireVarint:
 								_, k = binary.Uvarint(v[n:])
 								if k <= 0 {
 									goto errParse
 								}
-							case 1:
-								k = 8
-							case 2:
+							case proto2WireFixed64:
+								k = proto2Fixed64Size
+							case proto2WireBytes:
 								ln, k2 := binary.Uvarint(v[n:])
 								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
 									goto errParse
 								}
 								k = k2 + int(ln)
-							case 3:
-								open = append(open, int32(t>>3))
+							case proto2WireStartGroup:
+								open = append(open, int32(t>>proto2TagTypeBits))
 								k = 0
-							case 4:
-								if open[len(open)-1] != int32(t>>3) {
+							case proto2WireEndGroup:
+								if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
 									goto errParse
 								}
 								open = open[:len(open)-1]
 								k = 0
-							case 5:
-								k = 4
+							case proto2WireFixed32:
+								k = proto2Fixed32Size
 							default:
 								goto errParse
 							}
@@ -5130,124 +5061,122 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 							}
 							n += k
 						}
-					case 5:
-						if len(v) < 4 {
+					case proto2WireFixed32:
+						if len(v) < proto2Fixed32Size {
 							goto errParse
 						}
-						n = 4
+						n = proto2Fixed32Size
 					default:
 						goto errParse
 					}
 					v = v[n:]
 				}
-				if !mv.IsValid() {
-					m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-					b = b[n:]
-					continue
-				}
-				if m.ByKey == nil {
-					m.ByKey = make(map[int32]ClosedZero)
-				}
-				m.ByKey[mk] = mv
+			}
+			if !mv.IsValid() {
+				m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 				b = b[n:]
 				continue
 			}
-		case 5:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				e := Closed(int32(x))
-				if !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(append(m.unknownFields, 0x28), x)
-					continue
-				}
-				m.O = &ClosedEnums_InOneof{InOneof: e}
-				continue
+			if m.ByKey == nil {
+				m.ByKey = make(map[int32]ClosedZero)
 			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+			m.ByKey[mk] = mv
+			b = b[n:]
+		case 5<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
+			b = b[n:]
+			e := Closed(int32(x))
+			if !e.IsValid() {
+				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 5<<proto2TagTypeBits|proto2WireVarint), x)
+				continue
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			m.O = &ClosedEnums_InOneof{InOneof: e}
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -5372,12 +5301,12 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.ClosedEnums: unexpected data after JSON value")
+			return errors.New(proto2ClosedEnumsErrTrailingData)
 		}
 		return nil
 	}
 	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.ClosedEnums: expected a JSON object")
+		return errors.New(proto2ClosedEnumsErrNotObject)
 	}
 	type job struct {
 		f   int
@@ -5446,7 +5375,7 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 					return err
 				}
 				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values")
+					return errors.New(proto2ClosedEnumsErrNullElement)
 				}
 				jobs = append(jobs, job{f: f, raw: e})
 			}
@@ -5457,7 +5386,7 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 			ad := json.NewDecoder(bytes.NewReader(raw))
 			ad.UseNumber()
 			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: expected a JSON object")
+				return errors.New(proto2ClosedEnumsErrNotObject)
 			}
 			for ad.More() {
 				kt, err := ad.Token()
@@ -5470,7 +5399,7 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 					return err
 				}
 				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values")
+					return errors.New(proto2ClosedEnumsErrNullElement)
 				}
 				jobs = append(jobs, job{f: f, key: ks, raw: e})
 			}
@@ -5480,11 +5409,11 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.ClosedEnums: unexpected data after JSON value")
+		return errors.New(proto2ClosedEnumsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		var sv string
@@ -5492,15 +5421,15 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 		case 0, 1, 2, 3, 4:
 			switch {
 			case string(raw) == "null":
-				class = 0
+				class = proto2ClassNone
 			case raw[0] == '"':
-				class = 5
+				class = proto2ClassString
 			default:
-				class, bits = 1, 32
+				class, bits = proto2ClassSigned, 32
 			}
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -5516,21 +5445,21 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2ClosedEnumsErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid integer " + string(raw))
+					return errors.New(proto2ClosedEnumsErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2ClosedEnumsErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
-		case 5:
+		case proto2ClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid string " + string(raw))
 			}
@@ -5542,13 +5471,13 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 		case 0:
 			var ev Closed
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := Closed_value[sv]
 				if !ok {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: " + strconv.Quote(sv))
+					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
 				}
 				ev = Closed(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = Closed(iv)
 			}
 			x := ev
@@ -5556,26 +5485,26 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 		case 1:
 			var ev Closed
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := Closed_value[sv]
 				if !ok {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: " + strconv.Quote(sv))
+					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
 				}
 				ev = Closed(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = Closed(iv)
 			}
 			m.Rep = append(m.Rep, ev)
 		case 2:
 			var ev Closed
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := Closed_value[sv]
 				if !ok {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: " + strconv.Quote(sv))
+					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
 				}
 				ev = Closed(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = Closed(iv)
 			}
 			m.Packed = append(m.Packed, ev)
@@ -5587,13 +5516,13 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 			k := int32(k64)
 			var ev ClosedZero
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := ClosedZero_value[sv]
 				if !ok {
 					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.ClosedZero: " + strconv.Quote(sv))
 				}
 				ev = ClosedZero(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = ClosedZero(iv)
 			}
 			if m.ByKey == nil {
@@ -5603,13 +5532,13 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 		case 4:
 			var ev Closed
 			switch class {
-			case 5:
+			case proto2ClassString:
 				n, ok := Closed_value[sv]
 				if !ok {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: " + strconv.Quote(sv))
+					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
 				}
 				ev = Closed(n)
-			case 1:
+			case proto2ClassSigned:
 				ev = Closed(iv)
 			}
 			m.O = &ClosedEnums_InOneof{InOneof: ev}
@@ -5691,31 +5620,31 @@ func (m *Packed) ProtoSize() (n int) {
 	if len(m.PInt32) > 0 {
 		l := 0
 		for _, v := range m.PInt32 {
-			l += (bits.Len64((uint64(int64(v)))|1) + 6) / 7
+			l += (bits.Len64(uint64(int64(v))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if len(m.PSint64) > 0 {
 		l := 0
 		for _, v := range m.PSint64 {
-			l += (bits.Len64((uint64((v)<<1)^uint64((v)>>63))|1) + 6) / 7
+			l += (bits.Len64((uint64((v)<<1)^uint64((v)>>63))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if len(m.PFixed32) > 0 {
-		l := len(m.PFixed32) * 4
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		l := len(m.PFixed32) * proto2Fixed32Size
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if len(m.PDouble) > 0 {
-		l := len(m.PDouble) * 8
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		l := len(m.PDouble) * proto2Fixed64Size
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if len(m.PBool) > 0 {
-		l := len(m.PBool) * 1
-		n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
+		l := len(m.PBool)
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	for _, v := range m.UInt32 {
-		n += 1 + (bits.Len64((uint64(int64(v)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -5736,7 +5665,7 @@ func (m *Packed) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -5754,118 +5683,118 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
-	for j := len(m.UInt32) - 1; j >= 0; j-- {
-		u = uint64(int64(m.UInt32[j]))
-		if u < 0x80 {
+	for _, v := range slices.Backward(m.UInt32) {
+		u = uint64(int64(v))
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x30
+		b[i] = 6<<proto2TagTypeBits | proto2WireVarint
 	}
 	if len(m.PBool) > 0 {
 		start := i
-		for j := len(m.PBool) - 1; j >= 0; j-- {
+		for _, v := range slices.Backward(m.PBool) {
 			i--
-			if m.PBool[j] {
+			if v {
 				b[i] = 1
 			} else {
 				b[i] = 0
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x2a
+		b[i] = 5<<proto2TagTypeBits | proto2WireBytes
 	}
 	if len(m.PDouble) > 0 {
 		start := i
-		for j := len(m.PDouble) - 1; j >= 0; j-- {
-			i -= 8
-			binary.LittleEndian.PutUint64(b[i:], math.Float64bits(m.PDouble[j]))
+		for _, v := range slices.Backward(m.PDouble) {
+			i -= proto2Fixed64Size
+			binary.LittleEndian.PutUint64(b[i:], math.Float64bits(v))
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x22
+		b[i] = 4<<proto2TagTypeBits | proto2WireBytes
 	}
 	if len(m.PFixed32) > 0 {
 		start := i
-		for j := len(m.PFixed32) - 1; j >= 0; j-- {
-			i -= 4
-			binary.LittleEndian.PutUint32(b[i:], uint32(m.PFixed32[j]))
+		for _, v := range slices.Backward(m.PFixed32) {
+			i -= proto2Fixed32Size
+			binary.LittleEndian.PutUint32(b[i:], uint32(v))
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x1a
+		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
 	}
 	if len(m.PSint64) > 0 {
 		start := i
-		for j := len(m.PSint64) - 1; j >= 0; j-- {
-			u = (uint64((m.PSint64[j])<<1) ^ uint64((m.PSint64[j])>>63))
-			if u < 0x80 {
+		for _, v := range slices.Backward(m.PSint64) {
+			u = (uint64((v)<<1) ^ uint64((v)>>63))
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 2<<proto2TagTypeBits | proto2WireBytes
 	}
 	if len(m.PInt32) > 0 {
 		start := i
-		for j := len(m.PInt32) - 1; j >= 0; j-- {
-			u = uint64(int64(m.PInt32[j]))
-			if u < 0x80 {
+		for _, v := range slices.Backward(m.PInt32) {
+			u = uint64(int64(v))
+			if u < proto2VarintContBit {
 				i--
 				b[i] = byte(u)
 			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
+				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 				binary.PutUvarint(b[i:], u)
 			}
 		}
 		u = uint64(start - i)
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<proto2TagTypeBits | proto2WireBytes
 	}
 	return len(b) - i, nil
 }
@@ -5885,279 +5814,250 @@ func (m *Packed) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.PInt32 = append(m.PInt32, int32(x))
-				}
-				continue
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
 			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
 				if n <= 0 {
 					goto errParse
 				}
-				b = b[n:]
+				v = v[n:]
 				m.PInt32 = append(m.PInt32, int32(x))
-				continue
 			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.PSint64 = append(m.PSint64, int64(x>>1)^-int64(x&1))
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.PSint64 = append(m.PSint64, int64(x>>1)^-int64(x&1))
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				if len(v)%4 != 0 {
-					goto errParse
-				}
-				if m.PFixed32 == nil {
-					m.PFixed32 = make([]uint32, 0, len(v)/4)
-				}
-				for len(v) > 0 {
-					if len(v) < 4 {
-						goto errParse
-					}
-					x, n := binary.LittleEndian.Uint32(v), 4
-					v = v[n:]
-					m.PFixed32 = append(m.PFixed32, x)
-				}
-				continue
-			}
-			if typ == 5 {
-				if len(b) < 4 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint32(b), 4
-				b = b[n:]
-				m.PFixed32 = append(m.PFixed32, x)
-				continue
-			}
-		case 4:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				if len(v)%8 != 0 {
-					goto errParse
-				}
-				if m.PDouble == nil {
-					m.PDouble = make([]float64, 0, len(v)/8)
-				}
-				for len(v) > 0 {
-					if len(v) < 8 {
-						goto errParse
-					}
-					x, n := binary.LittleEndian.Uint64(v), 8
-					v = v[n:]
-					m.PDouble = append(m.PDouble, math.Float64frombits(x))
-				}
-				continue
-			}
-			if typ == 1 {
-				if len(b) < 8 {
-					goto errParse
-				}
-				x, n := binary.LittleEndian.Uint64(b), 8
-				b = b[n:]
-				m.PDouble = append(m.PDouble, math.Float64frombits(x))
-				continue
-			}
-		case 5:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.PBool = append(m.PBool, x != 0)
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.PBool = append(m.PBool, x != 0)
-				continue
-			}
-		case 6:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				for len(v) > 0 {
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v = v[n:]
-					m.UInt32 = append(m.UInt32, int32(x))
-				}
-				continue
-			}
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.UInt32 = append(m.UInt32, int32(x))
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			m.PInt32 = append(m.PInt32, int32(x))
+		case 2<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
+					goto errParse
+				}
+				v = v[n:]
+				m.PSint64 = append(m.PSint64, int64(x>>1)^-int64(x&1))
+			}
+		case 2<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
+			b = b[n:]
+			m.PSint64 = append(m.PSint64, int64(x>>1)^-int64(x&1))
+		case 3<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 4
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			if len(v)%proto2Fixed32Size != 0 {
+				goto errParse
+			}
+			if m.PFixed32 == nil {
+				m.PFixed32 = make([]uint32, 0, len(v)/proto2Fixed32Size)
+			}
+			for len(v) > 0 {
+				if len(v) < proto2Fixed32Size {
+					goto errParse
+				}
+				x, n := binary.LittleEndian.Uint32(v), proto2Fixed32Size
+				v = v[n:]
+				m.PFixed32 = append(m.PFixed32, x)
+			}
+		case 3<<proto2TagTypeBits | proto2WireFixed32:
+			if len(b) < proto2Fixed32Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint32(b), proto2Fixed32Size
+			b = b[n:]
+			m.PFixed32 = append(m.PFixed32, x)
+		case 4<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			if len(v)%proto2Fixed64Size != 0 {
+				goto errParse
+			}
+			if m.PDouble == nil {
+				m.PDouble = make([]float64, 0, len(v)/proto2Fixed64Size)
+			}
+			for len(v) > 0 {
+				if len(v) < proto2Fixed64Size {
+					goto errParse
+				}
+				x, n := binary.LittleEndian.Uint64(v), proto2Fixed64Size
+				v = v[n:]
+				m.PDouble = append(m.PDouble, math.Float64frombits(x))
+			}
+		case 4<<proto2TagTypeBits | proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
+				goto errParse
+			}
+			x, n := binary.LittleEndian.Uint64(b), proto2Fixed64Size
+			b = b[n:]
+			m.PDouble = append(m.PDouble, math.Float64frombits(x))
+		case 5<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
+					goto errParse
+				}
+				v = v[n:]
+				m.PBool = append(m.PBool, x != 0)
+			}
+		case 5<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			m.PBool = append(m.PBool, x != 0)
+		case 6<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
+				goto errParse
+			}
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			for len(v) > 0 {
+				x, n := binary.Uvarint(v)
+				if n <= 0 {
+					goto errParse
+				}
+				v = v[n:]
+				m.UInt32 = append(m.UInt32, int32(x))
+			}
+		case 6<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
+				goto errParse
+			}
+			b = b[n:]
+			m.UInt32 = append(m.UInt32, int32(x))
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -6274,7 +6174,7 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Packed: unexpected data after JSON value")
+			return errors.New(proto2PackedErrTrailingData)
 		}
 		return nil
 	}
@@ -6346,11 +6246,11 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Packed: unexpected data after JSON value")
+		return errors.New(proto2PackedErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		var uv uint64
@@ -6358,18 +6258,18 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 		var bv bool
 		switch jb.f {
 		case 0, 5:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		case 1:
-			class, bits = 1, 64
+			class, bits = proto2ClassSigned, 64
 		case 2:
-			class, bits = 2, 32
+			class, bits = proto2ClassUnsigned, 32
 		case 3:
-			class, bits = 3, 64
+			class, bits = proto2ClassFloat, 64
 		case 4:
-			class = 4
+			class = proto2ClassBool
 		}
 		switch class {
-		case 1, 2:
+		case proto2ClassSigned, proto2ClassUnsigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -6377,10 +6277,10 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 				}
 			}
 			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Packed: invalid number " + string(raw))
+				return errors.New(proto2PackedErrInvalidNumber + string(raw))
 			}
 			var err error
-			if class == 1 {
+			if class == proto2ClassSigned {
 				iv, err = strconv.ParseInt(s, 10, bits)
 			} else {
 				uv, err = strconv.ParseUint(s, 10, bits)
@@ -6389,28 +6289,28 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Packed: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2PackedErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Packed: invalid integer " + string(raw))
+					return errors.New(proto2PackedErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if class == 1 {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-						return errors.New("proto: cotorp.test.proto2.Packed: invalid integer " + string(raw))
+				if class == proto2ClassSigned {
+					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+						return errors.New(proto2PackedErrInvalidInteger + string(raw))
 					}
 					iv = n.Int64()
 				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {
-						return errors.New("proto: cotorp.test.proto2.Packed: invalid integer " + string(raw))
+					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+						return errors.New(proto2PackedErrInvalidInteger + string(raw))
 					}
 					uv = n.Uint64()
 				}
 			}
-		case 3:
+		case proto2ClassFloat:
 			s := string(raw)
 			special := false
 			if raw[0] == '"' {
@@ -6428,14 +6328,14 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 			}
 			if !special {
 				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New("proto: cotorp.test.proto2.Packed: invalid number " + string(raw))
+					return errors.New(proto2PackedErrInvalidNumber + string(raw))
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New("proto: cotorp.test.proto2.Packed: invalid number " + string(raw))
+					return errors.New(proto2PackedErrInvalidNumber + string(raw))
 				}
 			}
-		case 4:
+		case proto2ClassBool:
 			switch string(raw) {
 			case "true":
 				bv = true
@@ -6493,7 +6393,7 @@ func (m *Extendable) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Known != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.Known))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.Known)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -6514,7 +6414,7 @@ func (m *Extendable) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -6534,15 +6434,15 @@ func (m *Extendable) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Known != nil {
 		u = uint64(int64((*m.Known)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -6562,110 +6462,108 @@ func (m *Extendable) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.Known = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := int32(x)
+			m.Known = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -6718,7 +6616,7 @@ func (m *Extendable) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Extendable: unexpected data after JSON value")
+			return errors.New(proto2ExtendableErrTrailingData)
 		}
 		return nil
 	}
@@ -6765,19 +6663,19 @@ func (m *Extendable) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Extendable: unexpected data after JSON value")
+		return errors.New(proto2ExtendableErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -6793,17 +6691,17 @@ func (m *Extendable) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.Extendable: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2ExtendableErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.Extendable: invalid integer " + string(raw))
+					return errors.New(proto2ExtendableErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.Extendable: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2ExtendableErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}
@@ -6857,7 +6755,7 @@ func (m *Scope) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -6892,73 +6790,73 @@ func (m *Scope) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
+		num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
 		switch typ {
-		case 0:
+		case proto2WireVarint:
 			_, n = binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+		case proto2WireFixed64:
+			if len(b) < proto2Fixed64Size {
 				goto errParse
 			}
-			n = 8
-		case 2:
+			n = proto2Fixed64Size
+		case proto2WireBytes:
 			ln, k := binary.Uvarint(b)
 			if k <= 0 || ln > uint64(len(b)-k) {
 				goto errParse
 			}
 			n = k + int(ln)
-		case 3:
-			var stk [16]int32
+		case proto2WireStartGroup:
+			var stk [proto2SkipStackSize]int32
 			open := append(stk[:0], num)
 			n = 0
 			for len(open) > 0 {
-				if depth+len(open) > 10000 {
+				if depth+len(open) > proto2MaxDepth {
 					goto errDepth
 				}
 				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 					goto errParse
 				}
 				n += k
-				switch t & 7 {
-				case 0:
+				switch t & proto2TagTypeMask {
+				case proto2WireVarint:
 					_, k = binary.Uvarint(b[n:])
 					if k <= 0 {
 						goto errParse
 					}
-				case 1:
-					k = 8
-				case 2:
+				case proto2WireFixed64:
+					k = proto2Fixed64Size
+				case proto2WireBytes:
 					ln, k2 := binary.Uvarint(b[n:])
 					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
 						goto errParse
 					}
 					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
+				case proto2WireStartGroup:
+					open = append(open, int32(t>>proto2TagTypeBits))
 					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
+				case proto2WireEndGroup:
+					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
 						goto errParse
 					}
 					open = open[:len(open)-1]
 					k = 0
-				case 5:
-					k = 4
+				case proto2WireFixed32:
+					k = proto2Fixed32Size
 				default:
 					goto errParse
 				}
@@ -6967,11 +6865,11 @@ func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 				}
 				n += k
 			}
-		case 5:
-			if len(b) < 4 {
+		case proto2WireFixed32:
+			if len(b) < proto2Fixed32Size {
 				goto errParse
 			}
-			n = 4
+			n = proto2Fixed32Size
 		default:
 			goto errParse
 		}
@@ -6980,9 +6878,9 @@ func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -7030,7 +6928,7 @@ func (m *Scope) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Scope: unexpected data after JSON value")
+			return errors.New(proto2ScopeErrTrailingData)
 		}
 		return nil
 	}
@@ -7046,7 +6944,7 @@ func (m *Scope) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Scope: unexpected data after JSON value")
+		return errors.New(proto2ScopeErrTrailingData)
 	}
 	return nil
 }
@@ -7099,16 +6997,14 @@ func (m *Proto2Strings) ProtoSize() (n int) {
 		return 0
 	}
 	if m.S != nil {
-		n += 1 + len((*m.S)) + (bits.Len64((uint64(len((*m.S))))|1)+6)/7
+		n += 1 + len((*m.S)) + (bits.Len64(uint64(len((*m.S)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	for _, v := range m.Rs {
-		n += 1 + len(v) + (bits.Len64((uint64(len(v)))|1)+6)/7
+		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	if m.Shared != nil {
-		{
-			l := m.Shared.ProtoSize()
-			n += 1 + l + (bits.Len64((uint64(l))|1)+6)/7
-		}
+		l := m.Shared.ProtoSize()
+		n += 1 + l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -7129,7 +7025,7 @@ func (m *Proto2Strings) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -7148,51 +7044,49 @@ func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Shared != nil {
-		{
-			n, err := m.Shared.ProtoMarshalToSizedBuffer(b[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= n
-			u = uint64(n)
-			if u < 0x80 {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64((u)|1) + 6) / 7
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 0x1a
+		n, err := m.Shared.ProtoMarshalToSizedBuffer(b[:i])
+		if err != nil {
+			return 0, err
 		}
-	}
-	for j := len(m.Rs) - 1; j >= 0; j-- {
-		i -= len(m.Rs[j])
-		copy(b[i:], m.Rs[j])
-		u = uint64(len(m.Rs[j]))
-		if u < 0x80 {
+		i -= n
+		u = uint64(n)
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x12
+		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
+	}
+	for _, v := range slices.Backward(m.Rs) {
+		i -= len(v)
+		copy(b[i:], v)
+		u = uint64(len(v))
+		if u < proto2VarintContBit {
+			i--
+			b[i] = byte(u)
+		} else {
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+			binary.PutUvarint(b[i:], u)
+		}
+		i--
+		b[i] = 2<<proto2TagTypeBits | proto2WireBytes
 	}
 	if m.S != nil {
 		i -= len((*m.S))
 		copy(b[i:], (*m.S))
 		u = uint64(len((*m.S)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x0a
+		b[i] = 1<<proto2TagTypeBits | proto2WireBytes
 	}
 	return len(b) - i, nil
 }
@@ -7212,142 +7106,134 @@ func (m *Proto2Strings) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				v := string(x)
-				m.S = &v
-				continue
-			}
-		case 2:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				x := b[n : n+int(ln)]
-				n += int(ln)
-				b = b[n:]
-				m.Rs = append(m.Rs, string(x))
-				continue
-			}
-		case 3:
-			if typ == 2 {
-				ln, n := binary.Uvarint(b)
-				if n <= 0 || ln > uint64(len(b)-n) {
-					goto errParse
-				}
-				v := b[n : n+int(ln)]
-				n += int(ln)
-				if m.Shared == nil {
-					m.Shared = &commonpb.Shared{}
-				}
-				mv := m.Shared
-				if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-					return err
-				}
-				b = b[n:]
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			v := string(x)
+			m.S = &v
+		case 2<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
+			x := b[n : n+int(ln)]
+			n += int(ln)
+			b = b[n:]
+			m.Rs = append(m.Rs, string(x))
+		case 3<<proto2TagTypeBits | proto2WireBytes:
+			ln, n := binary.Uvarint(b)
+			if n <= 0 || ln > uint64(len(b)-n) {
 				goto errParse
 			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			v := b[n : n+int(ln)]
+			n += int(ln)
+			if m.Shared == nil {
+				m.Shared = &commonpb.Shared{}
 			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
+			mv := m.Shared
+			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+				return err
 			}
-			n = 4
+			b = b[n:]
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -7378,8 +7264,8 @@ func (m *Proto2Strings) ProtoAppendJSON(b []byte) ([]byte, error) {
 			switch c := (*m.S)[ci]; {
 			case c == '"' || c == '\\':
 				b = append(b, '\\', c)
-			case c < 0x20:
-				b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+			case c < ' ':
+				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
 			default:
 				b = append(b, c)
 			}
@@ -7398,8 +7284,8 @@ func (m *Proto2Strings) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := m.Rs[j][ci]; {
 				case c == '"' || c == '\\':
 					b = append(b, '\\', c)
-				case c < 0x20:
-					b = append(b, '\\', 'u', '0', '0', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+				case c < ' ':
+					b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
 				default:
 					b = append(b, c)
 				}
@@ -7412,11 +7298,9 @@ func (m *Proto2Strings) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Shared != nil {
 		b = append(b, "\"shared\":"...)
-		{
-			var err error
-			if b, err = m.Shared.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
+		var err error
+		if b, err = m.Shared.ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
 		b = append(b, ',')
 	}
@@ -7447,7 +7331,7 @@ func (m *Proto2Strings) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.Proto2Strings: unexpected data after JSON value")
+			return errors.New(proto2Proto2StringsErrTrailingData)
 		}
 		return nil
 	}
@@ -7517,18 +7401,18 @@ func (m *Proto2Strings) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Proto2Strings: unexpected data after JSON value")
+		return errors.New(proto2Proto2StringsErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		var sv string
 		switch jb.f {
 		case 0, 1:
-			class = 5
+			class = proto2ClassString
 		}
 		switch class {
-		case 5:
+		case proto2ClassString:
 			if raw[0] != '"' || !utf8.Valid(raw) {
 				return errors.New("proto: cotorp.test.proto2.Proto2Strings: invalid string " + string(raw))
 			}
@@ -7585,7 +7469,7 @@ func (m *ExtGroup) ProtoSize() (n int) {
 		return 0
 	}
 	if m.G != nil {
-		n += 1 + (bits.Len64((uint64(int64((*m.G))))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64((*m.G)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -7606,7 +7490,7 @@ func (m *ExtGroup) AppendBinary(b []byte) ([]byte, error) {
 		return b[:l], err
 	}
 	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
+		return b[:l], errors.New(proto2ErrSizeChanged)
 	}
 	return b, nil
 }
@@ -7626,15 +7510,15 @@ func (m *ExtGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.G != nil {
 		u = uint64(int64((*m.G)))
-		if u < 0x80 {
+		if u < proto2VarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
 	}
 	return len(b) - i, nil
 }
@@ -7654,110 +7538,108 @@ func (m *ExtGroup) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= proto2MaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				v := int32(x)
-				m.G = &v
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<proto2TagTypeBits | proto2WireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
-				goto errParse
-			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			v := int32(x)
+			m.G = &v
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
+			switch typ {
+			case proto2WireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case proto2WireFixed64:
+				if len(b) < proto2Fixed64Size {
+					goto errParse
+				}
+				n = proto2Fixed64Size
+			case proto2WireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case proto2WireStartGroup:
+				var stk [proto2SkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > proto2MaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & proto2TagTypeMask {
+					case proto2WireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case proto2WireFixed64:
+						k = proto2Fixed64Size
+					case proto2WireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case proto2WireStartGroup:
+						open = append(open, int32(t>>proto2TagTypeBits))
+						k = 0
+					case proto2WireEndGroup:
+						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case proto2WireFixed32:
+						k = proto2Fixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case proto2WireFixed32:
+				if len(b) < proto2Fixed32Size {
+					goto errParse
+				}
+				n = proto2Fixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(proto2ErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(proto2ErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -7810,7 +7692,7 @@ func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
 	if tok == nil {
 		// JSON null leaves the message unchanged.
 		if _, err := d.Token(); err != io.EOF {
-			return errors.New("proto: cotorp.test.proto2.ExtGroup: unexpected data after JSON value")
+			return errors.New(proto2ExtGroupErrTrailingData)
 		}
 		return nil
 	}
@@ -7857,19 +7739,19 @@ func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.ExtGroup: unexpected data after JSON value")
+		return errors.New(proto2ExtGroupErrTrailingData)
 	}
 	for _, jb := range jobs {
 		raw := jb.raw
-		class := 0
+		class := proto2ClassNone
 		bits := 64
 		var iv int64
 		switch jb.f {
 		case 0:
-			class, bits = 1, 32
+			class, bits = proto2ClassSigned, 32
 		}
 		switch class {
-		case 1:
+		case proto2ClassSigned:
 			s := string(raw)
 			if raw[0] == '"' {
 				if err := json.Unmarshal(raw, &s); err != nil {
@@ -7885,17 +7767,17 @@ func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
 				// Accept exponent and fraction forms that denote an exact integer,
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {
-						return errors.New("proto: cotorp.test.proto2.ExtGroup: invalid integer " + string(raw))
+					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+						return errors.New(proto2ExtGroupErrInvalidInteger + string(raw))
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New("proto: cotorp.test.proto2.ExtGroup: invalid integer " + string(raw))
+					return errors.New(proto2ExtGroupErrInvalidInteger + string(raw))
 				}
 				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {
-					return errors.New("proto: cotorp.test.proto2.ExtGroup: invalid integer " + string(raw))
+				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+					return errors.New(proto2ExtGroupErrInvalidInteger + string(raw))
 				}
 				iv = n.Int64()
 			}

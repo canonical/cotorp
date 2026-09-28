@@ -15,6 +15,55 @@ import (
 	"unicode/utf8"
 )
 
+// Wire types.
+const (
+	durationWireVarint     = 0
+	durationWireFixed64    = 1
+	durationWireBytes      = 2
+	durationWireStartGroup = 3
+	durationWireEndGroup   = 4
+	durationWireFixed32    = 5
+)
+
+// A tag holds the field number above the wire type in its low three bits.
+const (
+	durationTagTypeBits    = 3
+	durationTagTypeMask    = 1<<3 - 1
+	durationMaxFieldNumber = 1<<29 - 1
+)
+
+// Encoded sizes.
+const (
+	durationFixed32Size       = 4
+	durationFixed64Size       = 8
+	durationVarintPayloadBits = 7    // value bits per varint byte
+	durationVarintContBit     = 0x80 // set on every varint byte but the last
+)
+
+// Decoding limits.
+const (
+	durationMaxDepth      = 10000 // maximum message and group nesting
+	durationSkipStackSize = 16    // group nesting tracked without allocating
+)
+
+// ProtoJSON limits.
+const (
+	durationMaxFracDigits      = 9            // fractional second digits in a Duration
+	durationMaxDurationSeconds = 315576000000 // 10000 years
+)
+
+// Time units.
+const (
+	durationNanosPerSecond  = 1000000000
+	durationNanosPerMilli   = 1000000
+	durationNanosPerMicro   = 1000
+	durationMicrosPerSecond = 1000000
+	durationMillisPerSecond = 1000
+)
+
+// Error message used more than once.
+const durationDurationErrOutOfRange = "proto: google.protobuf.Duration: duration out of range"
+
 // A Duration represents a signed, fixed-length span of time represented
 // as a count of seconds and fractions of seconds at nanosecond
 // resolution. It is independent of any calendar and concepts like "day"
@@ -121,10 +170,10 @@ func (m *Duration) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Seconds != 0 {
-		n += 1 + (bits.Len64((uint64(m.Seconds))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(m.Seconds)|1)+durationVarintPayloadBits-1)/durationVarintPayloadBits
 	}
 	if m.Nanos != 0 {
-		n += 1 + (bits.Len64((uint64(int64(m.Nanos)))|1)+6)/7
+		n += 1 + (bits.Len64(uint64(int64(m.Nanos))|1)+durationVarintPayloadBits-1)/durationVarintPayloadBits
 	}
 	n += len(m.unknownFields)
 	return n
@@ -165,27 +214,27 @@ func (m *Duration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	if m.Nanos != 0 {
 		u = uint64(int64(m.Nanos))
-		if u < 0x80 {
+		if u < durationVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x10
+		b[i] = 2<<durationTagTypeBits | durationWireVarint
 	}
 	if m.Seconds != 0 {
 		u = uint64(m.Seconds)
-		if u < 0x80 {
+		if u < durationVarintContBit {
 			i--
 			b[i] = byte(u)
 		} else {
-			i -= (bits.Len64((u)|1) + 6) / 7
+			i -= (bits.Len64(u|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
 			binary.PutUvarint(b[i:], u)
 		}
 		i--
-		b[i] = 0x08
+		b[i] = 1<<durationTagTypeBits | durationWireVarint
 	}
 	return len(b) - i, nil
 }
@@ -205,113 +254,108 @@ func (m *Duration) ProtoMerge(b []byte) error {
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= 10000 {
+	if depth >= durationMaxDepth {
 		goto errDepth
 	}
 	for len(b) > 0 {
 		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>3 == 0 || t>>3 > 536870911 {
+		if n <= 0 || t>>durationTagTypeBits == 0 || t>>durationTagTypeBits > durationMaxFieldNumber {
 			goto errParse
 		}
-		num, typ := int32(t>>3), int(t&7)
 		start := b
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Seconds = int64(x)
-				continue
-			}
-		case 2:
-			if typ == 0 {
-				x, n := binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-				b = b[n:]
-				m.Nanos = int32(x)
-				continue
-			}
-		}
-		// Unknown field, or a known field with an unexpected wire type.
-		switch typ {
-		case 0:
-			_, n = binary.Uvarint(b)
+		switch t {
+		case 1<<durationTagTypeBits | durationWireVarint:
+			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-		case 1:
-			if len(b) < 8 {
+			b = b[n:]
+			m.Seconds = int64(x)
+		case 2<<durationTagTypeBits | durationWireVarint:
+			x, n := binary.Uvarint(b)
+			if n <= 0 {
 				goto errParse
 			}
-			n = 8
-		case 2:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case 3:
-			var stk [16]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > 10000 {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>3 == 0 || t>>3 > 536870911 {
-					goto errParse
-				}
-				n += k
-				switch t & 7 {
-				case 0:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case 1:
-					k = 8
-				case 2:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case 3:
-					open = append(open, int32(t>>3))
-					k = 0
-				case 4:
-					if open[len(open)-1] != int32(t>>3) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case 5:
-					k = 4
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case 5:
-			if len(b) < 4 {
-				goto errParse
-			}
-			n = 4
+			b = b[n:]
+			m.Nanos = int32(x)
 		default:
-			goto errParse
+			// Unknown field, or a known field with an unexpected wire type.
+			num, typ := int32(t>>durationTagTypeBits), t&durationTagTypeMask
+			switch typ {
+			case durationWireVarint:
+				_, n = binary.Uvarint(b)
+				if n <= 0 {
+					goto errParse
+				}
+			case durationWireFixed64:
+				if len(b) < durationFixed64Size {
+					goto errParse
+				}
+				n = durationFixed64Size
+			case durationWireBytes:
+				ln, k := binary.Uvarint(b)
+				if k <= 0 || ln > uint64(len(b)-k) {
+					goto errParse
+				}
+				n = k + int(ln)
+			case durationWireStartGroup:
+				var stk [durationSkipStackSize]int32
+				open := append(stk[:0], num)
+				n = 0
+				for len(open) > 0 {
+					if depth+len(open) > durationMaxDepth {
+						goto errDepth
+					}
+					t, k := binary.Uvarint(b[n:])
+					if k <= 0 || t>>durationTagTypeBits == 0 || t>>durationTagTypeBits > durationMaxFieldNumber {
+						goto errParse
+					}
+					n += k
+					switch t & durationTagTypeMask {
+					case durationWireVarint:
+						_, k = binary.Uvarint(b[n:])
+						if k <= 0 {
+							goto errParse
+						}
+					case durationWireFixed64:
+						k = durationFixed64Size
+					case durationWireBytes:
+						ln, k2 := binary.Uvarint(b[n:])
+						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
+							goto errParse
+						}
+						k = k2 + int(ln)
+					case durationWireStartGroup:
+						open = append(open, int32(t>>durationTagTypeBits))
+						k = 0
+					case durationWireEndGroup:
+						if open[len(open)-1] != int32(t>>durationTagTypeBits) {
+							goto errParse
+						}
+						open = open[:len(open)-1]
+						k = 0
+					case durationWireFixed32:
+						k = durationFixed32Size
+					default:
+						goto errParse
+					}
+					if k > len(b)-n {
+						goto errParse
+					}
+					n += k
+				}
+			case durationWireFixed32:
+				if len(b) < durationFixed32Size {
+					goto errParse
+				}
+				n = durationFixed32Size
+			default:
+				goto errParse
+			}
+			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
+			b = b[n:]
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-		b = b[n:]
 	}
 	return nil
 errParse:
@@ -339,8 +383,8 @@ func (m *Duration) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m != nil {
 		s, ns = m.Seconds, m.Nanos
 	}
-	if s < -315576000000 || s > 315576000000 || ns <= -1000000000 || ns >= 1000000000 || (s > 0 && ns < 0) || (s < 0 && ns > 0) {
-		return nil, errors.New("proto: google.protobuf.Duration: duration out of range")
+	if s < -durationMaxDurationSeconds || s > durationMaxDurationSeconds || ns <= -durationNanosPerSecond || ns >= durationNanosPerSecond || (s > 0 && ns < 0) || (s < 0 && ns > 0) {
+		return nil, errors.New(durationDurationErrOutOfRange)
 	}
 	b = append(b, '"')
 	if s < 0 || ns < 0 {
@@ -350,15 +394,15 @@ func (m *Duration) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = strconv.AppendInt(b, s, 10)
 	switch {
 	case ns == 0:
-	case ns%1000000 == 0:
+	case ns%durationNanosPerMilli == 0:
 		b = append(b, '.')
-		b = append(b, strconv.Itoa(1000 + int(ns)/1000000)[1:]...)
-	case ns%1000 == 0:
+		b = append(b, strconv.Itoa(durationMillisPerSecond + int(ns)/durationNanosPerMilli)[1:]...)
+	case ns%durationNanosPerMicro == 0:
 		b = append(b, '.')
-		b = append(b, strconv.Itoa(1000000 + int(ns)/1000)[1:]...)
+		b = append(b, strconv.Itoa(durationMicrosPerSecond + int(ns)/durationNanosPerMicro)[1:]...)
 	default:
 		b = append(b, '.')
-		b = append(b, strconv.Itoa(1000000000 + int(ns))[1:]...)
+		b = append(b, strconv.Itoa(durationNanosPerSecond + int(ns))[1:]...)
 	}
 	b = append(b, "s\""...)
 	return b, nil
@@ -395,16 +439,19 @@ func (m *Duration) ProtoMergeJSON(b []byte) error {
 	}
 	whole, frac, dot := strings.Cut(strings.TrimSuffix(s, "s"), ".")
 	if !strings.HasSuffix(s, "s") || whole == "" || strings.Trim(whole, "0123456789") != "" ||
-		(dot && (frac == "" || len(frac) > 9 || strings.Trim(frac, "0123456789") != "")) {
+		(dot && (frac == "" || len(frac) > durationMaxFracDigits || strings.Trim(frac, "0123456789") != "")) {
 		return errors.New("proto: google.protobuf.Duration: invalid duration " + strconv.Quote(in))
 	}
 	secs, err := strconv.ParseInt(whole, 10, 64)
-	if err != nil || secs > 315576000000 {
-		return errors.New("proto: google.protobuf.Duration: duration out of range")
+	if err != nil || secs > durationMaxDurationSeconds {
+		return errors.New(durationDurationErrOutOfRange)
 	}
 	var nanos int64
 	if dot {
-		nanos, _ = strconv.ParseInt((frac + "000000000")[:9], 10, 64)
+		nanos, _ = strconv.ParseInt(frac, 10, 64)
+		for range durationMaxFracDigits - len(frac) {
+			nanos *= 10
+		}
 	}
 	if neg {
 		secs, nanos = -secs, -nanos

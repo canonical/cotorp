@@ -53,17 +53,35 @@ func acceptsNull(f *desc.Field) bool {
 }
 
 // errConcat returns an expression constructing an error whose message is
-// the constant msg followed by the Go string expression parts.
-func (fg *fileGen) errConcat(msg string, parts ...string) string {
-	e := fg.std("errors") + ".New(" + strconv.Quote(msg)
+// the constant msg followed by the Go string expression parts. hint names
+// msg's constant, as in errExpr.
+func (fg *fileGen) errConcat(hint, msg string, parts ...string) string {
+	e := fg.std("errors") + ".New(" + fg.errString(hint, msg)
 	for _, p := range parts {
 		e += " + " + p
 	}
 	return e + ")"
 }
 
-func (fg *fileGen) jsonErr(msg string) string {
-	return fg.errExpr("proto: " + msg)
+func (fg *fileGen) jsonErr(hint, msg string) string {
+	return fg.errExpr(hint, "proto: "+msg)
+}
+
+// classConst names the constant for a phase-two parse class.
+var classConst = [...]string{
+	classNone:     "ClassNone",
+	classSigned:   "ClassSigned",
+	classUnsigned: "ClassUnsigned",
+	classFloat:    "ClassFloat",
+	classBool:     "ClassBool",
+	classString:   "ClassString",
+	classBytes:    "ClassBytes",
+	classHex:      "ClassHex",
+}
+
+// class returns the constant naming parse class c.
+func (fg *fileGen) class(c int) string {
+	return fg.c(classConst[c])
 }
 
 // --- Marshal ----------------------------------------------------------------
@@ -72,15 +90,16 @@ func (fg *fileGen) jsonErr(msg string) string {
 // the invalid UTF-8 error.
 func (fg *fileGen) jsonAppendString(v, name string) {
 	fg.P("if !", fg.std("unicode/utf8"), ".ValidString(", v, ") {")
-	fg.P("return nil, ", fg.jsonErr(name+" contains invalid UTF-8"))
+	fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrJSONUTF8", name+" contains invalid UTF-8"))
 	fg.P("}")
 	fg.P("b = append(b, '\"')")
 	fg.P("for ci := 0; ci < len(", v, "); ci++ {")
 	fg.P("switch c := ", v, "[ci]; {")
 	fg.P("case c == '\"' || c == '\\\\':")
 	fg.P("b = append(b, '\\\\', c)")
-	fg.P("case c < 0x20:")
-	fg.P("b = append(b, '\\\\', 'u', '0', '0', \"0123456789abcdef\"[c>>4], \"0123456789abcdef\"[c&15])")
+	fg.P("case c < ' ':")
+	hd := fg.c("HexDigits")
+	fg.P("b = append(b, '\\\\', 'u', '0', '0', ", hd, "[c>>4], ", hd, "[c&0xf])")
 	fg.P("default:")
 	fg.P("b = append(b, c)")
 	fg.P("}")
@@ -132,24 +151,20 @@ func (fg *fileGen) jsonAppendValue(f *desc.Field, v string) {
 	case desc.KindBytes:
 		if fg.g.jsonHex[f.FullName] {
 			hx := fg.std("encoding/hex")
-			fg.P("{")
 			fg.P("b = append(b, '\"')")
 			fg.P("l := len(b)")
 			fg.P("b = ", fg.std("slices"), ".Grow(b, ", hx, ".EncodedLen(len(", v, ")))[:l+", hx, ".EncodedLen(len(", v, "))]")
 			fg.P(hx, ".Encode(b[l:], ", v, ")")
 			fg.P("b = append(b, '\"')")
-			fg.P("}")
 			return
 		}
 		b64 := fg.std("encoding/base64")
-		fg.P("{")
 		fg.P("n := ", b64, ".StdEncoding.EncodedLen(len(", v, "))")
 		fg.P("b = append(b, '\"')")
 		fg.P("l := len(b)")
 		fg.P("b = ", fg.std("slices"), ".Grow(b, n)[:l+n]")
 		fg.P(b64, ".StdEncoding.Encode(b[l:], ", v, ")")
 		fg.P("b = append(b, '\"')")
-		fg.P("}")
 	case desc.KindEnum:
 		if f.EnumType.FullName == "google.protobuf.NullValue" {
 			fg.P("b = append(b, \"null\"...)")
@@ -167,11 +182,9 @@ func (fg *fileGen) jsonAppendValue(f *desc.Field, v string) {
 		fg.P("b = ", conv, ".AppendInt(b, int64(", v, "), 10)")
 		fg.P("}")
 	case desc.KindMessage:
-		fg.P("{")
 		fg.P("var err error")
 		fg.P("if b, err = ", v, ".ProtoAppendJSON(b); err != nil {")
 		fg.P("return nil, err")
-		fg.P("}")
 		fg.P("}")
 	}
 }
@@ -382,12 +395,12 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	fg.P("if tok == nil {")
 	fg.P("// JSON null leaves the message unchanged.")
 	fg.P("if _, err := d.Token(); err != ", fg.std("io"), ".EOF {")
-	fg.P("return ", fg.jsonErr(name+": unexpected data after JSON value"))
+	fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrTrailingData", name+": unexpected data after JSON value"))
 	fg.P("}")
 	fg.P("return nil")
 	fg.P("}")
 	fg.P("if tok != ", jsonPkg, ".Delim('{') {")
-	fg.P("return ", fg.jsonErr(name+": expected a JSON object"))
+	fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrNotObject", name+": expected a JSON object"))
 	fg.P("}")
 	if len(mi.fields) == 0 {
 		if fg.g.opts.JSONDiscardUnknown {
@@ -404,7 +417,7 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 			fg.P("if d.More() {")
 			fg.P("tok, _ := d.Token()")
 			fg.P("key, _ := tok.(string)")
-			fg.P("return ", fg.errConcat("proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
+			fg.P("return ", fg.errConcat(fg.owner(name)+"ErrUnknownField", "proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
 			fg.P("}")
 		}
 		fg.jsonCheckEnd(name)
@@ -463,11 +476,11 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	if fg.g.opts.JSONDiscardUnknown {
 		fg.P("continue // unknown keys are ignored (-json_discard_unknown)")
 	} else {
-		fg.P("return ", fg.errConcat("proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
+		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrUnknownField", "proto: "+name+": unknown field ", fg.std("strconv")+".Quote(key)"))
 	}
 	fg.P("}")
 	fg.P("if seen[f] {")
-	fg.P("return ", fg.errConcat("proto: "+name+": duplicate field ", fg.std("strconv")+".Quote(key)"))
+	fg.P("return ", fg.errConcat(fg.owner(name)+"ErrDuplicateField", "proto: "+name+": duplicate field ", fg.std("strconv")+".Quote(key)"))
 	fg.P("}")
 	fg.P("seen[f] = true")
 	// Group fields by structural handling.
@@ -539,7 +552,7 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 			fg.P("}")
 		}
 		fg.P("if oneofs[", k, "] {")
-		fg.P("return ", fg.jsonErr(name+": multiple fields set for oneof "+mi.oneofs[k].o.Name))
+		fg.P("return ", fg.jsonErr(fg.owner(name)+camelCase(mi.oneofs[k].o.Name)+"ErrOneofConflict", name+": multiple fields set for oneof "+mi.oneofs[k].o.Name))
 		fg.P("}")
 		fg.P("oneofs[", k, "] = true")
 		fg.P("jobs = append(jobs, job{f: f, raw: raw})")
@@ -569,14 +582,14 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 // in rawVar into jobs for field f.
 func (fg *fileGen) jsonCollect(rawVar string, isMap, nullOK bool, name string) {
 	jsonPkg := fg.std("encoding/json")
-	open, what := "[", "array"
+	open, what, hint := "[", "array", "ErrNotArray"
 	if isMap {
-		open, what = "{", "object"
+		open, what, hint = "{", "object", "ErrNotObject"
 	}
 	fg.P("ad := ", jsonPkg, ".NewDecoder(", fg.std("bytes"), ".NewReader(", rawVar, "))")
 	fg.P("ad.UseNumber()")
 	fg.P("if t, err := ad.Token(); err != nil || t != ", jsonPkg, ".Delim('", open, "') {")
-	fg.P("return ", fg.jsonErr(name+": expected a JSON "+what))
+	fg.P("return ", fg.jsonErr(fg.owner(name)+hint, name+": expected a JSON "+what))
 	fg.P("}")
 	fg.P("for ad.More() {")
 	if isMap {
@@ -592,7 +605,7 @@ func (fg *fileGen) jsonCollect(rawVar string, isMap, nullOK bool, name string) {
 	fg.P("}")
 	if !nullOK {
 		fg.P("if string(e) == \"null\" {")
-		fg.P("return ", fg.jsonErr(name+": null is not allowed in repeated fields or map values"))
+		fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrNullElement", name+": null is not allowed in repeated fields or map values"))
 		fg.P("}")
 	}
 	if isMap {
@@ -608,7 +621,7 @@ func (fg *fileGen) jsonCheckEnd(name string) {
 	fg.P("return err")
 	fg.P("}")
 	fg.P("if _, err := d.Token(); err != ", fg.std("io"), ".EOF {")
-	fg.P("return ", fg.jsonErr(name+": unexpected data after JSON value"))
+	fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrTrailingData", name+": unexpected data after JSON value"))
 	fg.P("}")
 }
 
@@ -720,7 +733,7 @@ func (fg *fileGen) jsonPhase2(mi *messageInfo, idxs []int) {
 	fg.P("for _, jb := range jobs {")
 	fg.P("raw := jb.raw")
 	if anyScalar {
-		fg.P("class := 0")
+		fg.P("class := ", fg.class(classNone))
 		if numeric {
 			fg.P("bits := 64")
 		}
@@ -761,20 +774,20 @@ func (fg *fileGen) jsonPhase2(mi *messageInfo, idxs []int) {
 		for _, k := range gkeys {
 			fg.P("case ", joinInts(groups[k]), ":")
 			if numeric && k[1] != 0 {
-				fg.P("class, bits = ", k[0], ", ", k[1])
+				fg.P("class, bits = ", fg.class(k[0]), ", ", k[1])
 			} else {
-				fg.P("class = ", k[0])
+				fg.P("class = ", fg.class(k[0]))
 			}
 		}
 		if hasEnum {
 			fg.P("case ", joinInts(enums), ":")
 			fg.P("switch {")
 			fg.P("case string(raw) == \"null\":")
-			fg.P("class = 0")
+			fg.P("class = ", fg.class(classNone))
 			fg.P("case raw[0] == '\"':")
-			fg.P("class = ", classString)
+			fg.P("class = ", fg.class(classString))
 			fg.P("default:")
-			fg.P("class, bits = ", classSigned, ", 32")
+			fg.P("class, bits = ", fg.class(classSigned), ", 32")
 			fg.P("}")
 		}
 		fg.P("}")
@@ -792,12 +805,12 @@ func (fg *fileGen) jsonPhase2(mi *messageInfo, idxs []int) {
 // jsonParseClasses emits the shared scalar parse blocks.
 func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 	jsonPkg := fg.std("encoding/json")
-	invalid := func(what string) {
-		fg.P("return ", fg.errConcat("proto: "+name+": invalid "+what+" ", "string(raw)"))
+	invalid := func(hint, what string) {
+		fg.P("return ", fg.errConcat(fg.owner(name)+hint, "proto: "+name+": invalid "+what+" ", "string(raw)"))
 	}
 	numberCheck := func() {
 		fg.P("if s == \"\" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !", jsonPkg, ".Valid([]byte(s)) {")
-		invalid("number")
+		invalid("ErrInvalidNumber", "number")
 		fg.P("}")
 	}
 	unquote := func(dst string) {
@@ -810,21 +823,21 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 	fg.P("switch class {")
 	if used[classSigned] || used[classUnsigned] {
 		conv := fg.std("strconv")
-		var cases []int
+		var cases []string
 		if used[classSigned] {
-			cases = append(cases, classSigned)
+			cases = append(cases, fg.class(classSigned))
 		}
 		if used[classUnsigned] {
-			cases = append(cases, classUnsigned)
+			cases = append(cases, fg.class(classUnsigned))
 		}
-		fg.P("case ", joinInts(cases), ":")
+		fg.P("case ", joinComma(cases), ":")
 		fg.P("s := string(raw)")
 		unquote("s")
 		numberCheck()
 		fg.P("var err error")
 		switch {
 		case used[classSigned] && used[classUnsigned]:
-			fg.P("if class == ", classSigned, " {")
+			fg.P("if class == ", fg.class(classSigned), " {")
 			fg.P("iv, err = ", conv, ".ParseInt(s, 10, bits)")
 			fg.P("} else {")
 			fg.P("uv, err = ", conv, ".ParseUint(s, 10, bits)")
@@ -838,30 +851,31 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 		fg.P("// Accept exponent and fraction forms that denote an exact integer,")
 		fg.P("// bounding the exponent so that exact arithmetic stays cheap.")
 		fg.P("if i := ", fg.std("strings"), ".IndexAny(s, \"eE\"); i >= 0 {")
-		fg.P("if e, err := ", conv, ".Atoi(s[i+1:]); err != nil || e > 100 || e < -100 {")
-		invalid("integer")
+		fg.P("if e, err := ", conv, ".Atoi(s[i+1:]); err != nil || e > ", fg.c("MaxJSONExponent"), " || e < -", fg.c("MaxJSONExponent"), " {")
+		invalid("ErrInvalidInteger", "integer")
 		fg.P("}")
 		fg.P("}")
 		fg.P("r, ok := new(", fg.std("math/big"), ".Rat).SetString(s)")
 		fg.P("if !ok || !r.IsInt() {")
-		invalid("integer")
+		invalid("ErrInvalidInteger", "integer")
 		fg.P("}")
 		fg.P("n := r.Num()")
 		signed := func() {
-			fg.P("if !n.IsInt64() || (bits == 32 && (n.Int64() < -1<<31 || n.Int64() > 1<<31-1)) {")
-			invalid("integer")
+			m := fg.std("math")
+			fg.P("if !n.IsInt64() || (bits == 32 && (n.Int64() < ", m, ".MinInt32 || n.Int64() > ", m, ".MaxInt32)) {")
+			invalid("ErrInvalidInteger", "integer")
 			fg.P("}")
 			fg.P("iv = n.Int64()")
 		}
 		unsigned := func() {
-			fg.P("if !n.IsUint64() || (bits == 32 && n.Uint64() > 1<<32-1) {")
-			invalid("integer")
+			fg.P("if !n.IsUint64() || (bits == 32 && n.Uint64() > ", fg.std("math"), ".MaxUint32) {")
+			invalid("ErrInvalidInteger", "integer")
 			fg.P("}")
 			fg.P("uv = n.Uint64()")
 		}
 		switch {
 		case used[classSigned] && used[classUnsigned]:
-			fg.P("if class == ", classSigned, " {")
+			fg.P("if class == ", fg.class(classSigned), " {")
 			signed()
 			fg.P("} else {")
 			unsigned()
@@ -875,7 +889,7 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 	}
 	if used[classFloat] {
 		m := fg.std("math")
-		fg.P("case ", classFloat, ":")
+		fg.P("case ", fg.class(classFloat), ":")
 		fg.P("s := string(raw)")
 		fg.P("special := false")
 		fg.P("if raw[0] == '\"' {")
@@ -895,24 +909,24 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 		numberCheck()
 		fg.P("var err error")
 		fg.P("if fv, err = ", fg.std("strconv"), ".ParseFloat(s, bits); err != nil {")
-		invalid("number")
+		invalid("ErrInvalidNumber", "number")
 		fg.P("}")
 		fg.P("}")
 	}
 	if used[classBool] {
-		fg.P("case ", classBool, ":")
+		fg.P("case ", fg.class(classBool), ":")
 		fg.P("switch string(raw) {")
 		fg.P("case \"true\":")
 		fg.P("bv = true")
 		fg.P("case \"false\":")
 		fg.P("default:")
-		invalid("boolean")
+		invalid("ErrInvalidBool", "boolean")
 		fg.P("}")
 	}
 	if used[classString] {
-		fg.P("case ", classString, ":")
+		fg.P("case ", fg.class(classString), ":")
 		fg.P("if raw[0] != '\"' || !", fg.std("unicode/utf8"), ".Valid(raw) {")
-		invalid("string")
+		invalid("ErrInvalidString", "string")
 		fg.P("}")
 		fg.P("if err := ", jsonPkg, ".Unmarshal(raw, &sv); err != nil {")
 		fg.P("return err")
@@ -920,10 +934,10 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 	}
 	if used[classBytes] {
 		b64 := fg.std("encoding/base64")
-		fg.P("case ", classBytes, ":")
+		fg.P("case ", fg.class(classBytes), ":")
 		fg.P("var s string")
 		fg.P("if raw[0] != '\"' {")
-		invalid("bytes")
+		invalid("ErrInvalidBytes", "bytes")
 		fg.P("}")
 		fg.P("if err := ", jsonPkg, ".Unmarshal(raw, &s); err != nil {")
 		fg.P("return err")
@@ -933,19 +947,19 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 		fg.P("if ", fg.std("strings"), ".ContainsAny(s, \"-_\") {")
 		fg.P("enc = ", b64, ".URLEncoding")
 		fg.P("}")
-		fg.P("if len(s)%4 != 0 {")
+		fg.P("if len(s)%", fg.c("Base64Quantum"), " != 0 {")
 		fg.P("enc = enc.WithPadding(", b64, ".NoPadding)")
 		fg.P("}")
 		fg.P("var err error")
 		fg.P("if by, err = enc.DecodeString(s); err != nil {")
-		invalid("bytes")
+		invalid("ErrInvalidBytes", "bytes")
 		fg.P("}")
 	}
 	if used[classHex] {
-		fg.P("case ", classHex, ":")
+		fg.P("case ", fg.class(classHex), ":")
 		fg.P("var s string")
 		fg.P("if raw[0] != '\"' {")
-		invalid("hex bytes")
+		invalid("ErrInvalidHex", "hex bytes")
 		fg.P("}")
 		fg.P("if err := ", jsonPkg, ".Unmarshal(raw, &s); err != nil {")
 		fg.P("return err")
@@ -953,7 +967,7 @@ func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
 		fg.P("// Either case is accepted.")
 		fg.P("var err error")
 		fg.P("if by, err = ", fg.std("encoding/hex"), ".DecodeString(s); err != nil {")
-		invalid("hex bytes")
+		invalid("ErrInvalidHex", "hex bytes")
 		fg.P("}")
 	}
 	fg.P("}")
@@ -992,13 +1006,13 @@ func (fg *fileGen) jsonValueExpr(vf *desc.Field, name string) string {
 		et := fg.enumType(vf.EnumType)
 		fg.P("var ev ", et)
 		fg.P("switch class {")
-		fg.P("case ", classString, ":")
+		fg.P("case ", fg.class(classString), ":")
 		fg.P("n, ok := ", fg.qualify(vf.EnumType.File, fg.g.enmNames[vf.EnumType]+"_value"), "[sv]")
 		fg.P("if !ok {")
-		fg.P("return ", fg.errConcat("proto: "+name+": invalid value for enum "+vf.EnumType.FullName+": ", fg.std("strconv")+".Quote(sv)"))
+		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrInvalid"+camelCase(vf.EnumType.Name), "proto: "+name+": invalid value for enum "+vf.EnumType.FullName+": ", fg.std("strconv")+".Quote(sv)"))
 		fg.P("}")
 		fg.P("ev = ", et, "(n)")
-		fg.P("case ", classSigned, ":")
+		fg.P("case ", fg.class(classSigned), ":")
 		fg.P("ev = ", et, "(iv)")
 		fg.P("}")
 		return "ev"
@@ -1022,7 +1036,7 @@ func (fg *fileGen) jsonAssign(fi *fieldInfo) {
 		key := f.MapKey
 		conv := fg.std("strconv")
 		badKey := func() {
-			fg.P("return ", fg.errConcat("proto: "+name+": invalid map key for field "+f.Name+": ", conv+".Quote(jb.key)"))
+			fg.P("return ", fg.errConcat(fg.owner(f.FullName)+"ErrInvalidKey", "proto: "+name+": invalid map key for field "+f.Name+": ", conv+".Quote(jb.key)"))
 		}
 		switch key.Kind {
 		case desc.KindString:
@@ -1120,7 +1134,7 @@ func fieldByName(mi *messageInfo, name string) (*fieldInfo, int) {
 func (fg *fileGen) jsonTrimmed(name string) {
 	fg.P("raw := ", fg.std("bytes"), ".TrimSpace(b)")
 	fg.P("if !", fg.std("encoding/json"), ".Valid(raw) {")
-	fg.P("return ", fg.jsonErr(name+": invalid JSON"))
+	fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrInvalidJSON", name+": invalid JSON"))
 	fg.P("}")
 	fg.P("if string(raw) == \"null\" {")
 	fg.P("return nil")
@@ -1131,7 +1145,7 @@ func (fg *fileGen) jsonTrimmed(name string) {
 func (fg *fileGen) jsonUnquote(name string) {
 	fg.P("var s string")
 	fg.P("if raw[0] != '\"' || !", fg.std("unicode/utf8"), ".Valid(raw) {")
-	fg.P("return ", fg.jsonErr(name+": expected a JSON string"))
+	fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrNotString", name+": expected a JSON string"))
 	fg.P("}")
 	fg.P("if err := ", fg.std("encoding/json"), ".Unmarshal(raw, &s); err != nil {")
 	fg.P("return err")
@@ -1140,19 +1154,22 @@ func (fg *fileGen) jsonUnquote(name string) {
 
 // jsonAppendFraction emits code appending ".ddd", ".dddddd" or ".ddddddddd"
 // for non-negative nanosecond count expression nanos, or nothing if zero.
+// Each form adds one second in its unit before formatting and drops the
+// leading "1", which leaves the zero-padded digits.
 func (fg *fileGen) jsonAppendFraction(nanos string) {
 	conv := fg.std("strconv")
+	perMilli, perMicro := fg.c("NanosPerMilli"), fg.c("NanosPerMicro")
 	fg.P("switch {")
 	fg.P("case ", nanos, " == 0:")
-	fg.P("case ", nanos, "%1000000 == 0:")
+	fg.P("case ", nanos, "%", perMilli, " == 0:")
 	fg.P("b = append(b, '.')")
-	fg.P("b = append(b, ", conv, ".Itoa(1000+int(", nanos, ")/1000000)[1:]...)")
-	fg.P("case ", nanos, "%1000 == 0:")
+	fg.P("b = append(b, ", conv, ".Itoa(", fg.c("MillisPerSecond"), "+int(", nanos, ")/", perMilli, ")[1:]...)")
+	fg.P("case ", nanos, "%", perMicro, " == 0:")
 	fg.P("b = append(b, '.')")
-	fg.P("b = append(b, ", conv, ".Itoa(1000000+int(", nanos, ")/1000)[1:]...)")
+	fg.P("b = append(b, ", conv, ".Itoa(", fg.c("MicrosPerSecond"), "+int(", nanos, ")/", perMicro, ")[1:]...)")
 	fg.P("default:")
 	fg.P("b = append(b, '.')")
-	fg.P("b = append(b, ", conv, ".Itoa(1000000000+int(", nanos, "))[1:]...)")
+	fg.P("b = append(b, ", conv, ".Itoa(", fg.c("NanosPerSecond"), "+int(", nanos, "))[1:]...)")
 	fg.P("}")
 }
 
@@ -1167,9 +1184,8 @@ func (fg *fileGen) genJSONTimestamp(mi *messageInfo) {
 		fg.P("if m != nil {")
 		fg.P("s, ns = ", S, ", ", N)
 		fg.P("}")
-		fg.P("// 0001-01-01T00:00:00Z to 9999-12-31T23:59:59.999999999Z.")
-		fg.P("if s < -62135596800 || s > 253402300799 || ns < 0 || ns > 999999999 {")
-		fg.P("return nil, ", fg.jsonErr(name+": timestamp out of range"))
+		fg.P("if s < ", fg.c("MinTimestampSeconds"), " || s > ", fg.c("MaxTimestampSeconds"), " || ns < 0 || ns >= ", fg.c("NanosPerSecond"), " {")
+		fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrOutOfRange", name+": timestamp out of range"))
 		fg.P("}")
 		fg.P("b = append(b, '\"')")
 		fg.P("b = ", fg.std("time"), ".Unix(s, 0).UTC().AppendFormat(b, \"2006-01-02T15:04:05\")")
@@ -1182,11 +1198,11 @@ func (fg *fileGen) genJSONTimestamp(mi *messageInfo) {
 		fg.jsonUnquote(name)
 		fg.P("t, err := ", fg.std("time"), ".Parse(", fg.std("time"), ".RFC3339Nano, s)")
 		fg.P("if err != nil {")
-		fg.P("return ", fg.errConcat("proto: "+name+": invalid timestamp ", fg.std("strconv")+".Quote(s)"))
+		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrInvalid", "proto: "+name+": invalid timestamp ", fg.std("strconv")+".Quote(s)"))
 		fg.P("}")
 		fg.P("secs := t.Unix()")
-		fg.P("if secs < -62135596800 || secs > 253402300799 {")
-		fg.P("return ", fg.jsonErr(name+": timestamp out of range"))
+		fg.P("if secs < ", fg.c("MinTimestampSeconds"), " || secs > ", fg.c("MaxTimestampSeconds"), " {")
+		fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrOutOfRange", name+": timestamp out of range"))
 		fg.P("}")
 		fg.P(S, ", ", N, " = secs, int32(t.Nanosecond())")
 		fg.P("return nil")
@@ -1205,8 +1221,9 @@ func (fg *fileGen) genJSONDuration(mi *messageInfo) {
 		fg.P("if m != nil {")
 		fg.P("s, ns = ", S, ", ", N)
 		fg.P("}")
-		fg.P("if s < -315576000000 || s > 315576000000 || ns <= -1000000000 || ns >= 1000000000 || (s > 0 && ns < 0) || (s < 0 && ns > 0) {")
-		fg.P("return nil, ", fg.jsonErr(name+": duration out of range"))
+		maxSecs, nps := fg.c("MaxDurationSeconds"), fg.c("NanosPerSecond")
+		fg.P("if s < -", maxSecs, " || s > ", maxSecs, " || ns <= -", nps, " || ns >= ", nps, " || (s > 0 && ns < 0) || (s < 0 && ns > 0) {")
+		fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrOutOfRange", name+": duration out of range"))
 		fg.P("}")
 		fg.P("b = append(b, '\"')")
 		fg.P("if s < 0 || ns < 0 {")
@@ -1229,16 +1246,19 @@ func (fg *fileGen) genJSONDuration(mi *messageInfo) {
 		fg.P("}")
 		fg.P("whole, frac, dot := ", str, ".Cut(", str, ".TrimSuffix(s, \"s\"), \".\")")
 		fg.P("if !", str, ".HasSuffix(s, \"s\") || whole == \"\" || ", str, ".Trim(whole, \"0123456789\") != \"\" ||")
-		fg.P("(dot && (frac == \"\" || len(frac) > 9 || ", str, ".Trim(frac, \"0123456789\") != \"\")) {")
-		fg.P("return ", fg.errConcat("proto: "+name+": invalid duration ", conv+".Quote(in)"))
+		fg.P("(dot && (frac == \"\" || len(frac) > ", fg.c("MaxFracDigits"), " || ", str, ".Trim(frac, \"0123456789\") != \"\")) {")
+		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrInvalid", "proto: "+name+": invalid duration ", conv+".Quote(in)"))
 		fg.P("}")
 		fg.P("secs, err := ", conv, ".ParseInt(whole, 10, 64)")
-		fg.P("if err != nil || secs > 315576000000 {")
-		fg.P("return ", fg.jsonErr(name+": duration out of range"))
+		fg.P("if err != nil || secs > ", fg.c("MaxDurationSeconds"), " {")
+		fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrOutOfRange", name+": duration out of range"))
 		fg.P("}")
 		fg.P("var nanos int64")
 		fg.P("if dot {")
-		fg.P("nanos, _ = ", conv, ".ParseInt((frac + \"000000000\")[:9], 10, 64)")
+		fg.P("nanos, _ = ", conv, ".ParseInt(frac, 10, 64)")
+		fg.P("for range ", fg.c("MaxFracDigits"), " - len(frac) {")
+		fg.P("nanos *= 10")
+		fg.P("}")
 		fg.P("}")
 		fg.P("if neg {")
 		fg.P("secs, nanos = -secs, -nanos")
@@ -1322,7 +1342,7 @@ func (fg *fileGen) genJSONValue(mi *messageInfo) {
 		fg.P("case *", num.wrapper, ":")
 		m := fg.std("math")
 		fg.P("if ", m, ".IsNaN(o.", num.goName, ") || ", m, ".IsInf(o.", num.goName, ", 0) {")
-		fg.P("return nil, ", fg.jsonErr(name+": number_value cannot be NaN or Infinity"))
+		fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrNonFinite", name+": number_value cannot be NaN or Infinity"))
 		fg.P("}")
 		fg.P("b = ", fg.std("strconv"), ".AppendFloat(b, o.", num.goName, ", 'g', -1, 64)")
 		fg.P("case *", str.wrapper, ":")
@@ -1334,14 +1354,14 @@ func (fg *fileGen) genJSONValue(mi *messageInfo) {
 		fg.P("case *", lst.wrapper, ":")
 		fg.jsonAppendValue(lst.f, "o."+lst.goName)
 		fg.P("default:")
-		fg.P("return nil, ", fg.jsonErr(name+": no kind is set"))
+		fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrNoKind", name+": no kind is set"))
 		fg.P("}")
 		fg.P("return b, nil")
 	})
 	fg.genJSONUnmarshal(mi, func() {
 		fg.P("raw := ", fg.std("bytes"), ".TrimSpace(b)")
 		fg.P("if !", fg.std("encoding/json"), ".Valid(raw) {")
-		fg.P("return ", fg.jsonErr(name+": invalid JSON"))
+		fg.P("return ", fg.jsonErr(fg.owner(name)+"ErrInvalidJSON", name+": invalid JSON"))
 		fg.P("}")
 		fg.P("switch raw[0] {")
 		fg.P("case 'n':")
@@ -1366,7 +1386,7 @@ func (fg *fileGen) genJSONValue(mi *messageInfo) {
 		fg.P("default:")
 		fg.P("fv, err := ", fg.std("strconv"), ".ParseFloat(string(raw), 64)")
 		fg.P("if err != nil {")
-		fg.P("return ", fg.errConcat("proto: "+name+": invalid number ", "string(raw)"))
+		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrInvalidNumber", "proto: "+name+": invalid number ", "string(raw)"))
 		fg.P("}")
 		fg.P("m.", kind, " = &", num.wrapper, "{", num.goName, ": fv}")
 		fg.P("}")
@@ -1390,12 +1410,12 @@ func (fg *fileGen) genJSONFieldMask(mi *messageInfo) {
 		fg.P("switch c := p[ci]; {")
 		fg.P("case c == '_':")
 		fg.P("if ci+1 >= len(p) || p[ci+1] < 'a' || p[ci+1] > 'z' {")
-		fg.P("return nil, ", fg.errConcat("proto: "+name+": path cannot be represented in JSON: ", fg.std("strconv")+".Quote(p)"))
+		fg.P("return nil, ", fg.errConcat(fg.owner(name)+"ErrUnrepresentablePath", "proto: "+name+": path cannot be represented in JSON: ", fg.std("strconv")+".Quote(p)"))
 		fg.P("}")
 		fg.P("ci++")
 		fg.P("b = append(b, p[ci]-('a'-'A'))")
-		fg.P("case c >= 'A' && c <= 'Z', c < 0x20, c == '\"', c == '\\\\', c == ',':")
-		fg.P("return nil, ", fg.errConcat("proto: "+name+": path cannot be represented in JSON: ", fg.std("strconv")+".Quote(p)"))
+		fg.P("case c >= 'A' && c <= 'Z', c < ' ', c == '\"', c == '\\\\', c == ',':")
+		fg.P("return nil, ", fg.errConcat(fg.owner(name)+"ErrUnrepresentablePath", "proto: "+name+": path cannot be represented in JSON: ", fg.std("strconv")+".Quote(p)"))
 		fg.P("default:")
 		fg.P("b = append(b, c)")
 		fg.P("}")
@@ -1417,7 +1437,7 @@ func (fg *fileGen) genJSONFieldMask(mi *messageInfo) {
 		fg.P("for ci := 0; ci < len(p); ci++ {")
 		fg.P("switch c := p[ci]; {")
 		fg.P("case c == '_':")
-		fg.P("return ", fg.errConcat("proto: "+name+": invalid path ", fg.std("strconv")+".Quote(p)"))
+		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrInvalidPath", "proto: "+name+": invalid path ", fg.std("strconv")+".Quote(p)"))
 		fg.P("case c >= 'A' && c <= 'Z':")
 		fg.P("sb = append(sb, '_', c+('a'-'A'))")
 		fg.P("default:")
@@ -1433,12 +1453,12 @@ func (fg *fileGen) genJSONFieldMask(mi *messageInfo) {
 func (fg *fileGen) genJSONAny(mi *messageInfo) {
 	const msg = "google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have"
 	fg.genJSONMarshal(mi, func() {
-		fg.P("return nil, ", fg.jsonErr(msg))
+		fg.P("return nil, ", fg.jsonErr(fg.owner(mi.m.FullName)+"ErrUnsupported", msg))
 	})
 	fg.genJSONUnmarshal(mi, func() {
 		fg.P("if string(", fg.std("bytes"), ".TrimSpace(b)) == \"null\" {")
 		fg.P("return nil")
 		fg.P("}")
-		fg.P("return ", fg.jsonErr(msg))
+		fg.P("return ", fg.jsonErr(fg.owner(mi.m.FullName)+"ErrUnsupported", msg))
 	})
 }
