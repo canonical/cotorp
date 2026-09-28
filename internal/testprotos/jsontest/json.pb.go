@@ -83,6 +83,7 @@ const (
 	jsonErrParse                       = "proto: cannot parse invalid wire-format data"
 	jsonErrDepth                       = "proto: exceeded maximum recursion depth"
 	jsonNamesByBoolEntryValueErrUTF8   = "proto: field cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8"
+	jsonErrInvalidKey                  = "invalid map key for field "
 )
 
 type WellKnown struct {
@@ -348,116 +349,88 @@ func (m *WellKnown) ProtoSize() (n int) {
 		return 0
 	}
 	if m.Ts != nil {
-		l := m.Ts.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Ts.ProtoSize())
 	}
 	if m.Dur != nil {
-		l := m.Dur.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Dur.ProtoSize())
 	}
 	if m.Dbl != nil {
-		l := m.Dbl.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Dbl.ProtoSize())
 	}
 	if m.Flt != nil {
-		l := m.Flt.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Flt.ProtoSize())
 	}
 	if m.I64 != nil {
-		l := m.I64.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.I64.ProtoSize())
 	}
 	if m.U64 != nil {
-		l := m.U64.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.U64.ProtoSize())
 	}
 	if m.I32 != nil {
-		l := m.I32.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.I32.ProtoSize())
 	}
 	if m.U32 != nil {
-		l := m.U32.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.U32.ProtoSize())
 	}
 	if m.Bool != nil {
-		l := m.Bool.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Bool.ProtoSize())
 	}
 	if m.Str != nil {
-		l := m.Str.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Str.ProtoSize())
 	}
 	if m.Bytes != nil {
-		l := m.Bytes.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Bytes.ProtoSize())
 	}
 	if m.St != nil {
-		l := m.St.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.St.ProtoSize())
 	}
 	if m.Val != nil {
-		l := m.Val.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Val.ProtoSize())
 	}
 	if m.Lst != nil {
-		l := m.Lst.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Lst.ProtoSize())
 	}
 	if m.Mask != nil {
-		l := m.Mask.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(m.Mask.ProtoSize())
 	}
 	if m.Empty != nil {
-		l := m.Empty.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(m.Empty.ProtoSize())
 	}
 	if m.NullValue != 0 {
 		n += 2 + (bits.Len64(uint64(int64(m.NullValue))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
 	}
 	for _, v := range m.Vals {
-		l := v.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(v.ProtoSize())
 	}
 	for k, v := range m.ValMap {
-		_, _ = k, v
-		lv := v.ProtoSize()
-		l := 1 + len(k) + (bits.Len64(uint64(len(k))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits + 1 + lv + (bits.Len64(uint64(lv)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(1+jsonSizeLen(len(k))+1+jsonSizeLen(v.ProtoSize()))
 	}
 	if m.OptNull != nil {
 		n += 2 + (bits.Len64(uint64(int64((*m.OptNull)))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
 	}
 	switch o := m.O.(type) {
 	case *WellKnown_OVal:
-		l := o.OVal.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(o.OVal.ProtoSize())
 	case *WellKnown_ONull:
 		n += 2 + (bits.Len64(uint64(int64(o.ONull))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
 	case *WellKnown_OStr:
-		n += 2 + len(o.OStr) + (bits.Len64(uint64(len(o.OStr))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(len(o.OStr))
 	}
 	if m.Any != nil {
-		l := m.Any.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(m.Any.ProtoSize())
 	}
 	for _, v := range m.Tss {
-		l := v.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(v.ProtoSize())
 	}
 	for k, v := range m.Durs {
-		_, _ = k, v
-		lv := v.ProtoSize()
-		l := 1 + (bits.Len64(uint64(int64(k))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits + 1 + lv + (bits.Len64(uint64(lv)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
-		n += 2 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonSizeLen(1+(bits.Len64(uint64(int64(k))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits+1+jsonSizeLen(v.ProtoSize()))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *WellKnown) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *WellKnown) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *WellKnown) AppendBinary(b []byte) ([]byte, error) {
@@ -487,13 +460,9 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			i -= n
-			i = jsonPutVarint(b, i, uint64(n))
-			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
-			i = jsonPutVarint(b, i, uint64(int64(k)))
-			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
-			i = jsonPutVarint(b, i, uint64(start-i))
-			i = jsonPutVarint(b, i, 26<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(k))), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 26<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	for _, v := range slices.Backward(m.Tss) {
@@ -501,18 +470,14 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 25<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 25<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Any != nil {
 		n, err := m.Any.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 24<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 24<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if o, ok := m.O.(*WellKnown_OStr); ok {
 		if !utf8.ValidString(o.OStr) {
@@ -520,25 +485,20 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(o.OStr)
 		copy(b[i:], o.OStr)
-		i = jsonPutVarint(b, i, uint64(len(o.OStr)))
-		i = jsonPutVarint(b, i, 23<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(o.OStr))), 23<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if o, ok := m.O.(*WellKnown_ONull); ok {
-		i = jsonPutVarint(b, i, uint64(int64(o.ONull)))
-		i = jsonPutVarint(b, i, 22<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(o.ONull))), 22<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if o, ok := m.O.(*WellKnown_OVal); ok {
 		n, err := o.OVal.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 21<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 21<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.OptNull != nil {
-		i = jsonPutVarint(b, i, uint64(int64((*m.OptNull))))
-		i = jsonPutVarint(b, i, 20<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64((*m.OptNull)))), 20<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if len(m.ValMap) > 0 {
 		for _, k := range slices.Backward(jsonSortedKeys(m.ValMap, make([]string, 0, len(m.ValMap)))) {
@@ -548,18 +508,14 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			i -= n
-			i = jsonPutVarint(b, i, uint64(n))
-			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(jsonWellKnownValMapEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
-			i = jsonPutVarint(b, i, uint64(len(k)))
-			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireBytes)
-			i = jsonPutVarint(b, i, uint64(start-i))
-			i = jsonPutVarint(b, i, 19<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(k))), jsonMapKeyField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 19<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	for _, v := range slices.Backward(m.Vals) {
@@ -567,157 +523,122 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 18<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 18<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.NullValue != 0 {
-		i = jsonPutVarint(b, i, uint64(int64(m.NullValue)))
-		i = jsonPutVarint(b, i, 17<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(m.NullValue))), 17<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.Empty != nil {
 		n, err := m.Empty.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 16<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 16<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Mask != nil {
 		n, err := m.Mask.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 15<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 15<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Lst != nil {
 		n, err := m.Lst.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 14<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 14<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Val != nil {
 		n, err := m.Val.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 13<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 13<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.St != nil {
 		n, err := m.St.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 12<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 12<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Bytes != nil {
 		n, err := m.Bytes.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 11<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 11<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Str != nil {
 		n, err := m.Str.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 10<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 10<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Bool != nil {
 		n, err := m.Bool.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 9<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 9<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.U32 != nil {
 		n, err := m.U32.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 8<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 8<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.I32 != nil {
 		n, err := m.I32.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 7<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 7<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.U64 != nil {
 		n, err := m.U64.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 6<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 6<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.I64 != nil {
 		n, err := m.I64.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 5<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 5<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Flt != nil {
 		n, err := m.Flt.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 4<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 4<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Dbl != nil {
 		n, err := m.Dbl.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 3<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 3<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Dur != nil {
 		n, err := m.Dur.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 2<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 2<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Ts != nil {
 		n, err := m.Ts.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = jsonPutVarint(b, i, uint64(n))
-		i = jsonPutVarint(b, i, 1<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), 1<<jsonTagTypeBits|jsonWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -731,9 +652,7 @@ func (m *WellKnown) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *WellKnown) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *WellKnown) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
@@ -756,8 +675,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Ts == nil {
 				m.Ts = &wktpb.Timestamp{}
 			}
-			mv := m.Ts
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Ts.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -769,8 +687,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Dur == nil {
 				m.Dur = &wktpb.Duration{}
 			}
-			mv := m.Dur
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Dur.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -782,8 +699,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Dbl == nil {
 				m.Dbl = &wktpb.DoubleValue{}
 			}
-			mv := m.Dbl
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Dbl.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -795,8 +711,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Flt == nil {
 				m.Flt = &wktpb.FloatValue{}
 			}
-			mv := m.Flt
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Flt.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -808,8 +723,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.I64 == nil {
 				m.I64 = &wktpb.Int64Value{}
 			}
-			mv := m.I64
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.I64.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -821,8 +735,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.U64 == nil {
 				m.U64 = &wktpb.UInt64Value{}
 			}
-			mv := m.U64
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.U64.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -834,8 +747,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.I32 == nil {
 				m.I32 = &wktpb.Int32Value{}
 			}
-			mv := m.I32
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.I32.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -847,8 +759,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.U32 == nil {
 				m.U32 = &wktpb.UInt32Value{}
 			}
-			mv := m.U32
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.U32.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -860,8 +771,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Bool == nil {
 				m.Bool = &wktpb.BoolValue{}
 			}
-			mv := m.Bool
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Bool.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -873,8 +783,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Str == nil {
 				m.Str = &wktpb.StringValue{}
 			}
-			mv := m.Str
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Str.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -886,8 +795,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Bytes == nil {
 				m.Bytes = &wktpb.BytesValue{}
 			}
-			mv := m.Bytes
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Bytes.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -899,8 +807,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.St == nil {
 				m.St = &wktpb.Struct{}
 			}
-			mv := m.St
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.St.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -912,8 +819,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Val == nil {
 				m.Val = &wktpb.Value{}
 			}
-			mv := m.Val
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Val.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -925,8 +831,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Lst == nil {
 				m.Lst = &wktpb.ListValue{}
 			}
-			mv := m.Lst
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Lst.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -938,8 +843,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Mask == nil {
 				m.Mask = &wktpb.FieldMask{}
 			}
-			mv := m.Mask
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Mask.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -951,8 +855,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Empty == nil {
 				m.Empty = &wktpb.Empty{}
 			}
-			mv := m.Empty
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Empty.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -961,8 +864,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.NullValue = wktpb.NullValue(int32(x))
+			b, m.NullValue = b[n:], wktpb.NullValue(int32(x))
 		case 18<<jsonTagTypeBits | jsonWireBytes:
 			v, n := jsonReadBytes(b)
 			if n < 0 {
@@ -979,8 +881,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			var mk string
-			var mv *wktpb.Value
+			mk, mv := "", (*wktpb.Value)(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
@@ -996,8 +897,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					if !utf8.Valid(x) {
 						return errors.New(jsonWellKnownValMapEntryKeyErrUTF8)
 					}
-					mk = string(x)
-					v = v[n:]
+					v, mk = v[n:], string(x)
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
 					x, n := jsonReadBytes(v)
 					if n < 0 {
@@ -1021,19 +921,14 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if mv == nil {
 				mv = &wktpb.Value{}
 			}
-			if m.ValMap == nil {
-				m.ValMap = make(map[string]*wktpb.Value)
-			}
-			m.ValMap[mk] = mv
+			jsonMapSet(&m.ValMap, mk, mv)
 			b = b[n:]
 		case 20<<jsonTagTypeBits | jsonWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := wktpb.NullValue(int32(x))
-			m.OptNull = &v
+			b, m.OptNull = b[n:], new(wktpb.NullValue(int32(x)))
 		case 21<<jsonTagTypeBits | jsonWireBytes:
 			v, n := jsonReadBytes(b)
 			if n < 0 {
@@ -1055,8 +950,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.O = &WellKnown_ONull{ONull: wktpb.NullValue(int32(x))}
+			b, m.O = b[n:], &WellKnown_ONull{ONull: wktpb.NullValue(int32(x))}
 		case 23<<jsonTagTypeBits | jsonWireBytes:
 			x, n := jsonReadBytes(b)
 			if n < 0 {
@@ -1065,8 +959,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(jsonWellKnownOStrErrUTF8)
 			}
-			b = b[n:]
-			m.O = &WellKnown_OStr{OStr: string(x)}
+			b, m.O = b[n:], &WellKnown_OStr{OStr: string(x)}
 		case 24<<jsonTagTypeBits | jsonWireBytes:
 			v, n := jsonReadBytes(b)
 			if n < 0 {
@@ -1075,8 +968,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Any == nil {
 				m.Any = &wktpb.Any{}
 			}
-			mv := m.Any
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Any.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -1096,8 +988,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			var mk int32
-			var mv *wktpb.Duration
+			mk, mv := int32(0), (*wktpb.Duration)(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
@@ -1110,8 +1001,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = int32(x)
-					v = v[n:]
+					v, mk = v[n:], int32(x)
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
 					x, n := jsonReadBytes(v)
 					if n < 0 {
@@ -1135,10 +1025,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			if mv == nil {
 				mv = &wktpb.Duration{}
 			}
-			if m.Durs == nil {
-				m.Durs = make(map[int32]*wktpb.Duration)
-			}
-			m.Durs[mk] = mv
+			jsonMapSet(&m.Durs, mk, mv)
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
@@ -1159,14 +1046,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *WellKnown) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *WellKnown) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *WellKnown) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *WellKnown) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -1182,126 +1065,92 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.Ts != nil {
-		b = append(b, "\"ts\":"...)
-		if b, err = m.Ts.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Ts.ProtoAppendJSON(append(b, ",\"ts\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Dur != nil {
-		b = append(b, "\"dur\":"...)
-		if b, err = m.Dur.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Dur.ProtoAppendJSON(append(b, ",\"dur\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Dbl != nil {
-		b = append(b, "\"dbl\":"...)
-		if b, err = m.Dbl.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Dbl.ProtoAppendJSON(append(b, ",\"dbl\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Flt != nil {
-		b = append(b, "\"flt\":"...)
-		if b, err = m.Flt.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Flt.ProtoAppendJSON(append(b, ",\"flt\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.I64 != nil {
-		b = append(b, "\"i64\":"...)
-		if b, err = m.I64.ProtoAppendJSON(b); err != nil {
+		if b, err = m.I64.ProtoAppendJSON(append(b, ",\"i64\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.U64 != nil {
-		b = append(b, "\"u64\":"...)
-		if b, err = m.U64.ProtoAppendJSON(b); err != nil {
+		if b, err = m.U64.ProtoAppendJSON(append(b, ",\"u64\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.I32 != nil {
-		b = append(b, "\"i32\":"...)
-		if b, err = m.I32.ProtoAppendJSON(b); err != nil {
+		if b, err = m.I32.ProtoAppendJSON(append(b, ",\"i32\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.U32 != nil {
-		b = append(b, "\"u32\":"...)
-		if b, err = m.U32.ProtoAppendJSON(b); err != nil {
+		if b, err = m.U32.ProtoAppendJSON(append(b, ",\"u32\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Bool != nil {
-		b = append(b, "\"bool\":"...)
-		if b, err = m.Bool.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Bool.ProtoAppendJSON(append(b, ",\"bool\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Str != nil {
-		b = append(b, "\"str\":"...)
-		if b, err = m.Str.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Str.ProtoAppendJSON(append(b, ",\"str\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Bytes != nil {
-		b = append(b, "\"bytes\":"...)
-		if b, err = m.Bytes.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Bytes.ProtoAppendJSON(append(b, ",\"bytes\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.St != nil {
-		b = append(b, "\"st\":"...)
-		if b, err = m.St.ProtoAppendJSON(b); err != nil {
+		if b, err = m.St.ProtoAppendJSON(append(b, ",\"st\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Val != nil {
-		b = append(b, "\"val\":"...)
-		if b, err = m.Val.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Val.ProtoAppendJSON(append(b, ",\"val\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Lst != nil {
-		b = append(b, "\"lst\":"...)
-		if b, err = m.Lst.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Lst.ProtoAppendJSON(append(b, ",\"lst\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Mask != nil {
-		b = append(b, "\"mask\":"...)
-		if b, err = m.Mask.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Mask.ProtoAppendJSON(append(b, ",\"mask\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.Empty != nil {
-		b = append(b, "\"empty\":"...)
-		if b, err = m.Empty.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Empty.ProtoAppendJSON(append(b, ",\"empty\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.NullValue != 0 {
-		b = append(b, "\"nullValue\":"...)
-		b = append(b, "null"...)
-		b = append(b, ',')
+		b = append(b, ",\"nullValue\":null"...)
 	}
 	if len(m.Vals) > 0 {
-		b = append(b, "\"vals\":["...)
+		b = append(b, ",\"vals\":["...)
 		for j := range m.Vals {
 			if b, err = m.Vals[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
@@ -1309,57 +1158,44 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.ValMap) > 0 {
-		b = append(b, "\"valMap\":{"...)
+		b = append(b, ",\"valMap\":{"...)
 		for _, k := range jsonSortedKeys(m.ValMap, make([]string, 0, len(m.ValMap))) {
 			v := m.ValMap[k]
 			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.json.WellKnown.val_map contains invalid UTF-8")
 			}
-			b = append(b, ':')
-			if b, err = v.ProtoAppendJSON(b); err != nil {
+			if b, err = v.ProtoAppendJSON(append(b, ':')); err != nil {
 				return nil, err
 			}
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if m.OptNull != nil {
-		b = append(b, "\"optNull\":"...)
-		b = append(b, "null"...)
-		b = append(b, ',')
+		b = append(b, ",\"optNull\":null"...)
 	}
 	if o, ok := m.O.(*WellKnown_OVal); ok {
-		b = append(b, "\"oVal\":"...)
-		if b, err = o.OVal.ProtoAppendJSON(b); err != nil {
+		if b, err = o.OVal.ProtoAppendJSON(append(b, ",\"oVal\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if _, ok := m.O.(*WellKnown_ONull); ok {
-		b = append(b, "\"oNull\":"...)
-		b = append(b, "null"...)
-		b = append(b, ',')
+		b = append(b, ",\"oNull\":null"...)
 	}
 	if o, ok := m.O.(*WellKnown_OStr); ok {
-		b = append(b, "\"oStr\":"...)
-		if b, err = jsontext.AppendQuote(b, o.OStr); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"oStr\":"...), o.OStr); err != nil {
 			return nil, errors.New("proto: cotorp.test.json.WellKnown.o_str contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
 	if m.Any != nil {
-		b = append(b, "\"any\":"...)
-		if b, err = m.Any.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Any.ProtoAppendJSON(append(b, ",\"any\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if len(m.Tss) > 0 {
-		b = append(b, "\"tss\":["...)
+		b = append(b, ",\"tss\":["...)
 		for j := range m.Tss {
 			if b, err = m.Tss[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
@@ -1367,30 +1203,20 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.Durs) > 0 {
-		b = append(b, "\"durs\":{"...)
+		b = append(b, ",\"durs\":{"...)
 		for _, k := range jsonSortedKeys(m.Durs, make([]int32, 0, len(m.Durs))) {
 			v := m.Durs[k]
-			b = append(b, '"')
-			b = strconv.AppendInt(b, int64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			if b, err = v.ProtoAppendJSON(b); err != nil {
+			b = strconv.AppendInt(append(b, '"'), int64(k), 10)
+			if b, err = v.ProtoAppendJSON(append(b, "\":"...)); err != nil {
 				return nil, err
 			}
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return jsonCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -1548,17 +1374,13 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.json.WellKnown: null is not allowed in repeated fields or map values")
 			}
 		}
-		class := jsonClassNone
-		bits := 64
+		class, bits, iv, sv, tok := jsonClassNone, 64, int64(0), "", jsontext.Token{}
 		switch f {
 		case 22:
 			class = jsonClassString
 		case 16, 19, 21:
 			class = jsonClassEnum
 		}
-		var iv int64
-		var sv string
-		var tok jsontext.Token
 		if class != jsonClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1702,22 +1524,17 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.Vals = append(m.Vals, mv)
 		case 18:
-			k := mk
 			mv := &wktpb.Value{}
 			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
-			if m.ValMap == nil {
-				m.ValMap = make(map[string]*wktpb.Value)
-			}
-			m.ValMap[k] = mv
+			jsonMapSet(&m.ValMap, mk, mv)
 		case 19:
 			ev, err := jsonParseEnum[wktpb.NullValue](class, tok, iv, wktpb.NullValue_value, "cotorp.test.json.WellKnown", "google.protobuf.NullValue")
 			if err != nil {
 				return err
 			}
-			x := ev
-			m.OptNull = &x
+			m.OptNull = new(ev)
 		case 20:
 			mv := &wktpb.Value{}
 			if err := mv.ProtoMergeJSONFrom(d); err != nil {
@@ -1746,19 +1563,15 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.Tss = append(m.Tss, mv)
 		case 25:
-			k64, err := strconv.ParseInt(mk, 10, 32)
+			k, err := jsonParseIntKey(mk, 32, "cotorp.test.json.WellKnown", "durs")
 			if err != nil {
-				return errors.New("proto: cotorp.test.json.WellKnown: invalid map key for field durs: " + strconv.Quote(mk))
+				return err
 			}
-			k := int32(k64)
 			mv := &wktpb.Duration{}
 			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
-			if m.Durs == nil {
-				m.Durs = make(map[int32]*wktpb.Duration)
-			}
-			m.Durs[k] = mv
+			jsonMapSet(&m.Durs, int32(k), mv)
 		}
 	}
 	_, err = d.ReadToken()
@@ -1866,29 +1679,21 @@ func (m *Names) ProtoSize() (n int) {
 	if m.Color != 0 {
 		n += 1 + (bits.Len64(uint64(int64(m.Color))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
 	}
-	for k, v := range m.ByBool {
-		_, _ = k, v
-		l := 1 + 1 + 1 + len(v) + (bits.Len64(uint64(len(v))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+	for _, v := range m.ByBool {
+		n += 1 + jsonSizeLen(1+1+1+jsonSizeLen(len(v)))
 	}
 	for k, v := range m.ByU64 {
-		_, _ = k, v
-		l := 1 + (bits.Len64(k|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits + 1 + (bits.Len64(uint64(int64(v))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(1+(bits.Len64(k|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits+1+(bits.Len64(uint64(int64(v))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits)
 	}
 	for k, v := range m.ByS32 {
-		_, _ = k, v
-		l := 1 + (bits.Len64(uint64(uint32((k)<<1)^uint32((k)>>31))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits + 1 + len(v) + (bits.Len64(uint64(len(v))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 1 + jsonSizeLen(1+(bits.Len64(uint64(uint32((k)<<1)^uint32((k)>>31))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits+1+jsonSizeLen(len(v)))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Names) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Names) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Names) AppendBinary(b []byte) ([]byte, error) {
@@ -1916,24 +1721,18 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			start := i
 			i -= len(v)
 			copy(b[i:], v)
-			i = jsonPutVarint(b, i, uint64(len(v)))
-			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
-			i = jsonPutVarint(b, i, uint64(uint32((k)<<1)^uint32((k)>>31)))
-			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
-			i = jsonPutVarint(b, i, uint64(start-i))
-			i = jsonPutVarint(b, i, 8<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(uint32((k)<<1)^uint32((k)>>31))), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 8<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	if len(m.ByU64) > 0 {
 		for _, k := range slices.Backward(jsonSortedKeys(m.ByU64, make([]uint64, 0, len(m.ByU64)))) {
 			v := m.ByU64[k]
 			start := i
-			i = jsonPutVarint(b, i, uint64(int64(v)))
-			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireVarint)
-			i = jsonPutVarint(b, i, k)
-			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
-			i = jsonPutVarint(b, i, uint64(start-i))
-			i = jsonPutVarint(b, i, 7<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, k), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 7<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	if len(m.ByBool) > 0 {
@@ -1948,38 +1747,25 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			i -= len(v)
 			copy(b[i:], v)
-			i = jsonPutVarint(b, i, uint64(len(v)))
-			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
-			i--
-			if k {
-				b[i] = 1
-			} else {
-				b[i] = 0
-			}
-			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
-			i = jsonPutVarint(b, i, uint64(start-i))
-			i = jsonPutVarint(b, i, 6<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, jsonPutBool(b, i, k), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 6<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	if m.Color != 0 {
-		i = jsonPutVarint(b, i, uint64(int64(m.Color)))
-		i = jsonPutVarint(b, i, 5<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(m.Color))), 5<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.With_2Digits != 0 {
-		i = jsonPutVarint(b, i, uint64(int64(m.With_2Digits)))
-		i = jsonPutVarint(b, i, 4<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(m.With_2Digits))), 4<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.XLeading != 0 {
-		i = jsonPutVarint(b, i, uint64(int64(m.XLeading)))
-		i = jsonPutVarint(b, i, 3<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(m.XLeading))), 3<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.SnakeCaseField != 0 {
-		i = jsonPutVarint(b, i, uint64(int64(m.SnakeCaseField)))
-		i = jsonPutVarint(b, i, 2<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(m.SnakeCaseField))), 2<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.Custom != 0 {
-		i = jsonPutVarint(b, i, uint64(int64(m.Custom)))
-		i = jsonPutVarint(b, i, 1<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(int64(m.Custom))), 1<<jsonTagTypeBits|jsonWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -1993,9 +1779,7 @@ func (m *Names) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Names) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Names) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
@@ -2015,43 +1799,37 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Custom = int32(x)
+			b, m.Custom = b[n:], int32(x)
 		case 2<<jsonTagTypeBits | jsonWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.SnakeCaseField = int32(x)
+			b, m.SnakeCaseField = b[n:], int32(x)
 		case 3<<jsonTagTypeBits | jsonWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.XLeading = int32(x)
+			b, m.XLeading = b[n:], int32(x)
 		case 4<<jsonTagTypeBits | jsonWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.With_2Digits = int32(x)
+			b, m.With_2Digits = b[n:], int32(x)
 		case 5<<jsonTagTypeBits | jsonWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Color = commonpb.Color(int32(x))
+			b, m.Color = b[n:], commonpb.Color(int32(x))
 		case 6<<jsonTagTypeBits | jsonWireBytes:
 			v, n := jsonReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk bool
-			var mv string
+			mk, mv := false, ""
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
@@ -2064,8 +1842,7 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = x != 0
-					v = v[n:]
+					v, mk = v[n:], x != 0
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
 					x, n := jsonReadBytes(v)
 					if n < 0 {
@@ -2074,8 +1851,7 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					if !utf8.Valid(x) {
 						return errors.New(jsonNamesByBoolEntryValueErrUTF8)
 					}
-					mv = string(x)
-					v = v[n:]
+					v, mv = v[n:], string(x)
 				default:
 					n, err := jsonSkipField(v, t, depth)
 					if err != nil {
@@ -2084,18 +1860,14 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.ByBool == nil {
-				m.ByBool = make(map[bool]string)
-			}
-			m.ByBool[mk] = mv
+			jsonMapSet(&m.ByBool, mk, mv)
 			b = b[n:]
 		case 7<<jsonTagTypeBits | jsonWireBytes:
 			v, n := jsonReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk uint64
-			var mv int32
+			mk, mv := uint64(0), int32(0)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
@@ -2108,15 +1880,13 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = x
-					v = v[n:]
+					v, mk = v[n:], x
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireVarint:
 					x, n := binary.Uvarint(v)
 					if n <= 0 {
 						goto errParse
 					}
-					mv = int32(x)
-					v = v[n:]
+					v, mv = v[n:], int32(x)
 				default:
 					n, err := jsonSkipField(v, t, depth)
 					if err != nil {
@@ -2125,18 +1895,14 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.ByU64 == nil {
-				m.ByU64 = make(map[uint64]int32)
-			}
-			m.ByU64[mk] = mv
+			jsonMapSet(&m.ByU64, mk, mv)
 			b = b[n:]
 		case 8<<jsonTagTypeBits | jsonWireBytes:
 			v, n := jsonReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk int32
-			var mv []byte
+			mk, mv := int32(0), []byte(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
@@ -2149,15 +1915,13 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = int32(uint32(x)>>1) ^ -int32(x&1)
-					v = v[n:]
+					v, mk = v[n:], int32(uint32(x)>>1)^-int32(x&1)
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
 					x, n := jsonReadBytes(v)
 					if n < 0 {
 						goto errParse
 					}
-					mv = append([]byte{}, x...)
-					v = v[n:]
+					v, mv = v[n:], append([]byte{}, x...)
 				default:
 					n, err := jsonSkipField(v, t, depth)
 					if err != nil {
@@ -2166,10 +1930,7 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.ByS32 == nil {
-				m.ByS32 = make(map[int32][]byte)
-			}
-			m.ByS32[mk] = mv
+			jsonMapSet(&m.ByS32, mk, mv)
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
@@ -2190,14 +1951,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Names) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Names) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Names) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Names) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -2213,89 +1970,56 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.Custom != 0 {
-		b = append(b, "\"renamed\":"...)
-		b = strconv.AppendInt(b, int64(m.Custom), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"renamed\":"...), int64(m.Custom), 10)
 	}
 	if m.SnakeCaseField != 0 {
-		b = append(b, "\"snakeCaseField\":"...)
-		b = strconv.AppendInt(b, int64(m.SnakeCaseField), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"snakeCaseField\":"...), int64(m.SnakeCaseField), 10)
 	}
 	if m.XLeading != 0 {
-		b = append(b, "\"Leading\":"...)
-		b = strconv.AppendInt(b, int64(m.XLeading), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"Leading\":"...), int64(m.XLeading), 10)
 	}
 	if m.With_2Digits != 0 {
-		b = append(b, "\"with2Digits\":"...)
-		b = strconv.AppendInt(b, int64(m.With_2Digits), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"with2Digits\":"...), int64(m.With_2Digits), 10)
 	}
 	if m.Color != 0 {
-		b = append(b, "\"color\":"...)
-		b = jsonAppendEnum(b, int32(m.Color), commonpb.Color_name)
-		b = append(b, ',')
+		b = jsonAppendEnum(append(b, ",\"color\":"...), int32(m.Color), commonpb.Color_name)
 	}
 	if len(m.ByBool) > 0 {
-		b = append(b, "\"byBool\":{"...)
+		b = append(b, ",\"byBool\":{"...)
 		for _, k := range [2]bool{false, true} {
 			v, ok := m.ByBool[k]
 			if !ok {
 				continue
 			}
-			if k {
-				b = append(b, `"true"`...)
-			} else {
-				b = append(b, `"false"`...)
-			}
-			b = append(b, ':')
-			if b, err = jsontext.AppendQuote(b, v); err != nil {
+			b = strconv.AppendBool(append(b, '"'), k)
+			if b, err = jsontext.AppendQuote(append(b, "\":"...), v); err != nil {
 				return nil, errors.New("proto: cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8")
 			}
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.ByU64) > 0 {
-		b = append(b, "\"byU64\":{"...)
+		b = append(b, ",\"byU64\":{"...)
 		for _, k := range jsonSortedKeys(m.ByU64, make([]uint64, 0, len(m.ByU64))) {
 			v := m.ByU64[k]
-			b = append(b, '"')
-			b = strconv.AppendUint(b, uint64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			b = strconv.AppendInt(b, int64(v), 10)
-			b = append(b, ',')
+			b = strconv.AppendUint(append(b, '"'), uint64(k), 10)
+			b = append(strconv.AppendInt(append(b, "\":"...), int64(v), 10), ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.ByS32) > 0 {
-		b = append(b, "\"byS32\":{"...)
+		b = append(b, ",\"byS32\":{"...)
 		for _, k := range jsonSortedKeys(m.ByS32, make([]int32, 0, len(m.ByS32))) {
 			v := m.ByS32[k]
-			b = append(b, '"')
-			b = strconv.AppendInt(b, int64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			b = append(b, '"')
-			b = base64.StdEncoding.AppendEncode(b, v)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = strconv.AppendInt(append(b, '"'), int64(k), 10)
+			b = append(append(base64.StdEncoding.AppendEncode(append(b, "\":\""...), v), '"'), ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return jsonCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -2405,8 +2129,7 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.json.Names: null is not allowed in repeated fields or map values")
 			}
 		}
-		class := jsonClassNone
-		bits := 64
+		class, bits, iv, sv, by, tok := jsonClassNone, 64, int64(0), "", []byte(nil), jsontext.Token{}
 		switch f {
 		case 0, 1, 2, 3, 6:
 			class, bits = jsonClassSigned, 32
@@ -2417,10 +2140,6 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 4:
 			class = jsonClassEnum
 		}
-		var iv int64
-		var sv string
-		var by []byte
-		var tok jsontext.Token
 		if class != jsonClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -2456,38 +2175,23 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.Color = ev
 		case 5:
-			var k bool
-			switch mk {
-			case "true":
-				k = true
-			case "false":
-			default:
-				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_bool: " + strconv.Quote(mk))
+			k, err := jsonParseBoolKey(mk, "cotorp.test.json.Names", "by_bool")
+			if err != nil {
+				return err
 			}
-			if m.ByBool == nil {
-				m.ByBool = make(map[bool]string)
-			}
-			m.ByBool[k] = sv
+			jsonMapSet(&m.ByBool, k, sv)
 		case 6:
-			k64, err := strconv.ParseUint(mk, 10, 64)
+			k, err := jsonParseUintKey(mk, 64, "cotorp.test.json.Names", "by_u64")
 			if err != nil {
-				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_u64: " + strconv.Quote(mk))
+				return err
 			}
-			k := uint64(k64)
-			if m.ByU64 == nil {
-				m.ByU64 = make(map[uint64]int32)
-			}
-			m.ByU64[k] = int32(iv)
+			jsonMapSet(&m.ByU64, k, int32(iv))
 		case 7:
-			k64, err := strconv.ParseInt(mk, 10, 32)
+			k, err := jsonParseIntKey(mk, 32, "cotorp.test.json.Names", "by_s32")
 			if err != nil {
-				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_s32: " + strconv.Quote(mk))
+				return err
 			}
-			k := int32(k64)
-			if m.ByS32 == nil {
-				m.ByS32 = make(map[int32][]byte)
-			}
-			m.ByS32[k] = by
+			jsonMapSet(&m.ByS32, int32(k), by)
 		}
 	}
 	_, err = d.ReadToken()
@@ -2504,6 +2208,22 @@ func jsonPutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// jsonPutBool writes v as a one-byte varint ending at b[i] and returns its
+// index.
+func jsonPutBool(b []byte, i int, v bool) int {
+	b[i-1] = 0
+	if v {
+		b[i-1] = 1
+	}
+	return i - 1
+}
+
+// jsonSizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func jsonSizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
 }
 
 // jsonReadBytes returns the length-delimited value at the start of b and the
@@ -2599,6 +2319,14 @@ func jsonSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	return keys
 }
 
+// jsonMapSet sets (*m)[k] to v, allocating *m if it is nil.
+func jsonMapSet[K comparable, V any](m *map[K]V, k K, v V) {
+	if *m == nil {
+		*m = make(map[K]V)
+	}
+	(*m)[k] = v
+}
+
 // jsonWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
 // unless producing b failed with err.
 func jsonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
@@ -2617,6 +2345,17 @@ func jsonAppendEnum(b []byte, v int32, names map[int32]string) []byte {
 		return append(b, '"')
 	}
 	return strconv.AppendInt(b, int64(v), 10)
+}
+
+// jsonCloseObject finishes a JSON object whose members were appended to b from
+// index start, each preceded by a comma: the first comma becomes the
+// opening brace.
+func jsonCloseObject(b []byte, start int) []byte {
+	if len(b) == start {
+		return append(b, "{}"...)
+	}
+	b[start] = '{'
+	return append(b, '}')
 }
 
 // jsonEndJSON finishes ProtoMergeJSON for message name: decoding one value
@@ -2766,6 +2505,38 @@ func jsonParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map
 		return E(iv), nil
 	}
 	return 0, nil
+}
+
+// jsonParseIntKey parses JSON object key s as a signed integer of the given bit
+// size, for map field field of message name.
+func jsonParseIntKey(s string, bits int, name, field string) (int64, error) {
+	k, err := strconv.ParseInt(s, 10, bits)
+	if err != nil {
+		return 0, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
+	}
+	return k, nil
+}
+
+// jsonParseUintKey parses JSON object key s as an unsigned integer of the given
+// bit size, for map field field of message name.
+func jsonParseUintKey(s string, bits int, name, field string) (uint64, error) {
+	k, err := strconv.ParseUint(s, 10, bits)
+	if err != nil {
+		return 0, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
+	}
+	return k, nil
+}
+
+// jsonParseBoolKey parses JSON object key s as a boolean, for map field field of
+// message name.
+func jsonParseBoolKey(s, name, field string) (bool, error) {
+	switch s {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	}
+	return false, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
 }
 
 // jsonJSONError returns an error about the ProtoJSON value of message name.

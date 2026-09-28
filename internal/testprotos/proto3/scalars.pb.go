@@ -92,6 +92,7 @@ const (
 	scalarsNamesMarshalBinaryErrUTF8          = "proto: field cotorp.test.proto3.Names.marshal_binary contains invalid UTF-8"
 	scalarsErrInvalidInteger                  = "invalid integer "
 	scalarsErrInvalidNumber                   = "invalid number "
+	scalarsErrInvalidKey                      = "invalid map key for field "
 )
 
 // Scalars exercises every scalar type with implicit presence.
@@ -286,10 +287,10 @@ func (m *Scalars) ProtoSize() (n int) {
 		n += 1 + 1
 	}
 	if len(m.FString) > 0 {
-		n += 1 + len(m.FString) + (bits.Len64(uint64(len(m.FString))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.FString))
 	}
 	if len(m.FBytes) > 0 {
-		n += 1 + len(m.FBytes) + (bits.Len64(uint64(len(m.FBytes))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.FBytes))
 	}
 	if m.FUint32 != 0 {
 		n += 1 + (bits.Len64(uint64(m.FUint32)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
@@ -310,21 +311,17 @@ func (m *Scalars) ProtoSize() (n int) {
 		n += 2 + (bits.Len64(uint64(int64(m.FEnum))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
 	}
 	if m.FNested != nil {
-		l := m.FNested.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 2 + scalarsSizeLen(m.FNested.ProtoSize())
 	}
 	if m.FShared != nil {
-		l := m.FShared.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 2 + scalarsSizeLen(m.FShared.ProtoSize())
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Scalars) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Scalars) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Scalars) AppendBinary(b []byte) ([]byte, error) {
@@ -351,50 +348,37 @@ func (m *Scalars) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = scalarsPutVarint(b, i, uint64(n))
-		i = scalarsPutVarint(b, i, 18<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), 18<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.FNested != nil {
 		n, err := m.FNested.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = scalarsPutVarint(b, i, uint64(n))
-		i = scalarsPutVarint(b, i, 17<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), 17<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.FEnum != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.FEnum)))
-		i = scalarsPutVarint(b, i, 16<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.FEnum))), 16<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.FSint64 != 0 {
-		i = scalarsPutVarint(b, i, (uint64((m.FSint64)<<1) ^ uint64((m.FSint64)>>63)))
-		i = scalarsPutVarint(b, i, 15<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, (uint64((m.FSint64)<<1)^uint64((m.FSint64)>>63))), 15<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.FSint32 != 0 {
-		i = scalarsPutVarint(b, i, uint64(uint32((m.FSint32)<<1)^uint32((m.FSint32)>>31)))
-		i = scalarsPutVarint(b, i, 14<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(uint32((m.FSint32)<<1)^uint32((m.FSint32)>>31))), 14<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.FSfixed64 != 0 {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], uint64(m.FSfixed64))
-		i = scalarsPutVarint(b, i, 13<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, uint64(m.FSfixed64)), 13<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	if m.FSfixed32 != 0 {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], uint32(m.FSfixed32))
-		i = scalarsPutVarint(b, i, 12<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, uint32(m.FSfixed32)), 12<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if m.FUint32 != 0 {
-		i = scalarsPutVarint(b, i, uint64(m.FUint32))
-		i = scalarsPutVarint(b, i, 11<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(m.FUint32)), 11<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if len(m.FBytes) > 0 {
 		i -= len(m.FBytes)
 		copy(b[i:], m.FBytes)
-		i = scalarsPutVarint(b, i, uint64(len(m.FBytes)))
-		i = scalarsPutVarint(b, i, 10<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(m.FBytes))), 10<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.FString) > 0 {
 		if !utf8.ValidString(m.FString) {
@@ -402,49 +386,31 @@ func (m *Scalars) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(m.FString)
 		copy(b[i:], m.FString)
-		i = scalarsPutVarint(b, i, uint64(len(m.FString)))
-		i = scalarsPutVarint(b, i, 9<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(m.FString))), 9<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.FBool {
-		i--
-		if m.FBool {
-			b[i] = 1
-		} else {
-			b[i] = 0
-		}
-		i = scalarsPutVarint(b, i, 8<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutBool(b, i, m.FBool), 8<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.FFixed32 != 0 {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], uint32(m.FFixed32))
-		i = scalarsPutVarint(b, i, 7<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, uint32(m.FFixed32)), 7<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if m.FFixed64 != 0 {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], uint64(m.FFixed64))
-		i = scalarsPutVarint(b, i, 6<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, uint64(m.FFixed64)), 6<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	if m.FInt32 != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.FInt32)))
-		i = scalarsPutVarint(b, i, 5<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.FInt32))), 5<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.FUint64 != 0 {
-		i = scalarsPutVarint(b, i, m.FUint64)
-		i = scalarsPutVarint(b, i, 4<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, m.FUint64), 4<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.FInt64 != 0 {
-		i = scalarsPutVarint(b, i, uint64(m.FInt64))
-		i = scalarsPutVarint(b, i, 3<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(m.FInt64)), 3<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if math.Float32bits(m.FFloat) != 0 {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], math.Float32bits(m.FFloat))
-		i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, math.Float32bits(m.FFloat)), 2<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if math.Float64bits(m.FDouble) != 0 {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], math.Float64bits(m.FDouble))
-		i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, math.Float64bits(m.FDouble)), 1<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	return len(b) - i, nil
 }
@@ -458,9 +424,7 @@ func (m *Scalars) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Scalars) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Scalars) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
@@ -479,58 +443,46 @@ func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.FDouble = math.Float64frombits(x)
+			b, m.FDouble = b[scalarsFixed64Size:], math.Float64frombits(binary.LittleEndian.Uint64(b))
 		case 2<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.FFloat = math.Float32frombits(x)
+			b, m.FFloat = b[scalarsFixed32Size:], math.Float32frombits(binary.LittleEndian.Uint32(b))
 		case 3<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FInt64 = int64(x)
+			b, m.FInt64 = b[n:], int64(x)
 		case 4<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FUint64 = x
+			b, m.FUint64 = b[n:], x
 		case 5<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FInt32 = int32(x)
+			b, m.FInt32 = b[n:], int32(x)
 		case 6<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.FFixed64 = x
+			b, m.FFixed64 = b[scalarsFixed64Size:], binary.LittleEndian.Uint64(b)
 		case 7<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.FFixed32 = x
+			b, m.FFixed32 = b[scalarsFixed32Size:], binary.LittleEndian.Uint32(b)
 		case 8<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FBool = x != 0
+			b, m.FBool = b[n:], x != 0
 		case 9<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -539,57 +491,47 @@ func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(scalarsScalarsFStringErrUTF8)
 			}
-			b = b[n:]
-			m.FString = string(x)
+			b, m.FString = b[n:], string(x)
 		case 10<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FBytes = append([]byte{}, x...)
+			b, m.FBytes = b[n:], append([]byte{}, x...)
 		case 11<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FUint32 = uint32(x)
+			b, m.FUint32 = b[n:], uint32(x)
 		case 12<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.FSfixed32 = int32(x)
+			b, m.FSfixed32 = b[scalarsFixed32Size:], int32(binary.LittleEndian.Uint32(b))
 		case 13<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.FSfixed64 = int64(x)
+			b, m.FSfixed64 = b[scalarsFixed64Size:], int64(binary.LittleEndian.Uint64(b))
 		case 14<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FSint32 = int32(uint32(x)>>1) ^ -int32(x&1)
+			b, m.FSint32 = b[n:], int32(uint32(x)>>1)^-int32(x&1)
 		case 15<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FSint64 = int64(x>>1) ^ -int64(x&1)
+			b, m.FSint64 = b[n:], int64(x>>1)^-int64(x&1)
 		case 16<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.FEnum = commonpb.Color(int32(x))
+			b, m.FEnum = b[n:], commonpb.Color(int32(x))
 		case 17<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -598,8 +540,7 @@ func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
 			if m.FNested == nil {
 				m.FNested = &Scalars_Nested{}
 			}
-			mv := m.FNested
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.FNested.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -611,8 +552,7 @@ func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
 			if m.FShared == nil {
 				m.FShared = &commonpb.Shared{}
 			}
-			mv := m.FShared
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.FShared.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -635,14 +575,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Scalars) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Scalars) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Scalars) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Scalars) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -658,143 +594,68 @@ func (m *Scalars) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if math.Float64bits(m.FDouble) != 0 {
-		b = append(b, "\"fDouble\":"...)
-		switch fl := float64(m.FDouble); {
-		case math.IsNaN(fl):
-			b = append(b, `"NaN"`...)
-		case math.IsInf(fl, 1):
-			b = append(b, `"Infinity"`...)
-		case math.IsInf(fl, -1):
-			b = append(b, `"-Infinity"`...)
-		default:
-			b = jsontext.AppendFloat(b, fl, 64)
-		}
-		b = append(b, ',')
+		b = scalarsAppendFloat(append(b, ",\"fDouble\":"...), m.FDouble, 64)
 	}
 	if math.Float32bits(m.FFloat) != 0 {
-		b = append(b, "\"fFloat\":"...)
-		switch fl := float64(m.FFloat); {
-		case math.IsNaN(fl):
-			b = append(b, `"NaN"`...)
-		case math.IsInf(fl, 1):
-			b = append(b, `"Infinity"`...)
-		case math.IsInf(fl, -1):
-			b = append(b, `"-Infinity"`...)
-		default:
-			b = jsontext.AppendFloat(b, fl, 32)
-		}
-		b = append(b, ',')
+		b = scalarsAppendFloat(append(b, ",\"fFloat\":"...), float64(m.FFloat), 32)
 	}
 	if m.FInt64 != 0 {
-		b = append(b, "\"fInt64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, m.FInt64, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"fInt64\":\""...), m.FInt64, 10), '"')
 	}
 	if m.FUint64 != 0 {
-		b = append(b, "\"fUint64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendUint(b, m.FUint64, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendUint(append(b, ",\"fUint64\":\""...), m.FUint64, 10), '"')
 	}
 	if m.FInt32 != 0 {
-		b = append(b, "\"fInt32\":"...)
-		b = strconv.AppendInt(b, int64(m.FInt32), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"fInt32\":"...), int64(m.FInt32), 10)
 	}
 	if m.FFixed64 != 0 {
-		b = append(b, "\"fFixed64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendUint(b, m.FFixed64, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendUint(append(b, ",\"fFixed64\":\""...), m.FFixed64, 10), '"')
 	}
 	if m.FFixed32 != 0 {
-		b = append(b, "\"fFixed32\":"...)
-		b = strconv.AppendUint(b, uint64(m.FFixed32), 10)
-		b = append(b, ',')
+		b = strconv.AppendUint(append(b, ",\"fFixed32\":"...), uint64(m.FFixed32), 10)
 	}
 	if m.FBool {
-		b = append(b, "\"fBool\":"...)
-		if m.FBool {
-			b = append(b, "true"...)
-		} else {
-			b = append(b, "false"...)
-		}
-		b = append(b, ',')
+		b = strconv.AppendBool(append(b, ",\"fBool\":"...), m.FBool)
 	}
 	if len(m.FString) > 0 {
-		b = append(b, "\"fString\":"...)
-		if b, err = jsontext.AppendQuote(b, m.FString); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"fString\":"...), m.FString); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto3.Scalars.f_string contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
 	if len(m.FBytes) > 0 {
-		b = append(b, "\"fBytes\":"...)
-		b = append(b, '"')
-		b = base64.StdEncoding.AppendEncode(b, m.FBytes)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(base64.StdEncoding.AppendEncode(append(b, ",\"fBytes\":\""...), m.FBytes), '"')
 	}
 	if m.FUint32 != 0 {
-		b = append(b, "\"fUint32\":"...)
-		b = strconv.AppendUint(b, uint64(m.FUint32), 10)
-		b = append(b, ',')
+		b = strconv.AppendUint(append(b, ",\"fUint32\":"...), uint64(m.FUint32), 10)
 	}
 	if m.FSfixed32 != 0 {
-		b = append(b, "\"fSfixed32\":"...)
-		b = strconv.AppendInt(b, int64(m.FSfixed32), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"fSfixed32\":"...), int64(m.FSfixed32), 10)
 	}
 	if m.FSfixed64 != 0 {
-		b = append(b, "\"fSfixed64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, m.FSfixed64, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"fSfixed64\":\""...), m.FSfixed64, 10), '"')
 	}
 	if m.FSint32 != 0 {
-		b = append(b, "\"fSint32\":"...)
-		b = strconv.AppendInt(b, int64(m.FSint32), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"fSint32\":"...), int64(m.FSint32), 10)
 	}
 	if m.FSint64 != 0 {
-		b = append(b, "\"fSint64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, m.FSint64, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"fSint64\":\""...), m.FSint64, 10), '"')
 	}
 	if m.FEnum != 0 {
-		b = append(b, "\"fEnum\":"...)
-		b = scalarsAppendEnum(b, int32(m.FEnum), commonpb.Color_name)
-		b = append(b, ',')
+		b = scalarsAppendEnum(append(b, ",\"fEnum\":"...), int32(m.FEnum), commonpb.Color_name)
 	}
 	if m.FNested != nil {
-		b = append(b, "\"fNested\":"...)
-		if b, err = m.FNested.ProtoAppendJSON(b); err != nil {
+		if b, err = m.FNested.ProtoAppendJSON(append(b, ",\"fNested\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if m.FShared != nil {
-		b = append(b, "\"fShared\":"...)
-		if b, err = m.FShared.ProtoAppendJSON(b); err != nil {
+		if b, err = m.FShared.ProtoAppendJSON(append(b, ",\"fShared\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -892,8 +753,7 @@ func (m *Scalars) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, uv, fv, bv, sv, by, tok := scalarsClassNone, 64, int64(0), uint64(0), float64(0), false, "", []byte(nil), jsontext.Token{}
 		switch f {
 		case 4, 11, 13:
 			class, bits = scalarsClassSigned, 32
@@ -916,13 +776,6 @@ func (m *Scalars) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 15:
 			class = scalarsClassEnum
 		}
-		var iv int64
-		var uv uint64
-		var fv float64
-		var bv bool
-		var sv string
-		var by []byte
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1047,17 +900,14 @@ func (m *Scalars_Nested) ProtoSize() (n int) {
 		n += 1 + (bits.Len64(uint64(int64(m.A))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
 	}
 	if m.Recursive != nil {
-		l := m.Recursive.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(m.Recursive.ProtoSize())
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Scalars_Nested) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Scalars_Nested) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Scalars_Nested) AppendBinary(b []byte) ([]byte, error) {
@@ -1084,13 +934,10 @@ func (m *Scalars_Nested) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = scalarsPutVarint(b, i, uint64(n))
-		i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), 2<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.A != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.A)))
-		i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.A))), 1<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -1104,9 +951,7 @@ func (m *Scalars_Nested) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Scalars_Nested) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Scalars_Nested) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Scalars_Nested) ProtoMergeDepth(b []byte, depth int) error {
@@ -1126,8 +971,7 @@ func (m *Scalars_Nested) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.A = int32(x)
+			b, m.A = b[n:], int32(x)
 		case 2<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -1136,8 +980,7 @@ func (m *Scalars_Nested) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Recursive == nil {
 				m.Recursive = &Scalars_Nested{}
 			}
-			mv := m.Recursive
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Recursive.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -1160,14 +1003,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Scalars_Nested) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Scalars_Nested) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Scalars_Nested) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Scalars_Nested) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -1183,25 +1022,16 @@ func (m *Scalars_Nested) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.A != 0 {
-		b = append(b, "\"a\":"...)
-		b = strconv.AppendInt(b, int64(m.A), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"a\":"...), int64(m.A), 10)
 	}
 	if m.Recursive != nil {
-		b = append(b, "\"recursive\":"...)
-		if b, err = m.Recursive.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Recursive.ProtoAppendJSON(append(b, ",\"recursive\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -1267,14 +1097,11 @@ func (m *Scalars_Nested) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, tok := scalarsClassNone, 64, int64(0), jsontext.Token{}
 		switch f {
 		case 0:
 			class, bits = scalarsClassSigned, 32
 		}
-		var iv int64
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -1478,10 +1305,10 @@ func (m *Optionals) ProtoSize() (n int) {
 		n += 1 + 1
 	}
 	if m.OString != nil {
-		n += 1 + len((*m.OString)) + (bits.Len64(uint64(len((*m.OString)))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len((*m.OString)))
 	}
 	if m.OBytes != nil {
-		n += 1 + len(m.OBytes) + (bits.Len64(uint64(len(m.OBytes))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.OBytes))
 	}
 	if m.OUint32 != nil {
 		n += 1 + (bits.Len64(uint64((*m.OUint32))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
@@ -1506,9 +1333,7 @@ func (m *Optionals) ProtoSize() (n int) {
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Optionals) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Optionals) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Optionals) AppendBinary(b []byte) ([]byte, error) {
@@ -1531,36 +1356,27 @@ func (m *Optionals) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.OEnum != nil {
-		i = scalarsPutVarint(b, i, uint64(int64((*m.OEnum))))
-		i = scalarsPutVarint(b, i, 16<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64((*m.OEnum)))), 16<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OSint64 != nil {
-		i = scalarsPutVarint(b, i, (uint64((*m.OSint64)<<1) ^ uint64((*m.OSint64)>>63)))
-		i = scalarsPutVarint(b, i, 15<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, (uint64((*m.OSint64)<<1)^uint64((*m.OSint64)>>63))), 15<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OSint32 != nil {
-		i = scalarsPutVarint(b, i, uint64(uint32((*m.OSint32)<<1)^uint32((*m.OSint32)>>31)))
-		i = scalarsPutVarint(b, i, 14<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(uint32((*m.OSint32)<<1)^uint32((*m.OSint32)>>31))), 14<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OSfixed64 != nil {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], uint64((*m.OSfixed64)))
-		i = scalarsPutVarint(b, i, 13<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, uint64((*m.OSfixed64))), 13<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	if m.OSfixed32 != nil {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], uint32((*m.OSfixed32)))
-		i = scalarsPutVarint(b, i, 12<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, uint32((*m.OSfixed32))), 12<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if m.OUint32 != nil {
-		i = scalarsPutVarint(b, i, uint64((*m.OUint32)))
-		i = scalarsPutVarint(b, i, 11<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64((*m.OUint32))), 11<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OBytes != nil {
 		i -= len(m.OBytes)
 		copy(b[i:], m.OBytes)
-		i = scalarsPutVarint(b, i, uint64(len(m.OBytes)))
-		i = scalarsPutVarint(b, i, 10<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(m.OBytes))), 10<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.OString != nil {
 		if !utf8.ValidString((*m.OString)) {
@@ -1568,49 +1384,31 @@ func (m *Optionals) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len((*m.OString))
 		copy(b[i:], (*m.OString))
-		i = scalarsPutVarint(b, i, uint64(len((*m.OString))))
-		i = scalarsPutVarint(b, i, 9<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len((*m.OString)))), 9<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.OBool != nil {
-		i--
-		if *m.OBool {
-			b[i] = 1
-		} else {
-			b[i] = 0
-		}
-		i = scalarsPutVarint(b, i, 8<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutBool(b, i, (*m.OBool)), 8<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OFixed32 != nil {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], uint32((*m.OFixed32)))
-		i = scalarsPutVarint(b, i, 7<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, uint32((*m.OFixed32))), 7<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if m.OFixed64 != nil {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], uint64((*m.OFixed64)))
-		i = scalarsPutVarint(b, i, 6<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, uint64((*m.OFixed64))), 6<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	if m.OInt32 != nil {
-		i = scalarsPutVarint(b, i, uint64(int64((*m.OInt32))))
-		i = scalarsPutVarint(b, i, 5<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64((*m.OInt32)))), 5<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OUint64 != nil {
-		i = scalarsPutVarint(b, i, (*m.OUint64))
-		i = scalarsPutVarint(b, i, 4<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, (*m.OUint64)), 4<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OInt64 != nil {
-		i = scalarsPutVarint(b, i, uint64((*m.OInt64)))
-		i = scalarsPutVarint(b, i, 3<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64((*m.OInt64))), 3<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.OFloat != nil {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], math.Float32bits((*m.OFloat)))
-		i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, math.Float32bits((*m.OFloat))), 2<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if m.ODouble != nil {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.ODouble)))
-		i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, math.Float64bits((*m.ODouble))), 1<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	return len(b) - i, nil
 }
@@ -1624,9 +1422,7 @@ func (m *Optionals) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Optionals) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Optionals) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Optionals) ProtoMergeDepth(b []byte, depth int) error {
@@ -1645,66 +1441,46 @@ func (m *Optionals) ProtoMergeDepth(b []byte, depth int) error {
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			v := math.Float64frombits(x)
-			m.ODouble = &v
+			b, m.ODouble = b[scalarsFixed64Size:], new(math.Float64frombits(binary.LittleEndian.Uint64(b)))
 		case 2<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			v := math.Float32frombits(x)
-			m.OFloat = &v
+			b, m.OFloat = b[scalarsFixed32Size:], new(math.Float32frombits(binary.LittleEndian.Uint32(b)))
 		case 3<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := int64(x)
-			m.OInt64 = &v
+			b, m.OInt64 = b[n:], new(int64(x))
 		case 4<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := x
-			m.OUint64 = &v
+			b, m.OUint64 = b[n:], new(x)
 		case 5<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := int32(x)
-			m.OInt32 = &v
+			b, m.OInt32 = b[n:], new(int32(x))
 		case 6<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			v := x
-			m.OFixed64 = &v
+			b, m.OFixed64 = b[scalarsFixed64Size:], new(binary.LittleEndian.Uint64(b))
 		case 7<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			v := x
-			m.OFixed32 = &v
+			b, m.OFixed32 = b[scalarsFixed32Size:], new(binary.LittleEndian.Uint32(b))
 		case 8<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := x != 0
-			m.OBool = &v
+			b, m.OBool = b[n:], new(x != 0)
 		case 9<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -1713,64 +1489,47 @@ func (m *Optionals) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(scalarsOptionalsOStringErrUTF8)
 			}
-			b = b[n:]
-			v := string(x)
-			m.OString = &v
+			b, m.OString = b[n:], new(string(x))
 		case 10<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.OBytes = append([]byte{}, x...)
+			b, m.OBytes = b[n:], append([]byte{}, x...)
 		case 11<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := uint32(x)
-			m.OUint32 = &v
+			b, m.OUint32 = b[n:], new(uint32(x))
 		case 12<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			v := int32(x)
-			m.OSfixed32 = &v
+			b, m.OSfixed32 = b[scalarsFixed32Size:], new(int32(binary.LittleEndian.Uint32(b)))
 		case 13<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			v := int64(x)
-			m.OSfixed64 = &v
+			b, m.OSfixed64 = b[scalarsFixed64Size:], new(int64(binary.LittleEndian.Uint64(b)))
 		case 14<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := int32(uint32(x)>>1) ^ -int32(x&1)
-			m.OSint32 = &v
+			b, m.OSint32 = b[n:], new(int32(uint32(x)>>1)^-int32(x&1))
 		case 15<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := int64(x>>1) ^ -int64(x&1)
-			m.OSint64 = &v
+			b, m.OSint64 = b[n:], new(int64(x>>1)^-int64(x&1))
 		case 16<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := commonpb.Color(int32(x))
-			m.OEnum = &v
+			b, m.OEnum = b[n:], new(commonpb.Color(int32(x)))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := scalarsSkipField(b, t, depth)
@@ -1790,14 +1549,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Optionals) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Optionals) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Optionals) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Optionals) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -1813,129 +1568,58 @@ func (m *Optionals) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.ODouble != nil {
-		b = append(b, "\"oDouble\":"...)
-		switch fl := float64((*m.ODouble)); {
-		case math.IsNaN(fl):
-			b = append(b, `"NaN"`...)
-		case math.IsInf(fl, 1):
-			b = append(b, `"Infinity"`...)
-		case math.IsInf(fl, -1):
-			b = append(b, `"-Infinity"`...)
-		default:
-			b = jsontext.AppendFloat(b, fl, 64)
-		}
-		b = append(b, ',')
+		b = scalarsAppendFloat(append(b, ",\"oDouble\":"...), (*m.ODouble), 64)
 	}
 	if m.OFloat != nil {
-		b = append(b, "\"oFloat\":"...)
-		switch fl := float64((*m.OFloat)); {
-		case math.IsNaN(fl):
-			b = append(b, `"NaN"`...)
-		case math.IsInf(fl, 1):
-			b = append(b, `"Infinity"`...)
-		case math.IsInf(fl, -1):
-			b = append(b, `"-Infinity"`...)
-		default:
-			b = jsontext.AppendFloat(b, fl, 32)
-		}
-		b = append(b, ',')
+		b = scalarsAppendFloat(append(b, ",\"oFloat\":"...), float64((*m.OFloat)), 32)
 	}
 	if m.OInt64 != nil {
-		b = append(b, "\"oInt64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, (*m.OInt64), 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"oInt64\":\""...), (*m.OInt64), 10), '"')
 	}
 	if m.OUint64 != nil {
-		b = append(b, "\"oUint64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendUint(b, (*m.OUint64), 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendUint(append(b, ",\"oUint64\":\""...), (*m.OUint64), 10), '"')
 	}
 	if m.OInt32 != nil {
-		b = append(b, "\"oInt32\":"...)
-		b = strconv.AppendInt(b, int64((*m.OInt32)), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"oInt32\":"...), int64((*m.OInt32)), 10)
 	}
 	if m.OFixed64 != nil {
-		b = append(b, "\"oFixed64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendUint(b, (*m.OFixed64), 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendUint(append(b, ",\"oFixed64\":\""...), (*m.OFixed64), 10), '"')
 	}
 	if m.OFixed32 != nil {
-		b = append(b, "\"oFixed32\":"...)
-		b = strconv.AppendUint(b, uint64((*m.OFixed32)), 10)
-		b = append(b, ',')
+		b = strconv.AppendUint(append(b, ",\"oFixed32\":"...), uint64((*m.OFixed32)), 10)
 	}
 	if m.OBool != nil {
-		b = append(b, "\"oBool\":"...)
-		if *m.OBool {
-			b = append(b, "true"...)
-		} else {
-			b = append(b, "false"...)
-		}
-		b = append(b, ',')
+		b = strconv.AppendBool(append(b, ",\"oBool\":"...), (*m.OBool))
 	}
 	if m.OString != nil {
-		b = append(b, "\"oString\":"...)
-		if b, err = jsontext.AppendQuote(b, (*m.OString)); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"oString\":"...), (*m.OString)); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto3.Optionals.o_string contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
 	if m.OBytes != nil {
-		b = append(b, "\"oBytes\":"...)
-		b = append(b, '"')
-		b = base64.StdEncoding.AppendEncode(b, m.OBytes)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(base64.StdEncoding.AppendEncode(append(b, ",\"oBytes\":\""...), m.OBytes), '"')
 	}
 	if m.OUint32 != nil {
-		b = append(b, "\"oUint32\":"...)
-		b = strconv.AppendUint(b, uint64((*m.OUint32)), 10)
-		b = append(b, ',')
+		b = strconv.AppendUint(append(b, ",\"oUint32\":"...), uint64((*m.OUint32)), 10)
 	}
 	if m.OSfixed32 != nil {
-		b = append(b, "\"oSfixed32\":"...)
-		b = strconv.AppendInt(b, int64((*m.OSfixed32)), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"oSfixed32\":"...), int64((*m.OSfixed32)), 10)
 	}
 	if m.OSfixed64 != nil {
-		b = append(b, "\"oSfixed64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, (*m.OSfixed64), 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"oSfixed64\":\""...), (*m.OSfixed64), 10), '"')
 	}
 	if m.OSint32 != nil {
-		b = append(b, "\"oSint32\":"...)
-		b = strconv.AppendInt(b, int64((*m.OSint32)), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"oSint32\":"...), int64((*m.OSint32)), 10)
 	}
 	if m.OSint64 != nil {
-		b = append(b, "\"oSint64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, (*m.OSint64), 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"oSint64\":\""...), (*m.OSint64), 10), '"')
 	}
 	if m.OEnum != nil {
-		b = append(b, "\"oEnum\":"...)
-		b = scalarsAppendEnum(b, int32((*m.OEnum)), commonpb.Color_name)
-		b = append(b, ',')
+		b = scalarsAppendEnum(append(b, ",\"oEnum\":"...), int32((*m.OEnum)), commonpb.Color_name)
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -2029,8 +1713,7 @@ func (m *Optionals) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, uv, fv, bv, sv, by, tok := scalarsClassNone, 64, int64(0), uint64(0), float64(0), false, "", []byte(nil), jsontext.Token{}
 		switch f {
 		case 4, 11, 13:
 			class, bits = scalarsClassSigned, 32
@@ -2053,13 +1736,6 @@ func (m *Optionals) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 15:
 			class = scalarsClassEnum
 		}
-		var iv int64
-		var uv uint64
-		var fv float64
-		var bv bool
-		var sv string
-		var by []byte
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -2087,56 +1763,41 @@ func (m *Optionals) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch f {
 		case 0:
-			x := fv
-			m.ODouble = &x
+			m.ODouble = new(fv)
 		case 1:
-			x := float32(fv)
-			m.OFloat = &x
+			m.OFloat = new(float32(fv))
 		case 2:
-			x := iv
-			m.OInt64 = &x
+			m.OInt64 = new(iv)
 		case 3:
-			x := uv
-			m.OUint64 = &x
+			m.OUint64 = new(uv)
 		case 4:
-			x := int32(iv)
-			m.OInt32 = &x
+			m.OInt32 = new(int32(iv))
 		case 5:
-			x := uv
-			m.OFixed64 = &x
+			m.OFixed64 = new(uv)
 		case 6:
-			x := uint32(uv)
-			m.OFixed32 = &x
+			m.OFixed32 = new(uint32(uv))
 		case 7:
-			x := bv
-			m.OBool = &x
+			m.OBool = new(bv)
 		case 8:
-			x := sv
-			m.OString = &x
+			m.OString = new(sv)
 		case 9:
 			m.OBytes = by
 		case 10:
-			x := uint32(uv)
-			m.OUint32 = &x
+			m.OUint32 = new(uint32(uv))
 		case 11:
-			x := int32(iv)
-			m.OSfixed32 = &x
+			m.OSfixed32 = new(int32(iv))
 		case 12:
-			x := iv
-			m.OSfixed64 = &x
+			m.OSfixed64 = new(iv)
 		case 13:
-			x := int32(iv)
-			m.OSint32 = &x
+			m.OSint32 = new(int32(iv))
 		case 14:
-			x := iv
-			m.OSint64 = &x
+			m.OSint64 = new(iv)
 		case 15:
 			ev, err := scalarsParseEnum[commonpb.Color](class, tok, iv, commonpb.Color_value, "cotorp.test.proto3.Optionals", "cotorp.test.common.Color")
 			if err != nil {
 				return err
 			}
-			x := ev
-			m.OEnum = &x
+			m.OEnum = new(ev)
 		}
 	}
 	_, err = d.ReadToken()
@@ -2310,91 +1971,83 @@ func (m *Repeateds) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.RDouble) > 0 {
-		l := len(m.RDouble) * scalarsFixed64Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RDouble)*scalarsFixed64Size)
 	}
 	if len(m.RFloat) > 0 {
-		l := len(m.RFloat) * scalarsFixed32Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RFloat)*scalarsFixed32Size)
 	}
 	if len(m.RInt64) > 0 {
 		l := 0
 		for _, v := range m.RInt64 {
 			l += (bits.Len64(uint64(v)|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(l)
 	}
 	if len(m.RUint64) > 0 {
 		l := 0
 		for _, v := range m.RUint64 {
 			l += (bits.Len64(v|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(l)
 	}
 	if len(m.RInt32) > 0 {
 		l := 0
 		for _, v := range m.RInt32 {
 			l += (bits.Len64(uint64(int64(v))|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(l)
 	}
 	if len(m.RFixed64) > 0 {
-		l := len(m.RFixed64) * scalarsFixed64Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RFixed64)*scalarsFixed64Size)
 	}
 	if len(m.RFixed32) > 0 {
-		l := len(m.RFixed32) * scalarsFixed32Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RFixed32)*scalarsFixed32Size)
 	}
 	if len(m.RBool) > 0 {
-		l := len(m.RBool)
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RBool))
 	}
 	for _, v := range m.RString {
-		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(v))
 	}
 	for _, v := range m.RBytes {
-		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(v))
 	}
 	if len(m.RUint32) > 0 {
 		l := 0
 		for _, v := range m.RUint32 {
 			l += (bits.Len64(uint64(v)|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(l)
 	}
 	if len(m.RSfixed32) > 0 {
-		l := len(m.RSfixed32) * scalarsFixed32Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RSfixed32)*scalarsFixed32Size)
 	}
 	if len(m.RSfixed64) > 0 {
-		l := len(m.RSfixed64) * scalarsFixed64Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.RSfixed64)*scalarsFixed64Size)
 	}
 	if len(m.RSint32) > 0 {
 		l := 0
 		for _, v := range m.RSint32 {
 			l += (bits.Len64(uint64(uint32((v)<<1)^uint32((v)>>31))|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(l)
 	}
 	if len(m.RSint64) > 0 {
 		l := 0
 		for _, v := range m.RSint64 {
 			l += (bits.Len64((uint64((v)<<1)^uint64((v)>>63))|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(l)
 	}
 	if len(m.REnum) > 0 {
 		l := 0
 		for _, v := range m.REnum {
 			l += (bits.Len64(uint64(int64(v))|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 		}
-		n += 2 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 2 + scalarsSizeLen(l)
 	}
 	for _, v := range m.RNested {
-		l := v.ProtoSize()
-		n += 2 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 2 + scalarsSizeLen(v.ProtoSize())
 	}
 	for _, v := range m.RUnpacked {
 		n += 2 + (bits.Len64(uint64(int64(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
@@ -2404,9 +2057,7 @@ func (m *Repeateds) ProtoSize() (n int) {
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Repeateds) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Repeateds) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Repeateds) AppendBinary(b []byte) ([]byte, error) {
@@ -2429,73 +2080,61 @@ func (m *Repeateds) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	for _, v := range slices.Backward(m.RUnpacked) {
-		i = scalarsPutVarint(b, i, uint64(int64(v)))
-		i = scalarsPutVarint(b, i, 18<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(v))), 18<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	for _, v := range slices.Backward(m.RNested) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = scalarsPutVarint(b, i, uint64(n))
-		i = scalarsPutVarint(b, i, 17<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), 17<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.REnum) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.REnum) {
 			i = scalarsPutVarint(b, i, uint64(int64(v)))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 16<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 16<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RSint64) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RSint64) {
 			i = scalarsPutVarint(b, i, (uint64((v)<<1) ^ uint64((v)>>63)))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 15<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 15<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RSint32) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RSint32) {
 			i = scalarsPutVarint(b, i, uint64(uint32((v)<<1)^uint32((v)>>31)))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 14<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 14<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RSfixed64) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RSfixed64) {
-			i -= scalarsFixed64Size
-			binary.LittleEndian.PutUint64(b[i:], uint64(v))
+			i = scalarsPutFixed64(b, i, uint64(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 13<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 13<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RSfixed32) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RSfixed32) {
-			i -= scalarsFixed32Size
-			binary.LittleEndian.PutUint32(b[i:], uint32(v))
+			i = scalarsPutFixed32(b, i, uint32(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 12<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 12<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RUint32) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RUint32) {
 			i = scalarsPutVarint(b, i, uint64(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 11<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 11<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	for _, v := range slices.Backward(m.RBytes) {
 		i -= len(v)
 		copy(b[i:], v)
-		i = scalarsPutVarint(b, i, uint64(len(v)))
-		i = scalarsPutVarint(b, i, 10<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(v))), 10<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	for _, v := range slices.Backward(m.RString) {
 		if !utf8.ValidString(v) {
@@ -2503,81 +2142,63 @@ func (m *Repeateds) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(v)
 		copy(b[i:], v)
-		i = scalarsPutVarint(b, i, uint64(len(v)))
-		i = scalarsPutVarint(b, i, 9<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(v))), 9<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RBool) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RBool) {
-			i--
-			if v {
-				b[i] = 1
-			} else {
-				b[i] = 0
-			}
+			i = scalarsPutBool(b, i, v)
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 8<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 8<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RFixed32) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RFixed32) {
-			i -= scalarsFixed32Size
-			binary.LittleEndian.PutUint32(b[i:], uint32(v))
+			i = scalarsPutFixed32(b, i, uint32(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 7<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 7<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RFixed64) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RFixed64) {
-			i -= scalarsFixed64Size
-			binary.LittleEndian.PutUint64(b[i:], uint64(v))
+			i = scalarsPutFixed64(b, i, uint64(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 6<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 6<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RInt32) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RInt32) {
 			i = scalarsPutVarint(b, i, uint64(int64(v)))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 5<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 5<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RUint64) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RUint64) {
 			i = scalarsPutVarint(b, i, v)
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 4<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 4<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RInt64) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RInt64) {
 			i = scalarsPutVarint(b, i, uint64(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 3<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 3<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RFloat) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RFloat) {
-			i -= scalarsFixed32Size
-			binary.LittleEndian.PutUint32(b[i:], math.Float32bits(v))
+			i = scalarsPutFixed32(b, i, math.Float32bits(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 2<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if len(m.RDouble) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.RDouble) {
-			i -= scalarsFixed64Size
-			binary.LittleEndian.PutUint64(b[i:], math.Float64bits(v))
+			i = scalarsPutFixed64(b, i, math.Float64bits(v))
 		}
-		i = scalarsPutVarint(b, i, uint64(start-i))
-		i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 1<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -2591,9 +2212,7 @@ func (m *Repeateds) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Repeateds) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Repeateds) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
@@ -2624,17 +2243,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if len(v) < scalarsFixed64Size {
 					goto errParse
 				}
-				x, n := binary.LittleEndian.Uint64(v), scalarsFixed64Size
-				v = v[n:]
-				m.RDouble = append(m.RDouble, math.Float64frombits(x))
+				v, m.RDouble = v[scalarsFixed64Size:], append(m.RDouble, math.Float64frombits(binary.LittleEndian.Uint64(v)))
 			}
 		case 1<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.RDouble = append(m.RDouble, math.Float64frombits(x))
+			b, m.RDouble = b[scalarsFixed64Size:], append(m.RDouble, math.Float64frombits(binary.LittleEndian.Uint64(b)))
 		case 2<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2651,17 +2266,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if len(v) < scalarsFixed32Size {
 					goto errParse
 				}
-				x, n := binary.LittleEndian.Uint32(v), scalarsFixed32Size
-				v = v[n:]
-				m.RFloat = append(m.RFloat, math.Float32frombits(x))
+				v, m.RFloat = v[scalarsFixed32Size:], append(m.RFloat, math.Float32frombits(binary.LittleEndian.Uint32(v)))
 			}
 		case 2<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.RFloat = append(m.RFloat, math.Float32frombits(x))
+			b, m.RFloat = b[scalarsFixed32Size:], append(m.RFloat, math.Float32frombits(binary.LittleEndian.Uint32(b)))
 		case 3<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2673,16 +2284,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RInt64 = append(m.RInt64, int64(x))
+				v, m.RInt64 = v[n:], append(m.RInt64, int64(x))
 			}
 		case 3<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RInt64 = append(m.RInt64, int64(x))
+			b, m.RInt64 = b[n:], append(m.RInt64, int64(x))
 		case 4<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2694,16 +2303,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RUint64 = append(m.RUint64, x)
+				v, m.RUint64 = v[n:], append(m.RUint64, x)
 			}
 		case 4<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RUint64 = append(m.RUint64, x)
+			b, m.RUint64 = b[n:], append(m.RUint64, x)
 		case 5<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2715,16 +2322,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RInt32 = append(m.RInt32, int32(x))
+				v, m.RInt32 = v[n:], append(m.RInt32, int32(x))
 			}
 		case 5<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RInt32 = append(m.RInt32, int32(x))
+			b, m.RInt32 = b[n:], append(m.RInt32, int32(x))
 		case 6<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2741,17 +2346,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if len(v) < scalarsFixed64Size {
 					goto errParse
 				}
-				x, n := binary.LittleEndian.Uint64(v), scalarsFixed64Size
-				v = v[n:]
-				m.RFixed64 = append(m.RFixed64, x)
+				v, m.RFixed64 = v[scalarsFixed64Size:], append(m.RFixed64, binary.LittleEndian.Uint64(v))
 			}
 		case 6<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.RFixed64 = append(m.RFixed64, x)
+			b, m.RFixed64 = b[scalarsFixed64Size:], append(m.RFixed64, binary.LittleEndian.Uint64(b))
 		case 7<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2768,17 +2369,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if len(v) < scalarsFixed32Size {
 					goto errParse
 				}
-				x, n := binary.LittleEndian.Uint32(v), scalarsFixed32Size
-				v = v[n:]
-				m.RFixed32 = append(m.RFixed32, x)
+				v, m.RFixed32 = v[scalarsFixed32Size:], append(m.RFixed32, binary.LittleEndian.Uint32(v))
 			}
 		case 7<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.RFixed32 = append(m.RFixed32, x)
+			b, m.RFixed32 = b[scalarsFixed32Size:], append(m.RFixed32, binary.LittleEndian.Uint32(b))
 		case 8<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2790,16 +2387,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RBool = append(m.RBool, x != 0)
+				v, m.RBool = v[n:], append(m.RBool, x != 0)
 			}
 		case 8<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RBool = append(m.RBool, x != 0)
+			b, m.RBool = b[n:], append(m.RBool, x != 0)
 		case 9<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2808,15 +2403,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(scalarsRepeatedsRStringErrUTF8)
 			}
-			b = b[n:]
-			m.RString = append(m.RString, string(x))
+			b, m.RString = b[n:], append(m.RString, string(x))
 		case 10<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RBytes = append(m.RBytes, append([]byte{}, x...))
+			b, m.RBytes = b[n:], append(m.RBytes, append([]byte{}, x...))
 		case 11<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2828,16 +2421,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RUint32 = append(m.RUint32, uint32(x))
+				v, m.RUint32 = v[n:], append(m.RUint32, uint32(x))
 			}
 		case 11<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RUint32 = append(m.RUint32, uint32(x))
+			b, m.RUint32 = b[n:], append(m.RUint32, uint32(x))
 		case 12<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2854,17 +2445,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if len(v) < scalarsFixed32Size {
 					goto errParse
 				}
-				x, n := binary.LittleEndian.Uint32(v), scalarsFixed32Size
-				v = v[n:]
-				m.RSfixed32 = append(m.RSfixed32, int32(x))
+				v, m.RSfixed32 = v[scalarsFixed32Size:], append(m.RSfixed32, int32(binary.LittleEndian.Uint32(v)))
 			}
 		case 12<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.RSfixed32 = append(m.RSfixed32, int32(x))
+			b, m.RSfixed32 = b[scalarsFixed32Size:], append(m.RSfixed32, int32(binary.LittleEndian.Uint32(b)))
 		case 13<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2881,17 +2468,13 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if len(v) < scalarsFixed64Size {
 					goto errParse
 				}
-				x, n := binary.LittleEndian.Uint64(v), scalarsFixed64Size
-				v = v[n:]
-				m.RSfixed64 = append(m.RSfixed64, int64(x))
+				v, m.RSfixed64 = v[scalarsFixed64Size:], append(m.RSfixed64, int64(binary.LittleEndian.Uint64(v)))
 			}
 		case 13<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.RSfixed64 = append(m.RSfixed64, int64(x))
+			b, m.RSfixed64 = b[scalarsFixed64Size:], append(m.RSfixed64, int64(binary.LittleEndian.Uint64(b)))
 		case 14<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2903,16 +2486,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RSint32 = append(m.RSint32, int32(uint32(x)>>1)^-int32(x&1))
+				v, m.RSint32 = v[n:], append(m.RSint32, int32(uint32(x)>>1)^-int32(x&1))
 			}
 		case 14<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RSint32 = append(m.RSint32, int32(uint32(x)>>1)^-int32(x&1))
+			b, m.RSint32 = b[n:], append(m.RSint32, int32(uint32(x)>>1)^-int32(x&1))
 		case 15<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2924,16 +2505,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RSint64 = append(m.RSint64, int64(x>>1)^-int64(x&1))
+				v, m.RSint64 = v[n:], append(m.RSint64, int64(x>>1)^-int64(x&1))
 			}
 		case 15<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RSint64 = append(m.RSint64, int64(x>>1)^-int64(x&1))
+			b, m.RSint64 = b[n:], append(m.RSint64, int64(x>>1)^-int64(x&1))
 		case 16<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2945,16 +2524,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.REnum = append(m.REnum, commonpb.Color(int32(x)))
+				v, m.REnum = v[n:], append(m.REnum, commonpb.Color(int32(x)))
 			}
 		case 16<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.REnum = append(m.REnum, commonpb.Color(int32(x)))
+			b, m.REnum = b[n:], append(m.REnum, commonpb.Color(int32(x)))
 		case 17<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -2977,16 +2554,14 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 				if n <= 0 {
 					goto errParse
 				}
-				v = v[n:]
-				m.RUnpacked = append(m.RUnpacked, int32(x))
+				v, m.RUnpacked = v[n:], append(m.RUnpacked, int32(x))
 			}
 		case 18<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.RUnpacked = append(m.RUnpacked, int32(x))
+			b, m.RUnpacked = b[n:], append(m.RUnpacked, int32(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := scalarsSkipField(b, t, depth)
@@ -3006,14 +2581,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Repeateds) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Repeateds) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Repeateds) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Repeateds) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -3029,109 +2600,65 @@ func (m *Repeateds) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if len(m.RDouble) > 0 {
-		b = append(b, "\"rDouble\":["...)
+		b = append(b, ",\"rDouble\":["...)
 		for j := range m.RDouble {
-			switch fl := float64(m.RDouble[j]); {
-			case math.IsNaN(fl):
-				b = append(b, `"NaN"`...)
-			case math.IsInf(fl, 1):
-				b = append(b, `"Infinity"`...)
-			case math.IsInf(fl, -1):
-				b = append(b, `"-Infinity"`...)
-			default:
-				b = jsontext.AppendFloat(b, fl, 64)
-			}
-			b = append(b, ',')
+			b = append(scalarsAppendFloat(b, m.RDouble[j], 64), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RFloat) > 0 {
-		b = append(b, "\"rFloat\":["...)
+		b = append(b, ",\"rFloat\":["...)
 		for j := range m.RFloat {
-			switch fl := float64(m.RFloat[j]); {
-			case math.IsNaN(fl):
-				b = append(b, `"NaN"`...)
-			case math.IsInf(fl, 1):
-				b = append(b, `"Infinity"`...)
-			case math.IsInf(fl, -1):
-				b = append(b, `"-Infinity"`...)
-			default:
-				b = jsontext.AppendFloat(b, fl, 32)
-			}
-			b = append(b, ',')
+			b = append(scalarsAppendFloat(b, float64(m.RFloat[j]), 32), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RInt64) > 0 {
-		b = append(b, "\"rInt64\":["...)
+		b = append(b, ",\"rInt64\":["...)
 		for j := range m.RInt64 {
-			b = append(b, '"')
-			b = strconv.AppendInt(b, m.RInt64[j], 10)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = append(append(strconv.AppendInt(append(b, '"'), m.RInt64[j], 10), '"'), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RUint64) > 0 {
-		b = append(b, "\"rUint64\":["...)
+		b = append(b, ",\"rUint64\":["...)
 		for j := range m.RUint64 {
-			b = append(b, '"')
-			b = strconv.AppendUint(b, m.RUint64[j], 10)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = append(append(strconv.AppendUint(append(b, '"'), m.RUint64[j], 10), '"'), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RInt32) > 0 {
-		b = append(b, "\"rInt32\":["...)
+		b = append(b, ",\"rInt32\":["...)
 		for j := range m.RInt32 {
-			b = strconv.AppendInt(b, int64(m.RInt32[j]), 10)
-			b = append(b, ',')
+			b = append(strconv.AppendInt(b, int64(m.RInt32[j]), 10), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RFixed64) > 0 {
-		b = append(b, "\"rFixed64\":["...)
+		b = append(b, ",\"rFixed64\":["...)
 		for j := range m.RFixed64 {
-			b = append(b, '"')
-			b = strconv.AppendUint(b, m.RFixed64[j], 10)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = append(append(strconv.AppendUint(append(b, '"'), m.RFixed64[j], 10), '"'), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RFixed32) > 0 {
-		b = append(b, "\"rFixed32\":["...)
+		b = append(b, ",\"rFixed32\":["...)
 		for j := range m.RFixed32 {
-			b = strconv.AppendUint(b, uint64(m.RFixed32[j]), 10)
-			b = append(b, ',')
+			b = append(strconv.AppendUint(b, uint64(m.RFixed32[j]), 10), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RBool) > 0 {
-		b = append(b, "\"rBool\":["...)
+		b = append(b, ",\"rBool\":["...)
 		for j := range m.RBool {
-			if m.RBool[j] {
-				b = append(b, "true"...)
-			} else {
-				b = append(b, "false"...)
-			}
-			b = append(b, ',')
+			b = append(strconv.AppendBool(b, m.RBool[j]), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RString) > 0 {
-		b = append(b, "\"rString\":["...)
+		b = append(b, ",\"rString\":["...)
 		for j := range m.RString {
 			if b, err = jsontext.AppendQuote(b, m.RString[j]); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto3.Repeateds.r_string contains invalid UTF-8")
@@ -3139,79 +2666,58 @@ func (m *Repeateds) ProtoAppendJSON(b []byte) ([]byte, error) {
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RBytes) > 0 {
-		b = append(b, "\"rBytes\":["...)
+		b = append(b, ",\"rBytes\":["...)
 		for j := range m.RBytes {
-			b = append(b, '"')
-			b = base64.StdEncoding.AppendEncode(b, m.RBytes[j])
-			b = append(b, '"')
-			b = append(b, ',')
+			b = append(append(base64.StdEncoding.AppendEncode(append(b, '"'), m.RBytes[j]), '"'), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RUint32) > 0 {
-		b = append(b, "\"rUint32\":["...)
+		b = append(b, ",\"rUint32\":["...)
 		for j := range m.RUint32 {
-			b = strconv.AppendUint(b, uint64(m.RUint32[j]), 10)
-			b = append(b, ',')
+			b = append(strconv.AppendUint(b, uint64(m.RUint32[j]), 10), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RSfixed32) > 0 {
-		b = append(b, "\"rSfixed32\":["...)
+		b = append(b, ",\"rSfixed32\":["...)
 		for j := range m.RSfixed32 {
-			b = strconv.AppendInt(b, int64(m.RSfixed32[j]), 10)
-			b = append(b, ',')
+			b = append(strconv.AppendInt(b, int64(m.RSfixed32[j]), 10), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RSfixed64) > 0 {
-		b = append(b, "\"rSfixed64\":["...)
+		b = append(b, ",\"rSfixed64\":["...)
 		for j := range m.RSfixed64 {
-			b = append(b, '"')
-			b = strconv.AppendInt(b, m.RSfixed64[j], 10)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = append(append(strconv.AppendInt(append(b, '"'), m.RSfixed64[j], 10), '"'), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RSint32) > 0 {
-		b = append(b, "\"rSint32\":["...)
+		b = append(b, ",\"rSint32\":["...)
 		for j := range m.RSint32 {
-			b = strconv.AppendInt(b, int64(m.RSint32[j]), 10)
-			b = append(b, ',')
+			b = append(strconv.AppendInt(b, int64(m.RSint32[j]), 10), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RSint64) > 0 {
-		b = append(b, "\"rSint64\":["...)
+		b = append(b, ",\"rSint64\":["...)
 		for j := range m.RSint64 {
-			b = append(b, '"')
-			b = strconv.AppendInt(b, m.RSint64[j], 10)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = append(append(strconv.AppendInt(append(b, '"'), m.RSint64[j], 10), '"'), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.REnum) > 0 {
-		b = append(b, "\"rEnum\":["...)
+		b = append(b, ",\"rEnum\":["...)
 		for j := range m.REnum {
-			b = scalarsAppendEnum(b, int32(m.REnum[j]), commonpb.Color_name)
-			b = append(b, ',')
+			b = append(scalarsAppendEnum(b, int32(m.REnum[j]), commonpb.Color_name), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RNested) > 0 {
-		b = append(b, "\"rNested\":["...)
+		b = append(b, ",\"rNested\":["...)
 		for j := range m.RNested {
 			if b, err = m.RNested[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
@@ -3219,23 +2725,15 @@ func (m *Repeateds) ProtoAppendJSON(b []byte) ([]byte, error) {
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
 	if len(m.RUnpacked) > 0 {
-		b = append(b, "\"rUnpacked\":["...)
+		b = append(b, ",\"rUnpacked\":["...)
 		for j := range m.RUnpacked {
-			b = strconv.AppendInt(b, int64(m.RUnpacked[j]), 10)
-			b = append(b, ',')
+			b = append(strconv.AppendInt(b, int64(m.RUnpacked[j]), 10), ',')
 		}
 		b[len(b)-1] = ']'
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -3357,8 +2855,7 @@ func (m *Repeateds) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto3.Repeateds: null is not allowed in repeated fields or map values")
 			}
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, uv, fv, bv, sv, by, tok := scalarsClassNone, 64, int64(0), uint64(0), float64(0), false, "", []byte(nil), jsontext.Token{}
 		switch f {
 		case 4, 11, 13, 17:
 			class, bits = scalarsClassSigned, 32
@@ -3381,13 +2878,6 @@ func (m *Repeateds) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 15:
 			class = scalarsClassEnum
 		}
-		var iv int64
-		var uv uint64
-		var fv float64
-		var bv bool
-		var sv string
-		var by []byte
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -3543,50 +3033,32 @@ func (m *Maps) ProtoSize() (n int) {
 		return 0
 	}
 	for k, v := range m.MStringString {
-		_, _ = k, v
-		l := 1 + len(k) + (bits.Len64(uint64(len(k))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits + 1 + len(v) + (bits.Len64(uint64(len(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(1+scalarsSizeLen(len(k))+1+scalarsSizeLen(len(v)))
 	}
 	for k, v := range m.MInt32Int64 {
-		_, _ = k, v
-		l := 1 + (bits.Len64(uint64(int64(k))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits + 1 + (bits.Len64(uint64(v)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(1+(bits.Len64(uint64(int64(k))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits+1+(bits.Len64(uint64(v)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits)
 	}
-	for k, v := range m.MBoolBytes {
-		_, _ = k, v
-		l := 1 + 1 + 1 + len(v) + (bits.Len64(uint64(len(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+	for _, v := range m.MBoolBytes {
+		n += 1 + scalarsSizeLen(1+1+1+scalarsSizeLen(len(v)))
 	}
 	for k, v := range m.MSint64Nested {
-		_, _ = k, v
-		lv := v.ProtoSize()
-		l := 1 + (bits.Len64((uint64((k)<<1)^uint64((k)>>63))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits + 1 + lv + (bits.Len64(uint64(lv)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(1+(bits.Len64((uint64((k)<<1)^uint64((k)>>63))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits+1+scalarsSizeLen(v.ProtoSize()))
 	}
-	for k, v := range m.MFixed32Enum {
-		_, _ = k, v
-		l := 1 + scalarsFixed32Size + 1 + (bits.Len64(uint64(int64(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+	for _, v := range m.MFixed32Enum {
+		n += 1 + scalarsSizeLen(1+scalarsFixed32Size+1+(bits.Len64(uint64(int64(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits)
 	}
-	for k, v := range m.MUint64Double {
-		_, _ = k, v
-		l := 1 + (bits.Len64(k|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits + 1 + scalarsFixed64Size
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+	for k := range m.MUint64Double {
+		n += 1 + scalarsSizeLen(1+(bits.Len64(k|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits+1+scalarsFixed64Size)
 	}
 	for k, v := range m.MStringShared {
-		_, _ = k, v
-		lv := v.ProtoSize()
-		l := 1 + len(k) + (bits.Len64(uint64(len(k))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits + 1 + lv + (bits.Len64(uint64(lv)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(1+scalarsSizeLen(len(k))+1+scalarsSizeLen(v.ProtoSize()))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Maps) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Maps) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Maps) AppendBinary(b []byte) ([]byte, error) {
@@ -3616,44 +3088,32 @@ func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			i -= n
-			i = scalarsPutVarint(b, i, uint64(n))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(scalarsMapsMStringSharedEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
-			i = scalarsPutVarint(b, i, uint64(len(k)))
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireBytes)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 7<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(k))), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 7<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	if len(m.MUint64Double) > 0 {
 		for _, k := range slices.Backward(scalarsSortedKeys(m.MUint64Double, make([]uint64, 0, len(m.MUint64Double)))) {
 			v := m.MUint64Double[k]
 			start := i
-			i -= scalarsFixed64Size
-			binary.LittleEndian.PutUint64(b[i:], math.Float64bits(v))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireFixed64)
-			i = scalarsPutVarint(b, i, k)
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 6<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutFixed64(b, i, math.Float64bits(v)), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireFixed64)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, k), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 6<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	if len(m.MFixed32Enum) > 0 {
 		for _, k := range slices.Backward(scalarsSortedKeys(m.MFixed32Enum, make([]uint32, 0, len(m.MFixed32Enum)))) {
 			v := m.MFixed32Enum[k]
 			start := i
-			i = scalarsPutVarint(b, i, uint64(int64(v)))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireVarint)
-			i -= scalarsFixed32Size
-			binary.LittleEndian.PutUint32(b[i:], uint32(k))
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireFixed32)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 5<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(v))), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireVarint)
+			i = scalarsPutVarint(b, scalarsPutFixed32(b, i, uint32(k)), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireFixed32)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 5<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	if len(m.MSint64Nested) > 0 {
@@ -3664,13 +3124,9 @@ func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			i -= n
-			i = scalarsPutVarint(b, i, uint64(n))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
-			i = scalarsPutVarint(b, i, (uint64((k)<<1) ^ uint64((k)>>63)))
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 4<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, (uint64((k)<<1)^uint64((k)>>63))), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 4<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	if len(m.MBoolBytes) > 0 {
@@ -3682,29 +3138,18 @@ func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			start := i
 			i -= len(v)
 			copy(b[i:], v)
-			i = scalarsPutVarint(b, i, uint64(len(v)))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
-			i--
-			if k {
-				b[i] = 1
-			} else {
-				b[i] = 0
-			}
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 3<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(v))), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutBool(b, i, k), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 3<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	if len(m.MInt32Int64) > 0 {
 		for _, k := range slices.Backward(scalarsSortedKeys(m.MInt32Int64, make([]int32, 0, len(m.MInt32Int64)))) {
 			v := m.MInt32Int64[k]
 			start := i
-			i = scalarsPutVarint(b, i, uint64(v))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireVarint)
-			i = scalarsPutVarint(b, i, uint64(int64(k)))
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(v)), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireVarint)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(k))), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireVarint)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 2<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	if len(m.MStringString) > 0 {
@@ -3716,17 +3161,14 @@ func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			i -= len(v)
 			copy(b[i:], v)
-			i = scalarsPutVarint(b, i, uint64(len(v)))
-			i = scalarsPutVarint(b, i, scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(v))), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(scalarsMapsMStringStringEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
-			i = scalarsPutVarint(b, i, uint64(len(k)))
-			i = scalarsPutVarint(b, i, scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireBytes)
-			i = scalarsPutVarint(b, i, uint64(start-i))
-			i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(k))), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireBytes)
+			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 1<<scalarsTagTypeBits|scalarsWireBytes)
 		}
 	}
 	return len(b) - i, nil
@@ -3741,9 +3183,7 @@ func (m *Maps) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Maps) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Maps) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
@@ -3763,8 +3203,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			var mk string
-			var mv string
+			mk, mv := "", ""
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -3780,8 +3219,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if !utf8.Valid(x) {
 						return errors.New(scalarsMapsMStringStringEntryKeyErrUTF8)
 					}
-					mk = string(x)
-					v = v[n:]
+					v, mk = v[n:], string(x)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireBytes:
 					x, n := scalarsReadBytes(v)
 					if n < 0 {
@@ -3790,8 +3228,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if !utf8.Valid(x) {
 						return errors.New(scalarsMapsMStringStringEntryValueErrUTF8)
 					}
-					mv = string(x)
-					v = v[n:]
+					v, mv = v[n:], string(x)
 				default:
 					n, err := scalarsSkipField(v, t, depth)
 					if err != nil {
@@ -3800,18 +3237,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.MStringString == nil {
-				m.MStringString = make(map[string]string)
-			}
-			m.MStringString[mk] = mv
+			scalarsMapSet(&m.MStringString, mk, mv)
 			b = b[n:]
 		case 2<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk int32
-			var mv int64
+			mk, mv := int32(0), int64(0)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -3824,15 +3257,13 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = int32(x)
-					v = v[n:]
+					v, mk = v[n:], int32(x)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireVarint:
 					x, n := binary.Uvarint(v)
 					if n <= 0 {
 						goto errParse
 					}
-					mv = int64(x)
-					v = v[n:]
+					v, mv = v[n:], int64(x)
 				default:
 					n, err := scalarsSkipField(v, t, depth)
 					if err != nil {
@@ -3841,18 +3272,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.MInt32Int64 == nil {
-				m.MInt32Int64 = make(map[int32]int64)
-			}
-			m.MInt32Int64[mk] = mv
+			scalarsMapSet(&m.MInt32Int64, mk, mv)
 			b = b[n:]
 		case 3<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk bool
-			var mv []byte
+			mk, mv := false, []byte(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -3865,15 +3292,13 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = x != 0
-					v = v[n:]
+					v, mk = v[n:], x != 0
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireBytes:
 					x, n := scalarsReadBytes(v)
 					if n < 0 {
 						goto errParse
 					}
-					mv = append([]byte{}, x...)
-					v = v[n:]
+					v, mv = v[n:], append([]byte{}, x...)
 				default:
 					n, err := scalarsSkipField(v, t, depth)
 					if err != nil {
@@ -3882,18 +3307,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.MBoolBytes == nil {
-				m.MBoolBytes = make(map[bool][]byte)
-			}
-			m.MBoolBytes[mk] = mv
+			scalarsMapSet(&m.MBoolBytes, mk, mv)
 			b = b[n:]
 		case 4<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk int64
-			var mv *Scalars_Nested
+			mk, mv := int64(0), (*Scalars_Nested)(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -3906,8 +3327,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = int64(x>>1) ^ -int64(x&1)
-					v = v[n:]
+					v, mk = v[n:], int64(x>>1)^-int64(x&1)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireBytes:
 					x, n := scalarsReadBytes(v)
 					if n < 0 {
@@ -3931,18 +3351,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 			if mv == nil {
 				mv = &Scalars_Nested{}
 			}
-			if m.MSint64Nested == nil {
-				m.MSint64Nested = make(map[int64]*Scalars_Nested)
-			}
-			m.MSint64Nested[mk] = mv
+			scalarsMapSet(&m.MSint64Nested, mk, mv)
 			b = b[n:]
 		case 5<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk uint32
-			var mv commonpb.Color
+			mk, mv := uint32(0), commonpb.Color(0)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -3954,16 +3370,13 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if len(v) < scalarsFixed32Size {
 						goto errParse
 					}
-					x, n := binary.LittleEndian.Uint32(v), scalarsFixed32Size
-					mk = x
-					v = v[n:]
+					v, mk = v[scalarsFixed32Size:], binary.LittleEndian.Uint32(v)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireVarint:
 					x, n := binary.Uvarint(v)
 					if n <= 0 {
 						goto errParse
 					}
-					mv = commonpb.Color(int32(x))
-					v = v[n:]
+					v, mv = v[n:], commonpb.Color(int32(x))
 				default:
 					n, err := scalarsSkipField(v, t, depth)
 					if err != nil {
@@ -3972,18 +3385,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.MFixed32Enum == nil {
-				m.MFixed32Enum = make(map[uint32]commonpb.Color)
-			}
-			m.MFixed32Enum[mk] = mv
+			scalarsMapSet(&m.MFixed32Enum, mk, mv)
 			b = b[n:]
 		case 6<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk uint64
-			var mv float64
+			mk, mv := uint64(0), float64(0)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -3996,15 +3405,12 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if n <= 0 {
 						goto errParse
 					}
-					mk = x
-					v = v[n:]
+					v, mk = v[n:], x
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireFixed64:
 					if len(v) < scalarsFixed64Size {
 						goto errParse
 					}
-					x, n := binary.LittleEndian.Uint64(v), scalarsFixed64Size
-					mv = math.Float64frombits(x)
-					v = v[n:]
+					v, mv = v[scalarsFixed64Size:], math.Float64frombits(binary.LittleEndian.Uint64(v))
 				default:
 					n, err := scalarsSkipField(v, t, depth)
 					if err != nil {
@@ -4013,18 +3419,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					v = v[n:]
 				}
 			}
-			if m.MUint64Double == nil {
-				m.MUint64Double = make(map[uint64]float64)
-			}
-			m.MUint64Double[mk] = mv
+			scalarsMapSet(&m.MUint64Double, mk, mv)
 			b = b[n:]
 		case 7<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			var mk string
-			var mv *commonpb.Shared
+			mk, mv := "", (*commonpb.Shared)(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>scalarsTagTypeBits == 0 || t>>scalarsTagTypeBits > scalarsMaxFieldNumber {
@@ -4040,8 +3442,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					if !utf8.Valid(x) {
 						return errors.New(scalarsMapsMStringSharedEntryKeyErrUTF8)
 					}
-					mk = string(x)
-					v = v[n:]
+					v, mk = v[n:], string(x)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireBytes:
 					x, n := scalarsReadBytes(v)
 					if n < 0 {
@@ -4065,10 +3466,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 			if mv == nil {
 				mv = &commonpb.Shared{}
 			}
-			if m.MStringShared == nil {
-				m.MStringShared = make(map[string]*commonpb.Shared)
-			}
-			m.MStringShared[mk] = mv
+			scalarsMapSet(&m.MStringShared, mk, mv)
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
@@ -4089,14 +3487,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Maps) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Maps) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Maps) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Maps) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -4112,135 +3506,87 @@ func (m *Maps) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if len(m.MStringString) > 0 {
-		b = append(b, "\"mStringString\":{"...)
+		b = append(b, ",\"mStringString\":{"...)
 		for _, k := range scalarsSortedKeys(m.MStringString, make([]string, 0, len(m.MStringString))) {
 			v := m.MStringString[k]
 			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto3.Maps.m_string_string contains invalid UTF-8")
 			}
-			b = append(b, ':')
-			if b, err = jsontext.AppendQuote(b, v); err != nil {
+			if b, err = jsontext.AppendQuote(append(b, ':'), v); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto3.Maps.MStringStringEntry.value contains invalid UTF-8")
 			}
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.MInt32Int64) > 0 {
-		b = append(b, "\"mInt32Int64\":{"...)
+		b = append(b, ",\"mInt32Int64\":{"...)
 		for _, k := range scalarsSortedKeys(m.MInt32Int64, make([]int32, 0, len(m.MInt32Int64))) {
 			v := m.MInt32Int64[k]
-			b = append(b, '"')
-			b = strconv.AppendInt(b, int64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			b = append(b, '"')
-			b = strconv.AppendInt(b, v, 10)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = strconv.AppendInt(append(b, '"'), int64(k), 10)
+			b = append(append(strconv.AppendInt(append(b, "\":\""...), v, 10), '"'), ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.MBoolBytes) > 0 {
-		b = append(b, "\"mBoolBytes\":{"...)
+		b = append(b, ",\"mBoolBytes\":{"...)
 		for _, k := range [2]bool{false, true} {
 			v, ok := m.MBoolBytes[k]
 			if !ok {
 				continue
 			}
-			if k {
-				b = append(b, `"true"`...)
-			} else {
-				b = append(b, `"false"`...)
-			}
-			b = append(b, ':')
-			b = append(b, '"')
-			b = base64.StdEncoding.AppendEncode(b, v)
-			b = append(b, '"')
-			b = append(b, ',')
+			b = strconv.AppendBool(append(b, '"'), k)
+			b = append(append(base64.StdEncoding.AppendEncode(append(b, "\":\""...), v), '"'), ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.MSint64Nested) > 0 {
-		b = append(b, "\"mSint64Nested\":{"...)
+		b = append(b, ",\"mSint64Nested\":{"...)
 		for _, k := range scalarsSortedKeys(m.MSint64Nested, make([]int64, 0, len(m.MSint64Nested))) {
 			v := m.MSint64Nested[k]
-			b = append(b, '"')
-			b = strconv.AppendInt(b, int64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			if b, err = v.ProtoAppendJSON(b); err != nil {
+			b = strconv.AppendInt(append(b, '"'), int64(k), 10)
+			if b, err = v.ProtoAppendJSON(append(b, "\":"...)); err != nil {
 				return nil, err
 			}
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.MFixed32Enum) > 0 {
-		b = append(b, "\"mFixed32Enum\":{"...)
+		b = append(b, ",\"mFixed32Enum\":{"...)
 		for _, k := range scalarsSortedKeys(m.MFixed32Enum, make([]uint32, 0, len(m.MFixed32Enum))) {
 			v := m.MFixed32Enum[k]
-			b = append(b, '"')
-			b = strconv.AppendUint(b, uint64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			b = scalarsAppendEnum(b, int32(v), commonpb.Color_name)
-			b = append(b, ',')
+			b = strconv.AppendUint(append(b, '"'), uint64(k), 10)
+			b = append(scalarsAppendEnum(append(b, "\":"...), int32(v), commonpb.Color_name), ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.MUint64Double) > 0 {
-		b = append(b, "\"mUint64Double\":{"...)
+		b = append(b, ",\"mUint64Double\":{"...)
 		for _, k := range scalarsSortedKeys(m.MUint64Double, make([]uint64, 0, len(m.MUint64Double))) {
 			v := m.MUint64Double[k]
-			b = append(b, '"')
-			b = strconv.AppendUint(b, uint64(k), 10)
-			b = append(b, '"')
-			b = append(b, ':')
-			switch fl := float64(v); {
-			case math.IsNaN(fl):
-				b = append(b, `"NaN"`...)
-			case math.IsInf(fl, 1):
-				b = append(b, `"Infinity"`...)
-			case math.IsInf(fl, -1):
-				b = append(b, `"-Infinity"`...)
-			default:
-				b = jsontext.AppendFloat(b, fl, 64)
-			}
-			b = append(b, ',')
+			b = strconv.AppendUint(append(b, '"'), uint64(k), 10)
+			b = append(scalarsAppendFloat(append(b, "\":"...), v, 64), ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
 	if len(m.MStringShared) > 0 {
-		b = append(b, "\"mStringShared\":{"...)
+		b = append(b, ",\"mStringShared\":{"...)
 		for _, k := range scalarsSortedKeys(m.MStringShared, make([]string, 0, len(m.MStringShared))) {
 			v := m.MStringShared[k]
 			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto3.Maps.m_string_shared contains invalid UTF-8")
 			}
-			b = append(b, ':')
-			if b, err = v.ProtoAppendJSON(b); err != nil {
+			if b, err = v.ProtoAppendJSON(append(b, ':')); err != nil {
 				return nil, err
 			}
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -4348,8 +3694,7 @@ func (m *Maps) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto3.Maps: null is not allowed in repeated fields or map values")
 			}
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, fv, sv, by, tok := scalarsClassNone, 64, int64(0), float64(0), "", []byte(nil), jsontext.Token{}
 		switch f {
 		case 1:
 			class, bits = scalarsClassSigned, 64
@@ -4362,11 +3707,6 @@ func (m *Maps) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 4:
 			class = scalarsClassEnum
 		}
-		var iv int64
-		var fv float64
-		var sv string
-		var by []byte
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -4390,82 +3730,51 @@ func (m *Maps) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch f {
 		case 0:
-			k := mk
-			if m.MStringString == nil {
-				m.MStringString = make(map[string]string)
-			}
-			m.MStringString[k] = sv
+			scalarsMapSet(&m.MStringString, mk, sv)
 		case 1:
-			k64, err := strconv.ParseInt(mk, 10, 32)
+			k, err := scalarsParseIntKey(mk, 32, "cotorp.test.proto3.Maps", "m_int32_int64")
 			if err != nil {
-				return errors.New("proto: cotorp.test.proto3.Maps: invalid map key for field m_int32_int64: " + strconv.Quote(mk))
+				return err
 			}
-			k := int32(k64)
-			if m.MInt32Int64 == nil {
-				m.MInt32Int64 = make(map[int32]int64)
-			}
-			m.MInt32Int64[k] = iv
+			scalarsMapSet(&m.MInt32Int64, int32(k), iv)
 		case 2:
-			var k bool
-			switch mk {
-			case "true":
-				k = true
-			case "false":
-			default:
-				return errors.New("proto: cotorp.test.proto3.Maps: invalid map key for field m_bool_bytes: " + strconv.Quote(mk))
-			}
-			if m.MBoolBytes == nil {
-				m.MBoolBytes = make(map[bool][]byte)
-			}
-			m.MBoolBytes[k] = by
-		case 3:
-			k64, err := strconv.ParseInt(mk, 10, 64)
+			k, err := scalarsParseBoolKey(mk, "cotorp.test.proto3.Maps", "m_bool_bytes")
 			if err != nil {
-				return errors.New("proto: cotorp.test.proto3.Maps: invalid map key for field m_sint64_nested: " + strconv.Quote(mk))
+				return err
 			}
-			k := int64(k64)
+			scalarsMapSet(&m.MBoolBytes, k, by)
+		case 3:
+			k, err := scalarsParseIntKey(mk, 64, "cotorp.test.proto3.Maps", "m_sint64_nested")
+			if err != nil {
+				return err
+			}
 			mv := &Scalars_Nested{}
 			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
-			if m.MSint64Nested == nil {
-				m.MSint64Nested = make(map[int64]*Scalars_Nested)
-			}
-			m.MSint64Nested[k] = mv
+			scalarsMapSet(&m.MSint64Nested, k, mv)
 		case 4:
-			k64, err := strconv.ParseUint(mk, 10, 32)
+			k, err := scalarsParseUintKey(mk, 32, "cotorp.test.proto3.Maps", "m_fixed32_enum")
 			if err != nil {
-				return errors.New("proto: cotorp.test.proto3.Maps: invalid map key for field m_fixed32_enum: " + strconv.Quote(mk))
+				return err
 			}
-			k := uint32(k64)
 			ev, err := scalarsParseEnum[commonpb.Color](class, tok, iv, commonpb.Color_value, "cotorp.test.proto3.Maps", "cotorp.test.common.Color")
 			if err != nil {
 				return err
 			}
-			if m.MFixed32Enum == nil {
-				m.MFixed32Enum = make(map[uint32]commonpb.Color)
-			}
-			m.MFixed32Enum[k] = ev
+			scalarsMapSet(&m.MFixed32Enum, uint32(k), ev)
 		case 5:
-			k64, err := strconv.ParseUint(mk, 10, 64)
+			k, err := scalarsParseUintKey(mk, 64, "cotorp.test.proto3.Maps", "m_uint64_double")
 			if err != nil {
-				return errors.New("proto: cotorp.test.proto3.Maps: invalid map key for field m_uint64_double: " + strconv.Quote(mk))
+				return err
 			}
-			k := uint64(k64)
-			if m.MUint64Double == nil {
-				m.MUint64Double = make(map[uint64]float64)
-			}
-			m.MUint64Double[k] = fv
+			scalarsMapSet(&m.MUint64Double, k, fv)
 		case 6:
-			k := mk
 			mv := &commonpb.Shared{}
 			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
-			if m.MStringShared == nil {
-				m.MStringShared = make(map[string]*commonpb.Shared)
-			}
-			m.MStringShared[k] = mv
+			scalarsMapSet(&m.MStringShared, mk, mv)
 		}
 	}
 	_, err = d.ReadToken()
@@ -4646,12 +3955,11 @@ func (m *Oneofs) ProtoSize() (n int) {
 	case *Oneofs_CInt32:
 		n += 1 + (bits.Len64(uint64(int64(o.CInt32))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
 	case *Oneofs_CString:
-		n += 1 + len(o.CString) + (bits.Len64(uint64(len(o.CString))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(o.CString))
 	case *Oneofs_CBytes:
-		n += 1 + len(o.CBytes) + (bits.Len64(uint64(len(o.CBytes))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(o.CBytes))
 	case *Oneofs_CNested:
-		l := o.CNested.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(o.CNested.ProtoSize())
 	case *Oneofs_CEnum:
 		n += 1 + (bits.Len64(uint64(int64(o.CEnum))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
 	case *Oneofs_CDouble:
@@ -4671,9 +3979,7 @@ func (m *Oneofs) ProtoSize() (n int) {
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Oneofs) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Oneofs) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Oneofs) AppendBinary(b []byte) ([]byte, error) {
@@ -4696,41 +4002,31 @@ func (m *Oneofs) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if o, ok := m.Other.(*Oneofs_OFixed32); ok {
-		i -= scalarsFixed32Size
-		binary.LittleEndian.PutUint32(b[i:], uint32(o.OFixed32))
-		i = scalarsPutVarint(b, i, 20000<<scalarsTagTypeBits|scalarsWireFixed32)
+		i = scalarsPutVarint(b, scalarsPutFixed32(b, i, uint32(o.OFixed32)), 20000<<scalarsTagTypeBits|scalarsWireFixed32)
 	}
 	if o, ok := m.Other.(*Oneofs_OSint64); ok {
-		i = scalarsPutVarint(b, i, (uint64((o.OSint64)<<1) ^ uint64((o.OSint64)>>63)))
-		i = scalarsPutVarint(b, i, 100<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, (uint64((o.OSint64)<<1)^uint64((o.OSint64)>>63))), 100<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.After != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.After)))
-		i = scalarsPutVarint(b, i, 7<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.After))), 7<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if o, ok := m.Choice.(*Oneofs_CDouble); ok {
-		i -= scalarsFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], math.Float64bits(o.CDouble))
-		i = scalarsPutVarint(b, i, 6<<scalarsTagTypeBits|scalarsWireFixed64)
+		i = scalarsPutVarint(b, scalarsPutFixed64(b, i, math.Float64bits(o.CDouble)), 6<<scalarsTagTypeBits|scalarsWireFixed64)
 	}
 	if o, ok := m.Choice.(*Oneofs_CEnum); ok {
-		i = scalarsPutVarint(b, i, uint64(int64(o.CEnum)))
-		i = scalarsPutVarint(b, i, 5<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(o.CEnum))), 5<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if o, ok := m.Choice.(*Oneofs_CNested); ok {
 		n, err := o.CNested.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = scalarsPutVarint(b, i, uint64(n))
-		i = scalarsPutVarint(b, i, 4<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), 4<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if o, ok := m.Choice.(*Oneofs_CBytes); ok {
 		i -= len(o.CBytes)
 		copy(b[i:], o.CBytes)
-		i = scalarsPutVarint(b, i, uint64(len(o.CBytes)))
-		i = scalarsPutVarint(b, i, 3<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(o.CBytes))), 3<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if o, ok := m.Choice.(*Oneofs_CString); ok {
 		if !utf8.ValidString(o.CString) {
@@ -4738,12 +4034,10 @@ func (m *Oneofs) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(o.CString)
 		copy(b[i:], o.CString)
-		i = scalarsPutVarint(b, i, uint64(len(o.CString)))
-		i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(o.CString))), 2<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if o, ok := m.Choice.(*Oneofs_CInt32); ok {
-		i = scalarsPutVarint(b, i, uint64(int64(o.CInt32)))
-		i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(o.CInt32))), 1<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -4757,9 +4051,7 @@ func (m *Oneofs) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Oneofs) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Oneofs) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Oneofs) ProtoMergeDepth(b []byte, depth int) error {
@@ -4779,8 +4071,7 @@ func (m *Oneofs) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Choice = &Oneofs_CInt32{CInt32: int32(x)}
+			b, m.Choice = b[n:], &Oneofs_CInt32{CInt32: int32(x)}
 		case 2<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -4789,15 +4080,13 @@ func (m *Oneofs) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(scalarsOneofsCStringErrUTF8)
 			}
-			b = b[n:]
-			m.Choice = &Oneofs_CString{CString: string(x)}
+			b, m.Choice = b[n:], &Oneofs_CString{CString: string(x)}
 		case 3<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Choice = &Oneofs_CBytes{CBytes: append([]byte{}, x...)}
+			b, m.Choice = b[n:], &Oneofs_CBytes{CBytes: append([]byte{}, x...)}
 		case 4<<scalarsTagTypeBits | scalarsWireBytes:
 			v, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -4819,36 +4108,29 @@ func (m *Oneofs) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Choice = &Oneofs_CEnum{CEnum: commonpb.Color(int32(x))}
+			b, m.Choice = b[n:], &Oneofs_CEnum{CEnum: commonpb.Color(int32(x))}
 		case 6<<scalarsTagTypeBits | scalarsWireFixed64:
 			if len(b) < scalarsFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), scalarsFixed64Size
-			b = b[n:]
-			m.Choice = &Oneofs_CDouble{CDouble: math.Float64frombits(x)}
+			b, m.Choice = b[scalarsFixed64Size:], &Oneofs_CDouble{CDouble: math.Float64frombits(binary.LittleEndian.Uint64(b))}
 		case 7<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.After = int32(x)
+			b, m.After = b[n:], int32(x)
 		case 100<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Other = &Oneofs_OSint64{OSint64: int64(x>>1) ^ -int64(x&1)}
+			b, m.Other = b[n:], &Oneofs_OSint64{OSint64: int64(x>>1) ^ -int64(x&1)}
 		case 20000<<scalarsTagTypeBits | scalarsWireFixed32:
 			if len(b) < scalarsFixed32Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint32(b), scalarsFixed32Size
-			b = b[n:]
-			m.Other = &Oneofs_OFixed32{OFixed32: x}
+			b, m.Other = b[scalarsFixed32Size:], &Oneofs_OFixed32{OFixed32: binary.LittleEndian.Uint32(b)}
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := scalarsSkipField(b, t, depth)
@@ -4868,14 +4150,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Oneofs) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Oneofs) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Oneofs) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Oneofs) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -4891,75 +4169,39 @@ func (m *Oneofs) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if o, ok := m.Choice.(*Oneofs_CInt32); ok {
-		b = append(b, "\"cInt32\":"...)
-		b = strconv.AppendInt(b, int64(o.CInt32), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"cInt32\":"...), int64(o.CInt32), 10)
 	}
 	if o, ok := m.Choice.(*Oneofs_CString); ok {
-		b = append(b, "\"cString\":"...)
-		if b, err = jsontext.AppendQuote(b, o.CString); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"cString\":"...), o.CString); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto3.Oneofs.c_string contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
 	if o, ok := m.Choice.(*Oneofs_CBytes); ok {
-		b = append(b, "\"cBytes\":"...)
-		b = append(b, '"')
-		b = base64.StdEncoding.AppendEncode(b, o.CBytes)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(base64.StdEncoding.AppendEncode(append(b, ",\"cBytes\":\""...), o.CBytes), '"')
 	}
 	if o, ok := m.Choice.(*Oneofs_CNested); ok {
-		b = append(b, "\"cNested\":"...)
-		if b, err = o.CNested.ProtoAppendJSON(b); err != nil {
+		if b, err = o.CNested.ProtoAppendJSON(append(b, ",\"cNested\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
 	if o, ok := m.Choice.(*Oneofs_CEnum); ok {
-		b = append(b, "\"cEnum\":"...)
-		b = scalarsAppendEnum(b, int32(o.CEnum), commonpb.Color_name)
-		b = append(b, ',')
+		b = scalarsAppendEnum(append(b, ",\"cEnum\":"...), int32(o.CEnum), commonpb.Color_name)
 	}
 	if o, ok := m.Choice.(*Oneofs_CDouble); ok {
-		b = append(b, "\"cDouble\":"...)
-		switch fl := float64(o.CDouble); {
-		case math.IsNaN(fl):
-			b = append(b, `"NaN"`...)
-		case math.IsInf(fl, 1):
-			b = append(b, `"Infinity"`...)
-		case math.IsInf(fl, -1):
-			b = append(b, `"-Infinity"`...)
-		default:
-			b = jsontext.AppendFloat(b, fl, 64)
-		}
-		b = append(b, ',')
+		b = scalarsAppendFloat(append(b, ",\"cDouble\":"...), o.CDouble, 64)
 	}
 	if m.After != 0 {
-		b = append(b, "\"after\":"...)
-		b = strconv.AppendInt(b, int64(m.After), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"after\":"...), int64(m.After), 10)
 	}
 	if o, ok := m.Other.(*Oneofs_OSint64); ok {
-		b = append(b, "\"oSint64\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, o.OSint64, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"oSint64\":\""...), o.OSint64, 10), '"')
 	}
 	if o, ok := m.Other.(*Oneofs_OFixed32); ok {
-		b = append(b, "\"oFixed32\":"...)
-		b = strconv.AppendUint(b, uint64(o.OFixed32), 10)
-		b = append(b, ',')
+		b = strconv.AppendUint(append(b, ",\"oFixed32\":"...), uint64(o.OFixed32), 10)
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -5052,8 +4294,7 @@ func (m *Oneofs) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			oneofs[1] = true
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, uv, fv, sv, by, tok := scalarsClassNone, 64, int64(0), uint64(0), float64(0), "", []byte(nil), jsontext.Token{}
 		switch f {
 		case 0, 6:
 			class, bits = scalarsClassSigned, 32
@@ -5070,12 +4311,6 @@ func (m *Oneofs) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 4:
 			class = scalarsClassEnum
 		}
-		var iv int64
-		var uv uint64
-		var fv float64
-		var sv string
-		var by []byte
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -5208,16 +4443,14 @@ func (m *Names) ProtoSize() (n int) {
 		n += 1 + (bits.Len64(uint64(int64(m.Foo_))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
 	}
 	if len(m.MarshalBinary_) > 0 {
-		n += 1 + len(m.MarshalBinary_) + (bits.Len64(uint64(len(m.MarshalBinary_))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsSizeLen(len(m.MarshalBinary_))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Names) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Names) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Names) AppendBinary(b []byte) ([]byte, error) {
@@ -5245,24 +4478,19 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(m.MarshalBinary_)
 		copy(b[i:], m.MarshalBinary_)
-		i = scalarsPutVarint(b, i, uint64(len(m.MarshalBinary_)))
-		i = scalarsPutVarint(b, i, 5<<scalarsTagTypeBits|scalarsWireBytes)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(len(m.MarshalBinary_))), 5<<scalarsTagTypeBits|scalarsWireBytes)
 	}
 	if m.Foo_ != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.Foo_)))
-		i = scalarsPutVarint(b, i, 4<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.Foo_))), 4<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.GetFoo != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.GetFoo)))
-		i = scalarsPutVarint(b, i, 3<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.GetFoo))), 3<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.ProtoSize_ != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.ProtoSize_)))
-		i = scalarsPutVarint(b, i, 2<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.ProtoSize_))), 2<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	if m.Reset_ != 0 {
-		i = scalarsPutVarint(b, i, uint64(int64(m.Reset_)))
-		i = scalarsPutVarint(b, i, 1<<scalarsTagTypeBits|scalarsWireVarint)
+		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(m.Reset_))), 1<<scalarsTagTypeBits|scalarsWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -5276,9 +4504,7 @@ func (m *Names) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Names) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Names) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
@@ -5298,29 +4524,25 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Reset_ = int32(x)
+			b, m.Reset_ = b[n:], int32(x)
 		case 2<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.ProtoSize_ = int32(x)
+			b, m.ProtoSize_ = b[n:], int32(x)
 		case 3<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.GetFoo = int32(x)
+			b, m.GetFoo = b[n:], int32(x)
 		case 4<<scalarsTagTypeBits | scalarsWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Foo_ = int32(x)
+			b, m.Foo_ = b[n:], int32(x)
 		case 5<<scalarsTagTypeBits | scalarsWireBytes:
 			x, n := scalarsReadBytes(b)
 			if n < 0 {
@@ -5329,8 +4551,7 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(scalarsNamesMarshalBinaryErrUTF8)
 			}
-			b = b[n:]
-			m.MarshalBinary_ = string(x)
+			b, m.MarshalBinary_ = b[n:], string(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := scalarsSkipField(b, t, depth)
@@ -5350,14 +4571,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Names) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Names) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Names) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Names) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -5373,40 +4590,25 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.Reset_ != 0 {
-		b = append(b, "\"reset\":"...)
-		b = strconv.AppendInt(b, int64(m.Reset_), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"reset\":"...), int64(m.Reset_), 10)
 	}
 	if m.ProtoSize_ != 0 {
-		b = append(b, "\"protoSize\":"...)
-		b = strconv.AppendInt(b, int64(m.ProtoSize_), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"protoSize\":"...), int64(m.ProtoSize_), 10)
 	}
 	if m.GetFoo != 0 {
-		b = append(b, "\"getFoo\":"...)
-		b = strconv.AppendInt(b, int64(m.GetFoo), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"getFoo\":"...), int64(m.GetFoo), 10)
 	}
 	if m.Foo_ != 0 {
-		b = append(b, "\"foo\":"...)
-		b = strconv.AppendInt(b, int64(m.Foo_), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"foo\":"...), int64(m.Foo_), 10)
 	}
 	if len(m.MarshalBinary_) > 0 {
-		b = append(b, "\"marshalBinary\":"...)
-		if b, err = jsontext.AppendQuote(b, m.MarshalBinary_); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"marshalBinary\":"...), m.MarshalBinary_); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto3.Names.marshal_binary contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return scalarsCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -5478,17 +4680,13 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := scalarsClassNone
-		bits := 64
+		class, bits, iv, sv, tok := scalarsClassNone, 64, int64(0), "", jsontext.Token{}
 		switch f {
 		case 0, 1, 2, 3:
 			class, bits = scalarsClassSigned, 32
 		case 4:
 			class = scalarsClassString
 		}
-		var iv int64
-		var sv string
-		var tok jsontext.Token
 		if class != scalarsClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -5530,6 +4728,36 @@ func scalarsPutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + scalarsVarintPayloadBits - 1) / scalarsVarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// scalarsPutFixed32 writes u in 4 little-endian bytes ending at b[i] and returns
+// the index of the first.
+func scalarsPutFixed32(b []byte, i int, u uint32) int {
+	binary.LittleEndian.PutUint32(b[i-scalarsFixed32Size:], u)
+	return i - scalarsFixed32Size
+}
+
+// scalarsPutFixed64 writes u in 8 little-endian bytes ending at b[i] and returns
+// the index of the first.
+func scalarsPutFixed64(b []byte, i int, u uint64) int {
+	binary.LittleEndian.PutUint64(b[i-scalarsFixed64Size:], u)
+	return i - scalarsFixed64Size
+}
+
+// scalarsPutBool writes v as a one-byte varint ending at b[i] and returns its
+// index.
+func scalarsPutBool(b []byte, i int, v bool) int {
+	b[i-1] = 0
+	if v {
+		b[i-1] = 1
+	}
+	return i - 1
+}
+
+// scalarsSizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func scalarsSizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
 }
 
 // scalarsReadBytes returns the length-delimited value at the start of b and the
@@ -5625,6 +4853,14 @@ func scalarsSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	return keys
 }
 
+// scalarsMapSet sets (*m)[k] to v, allocating *m if it is nil.
+func scalarsMapSet[K comparable, V any](m *map[K]V, k K, v V) {
+	if *m == nil {
+		*m = make(map[K]V)
+	}
+	(*m)[k] = v
+}
+
 // scalarsWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
 // unless producing b failed with err.
 func scalarsWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
@@ -5643,6 +4879,31 @@ func scalarsAppendEnum(b []byte, v int32, names map[int32]string) []byte {
 		return append(b, '"')
 	}
 	return strconv.AppendInt(b, int64(v), 10)
+}
+
+// scalarsAppendFloat appends f, a float of the given bit size, as a JSON number or
+// as "NaN", "Infinity" or "-Infinity".
+func scalarsAppendFloat(b []byte, f float64, bits int) []byte {
+	switch {
+	case math.IsNaN(f):
+		return append(b, `"NaN"`...)
+	case math.IsInf(f, 1):
+		return append(b, `"Infinity"`...)
+	case math.IsInf(f, -1):
+		return append(b, `"-Infinity"`...)
+	}
+	return jsontext.AppendFloat(b, f, bits)
+}
+
+// scalarsCloseObject finishes a JSON object whose members were appended to b from
+// index start, each preceded by a comma: the first comma becomes the
+// opening brace.
+func scalarsCloseObject(b []byte, start int) []byte {
+	if len(b) == start {
+		return append(b, "{}"...)
+	}
+	b[start] = '{'
+	return append(b, '}')
 }
 
 // scalarsEndJSON finishes ProtoMergeJSON for message name: decoding one value
@@ -5845,6 +5106,38 @@ func scalarsParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values 
 		return E(iv), nil
 	}
 	return 0, nil
+}
+
+// scalarsParseIntKey parses JSON object key s as a signed integer of the given bit
+// size, for map field field of message name.
+func scalarsParseIntKey(s string, bits int, name, field string) (int64, error) {
+	k, err := strconv.ParseInt(s, 10, bits)
+	if err != nil {
+		return 0, scalarsJSONError(name, scalarsErrInvalidKey+field+": "+strconv.Quote(s))
+	}
+	return k, nil
+}
+
+// scalarsParseUintKey parses JSON object key s as an unsigned integer of the given
+// bit size, for map field field of message name.
+func scalarsParseUintKey(s string, bits int, name, field string) (uint64, error) {
+	k, err := strconv.ParseUint(s, 10, bits)
+	if err != nil {
+		return 0, scalarsJSONError(name, scalarsErrInvalidKey+field+": "+strconv.Quote(s))
+	}
+	return k, nil
+}
+
+// scalarsParseBoolKey parses JSON object key s as a boolean, for map field field of
+// message name.
+func scalarsParseBoolKey(s, name, field string) (bool, error) {
+	switch s {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	}
+	return false, scalarsJSONError(name, scalarsErrInvalidKey+field+": "+strconv.Quote(s))
 }
 
 // scalarsJSONError returns an error about the ProtoJSON value of message name.

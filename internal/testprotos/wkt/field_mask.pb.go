@@ -284,16 +284,14 @@ func (m *FieldMask) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Paths {
-		n += 1 + len(v) + (bits.Len64(uint64(len(v))|1)+fieldMaskVarintPayloadBits-1)/fieldMaskVarintPayloadBits
+		n += 1 + fieldMaskSizeLen(len(v))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *FieldMask) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *FieldMask) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FieldMask) AppendBinary(b []byte) ([]byte, error) {
@@ -321,8 +319,7 @@ func (m *FieldMask) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(v)
 		copy(b[i:], v)
-		i = fieldMaskPutVarint(b, i, uint64(len(v)))
-		i = fieldMaskPutVarint(b, i, 1<<fieldMaskTagTypeBits|fieldMaskWireBytes)
+		i = fieldMaskPutVarint(b, fieldMaskPutVarint(b, i, uint64(len(v))), 1<<fieldMaskTagTypeBits|fieldMaskWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -336,9 +333,7 @@ func (m *FieldMask) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *FieldMask) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *FieldMask) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
@@ -361,8 +356,7 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(fieldMaskFieldMaskPathsErrUTF8)
 			}
-			b = b[n:]
-			m.Paths = append(m.Paths, string(x))
+			b, m.Paths = b[n:], append(m.Paths, string(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := fieldMaskSkipField(b, t, depth)
@@ -382,14 +376,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *FieldMask) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *FieldMask) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *FieldMask) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *FieldMask) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -500,6 +490,12 @@ func fieldMaskPutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + fieldMaskVarintPayloadBits - 1) / fieldMaskVarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// fieldMaskSizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func fieldMaskSizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+fieldMaskVarintPayloadBits-1)/fieldMaskVarintPayloadBits
 }
 
 // fieldMaskReadBytes returns the length-delimited value at the start of b and the

@@ -152,7 +152,7 @@ func (m *Shared) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.Label) > 0 {
-		n += 1 + len(m.Label) + (bits.Len64(uint64(len(m.Label))|1)+commonVarintPayloadBits-1)/commonVarintPayloadBits
+		n += 1 + commonSizeLen(len(m.Label))
 	}
 	if m.Value != 0 {
 		n += 1 + (bits.Len64(uint64(m.Value)|1)+commonVarintPayloadBits-1)/commonVarintPayloadBits
@@ -162,9 +162,7 @@ func (m *Shared) ProtoSize() (n int) {
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Shared) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Shared) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Shared) AppendBinary(b []byte) ([]byte, error) {
@@ -187,8 +185,7 @@ func (m *Shared) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Value != 0 {
-		i = commonPutVarint(b, i, uint64(m.Value))
-		i = commonPutVarint(b, i, 2<<commonTagTypeBits|commonWireVarint)
+		i = commonPutVarint(b, commonPutVarint(b, i, uint64(m.Value)), 2<<commonTagTypeBits|commonWireVarint)
 	}
 	if len(m.Label) > 0 {
 		if !utf8.ValidString(m.Label) {
@@ -196,8 +193,7 @@ func (m *Shared) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(m.Label)
 		copy(b[i:], m.Label)
-		i = commonPutVarint(b, i, uint64(len(m.Label)))
-		i = commonPutVarint(b, i, 1<<commonTagTypeBits|commonWireBytes)
+		i = commonPutVarint(b, commonPutVarint(b, i, uint64(len(m.Label))), 1<<commonTagTypeBits|commonWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -211,9 +207,7 @@ func (m *Shared) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Shared) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Shared) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
@@ -236,15 +230,13 @@ func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(commonSharedLabelErrUTF8)
 			}
-			b = b[n:]
-			m.Label = string(x)
+			b, m.Label = b[n:], string(x)
 		case 2<<commonTagTypeBits | commonWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Value = int64(x)
+			b, m.Value = b[n:], int64(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := commonSkipField(b, t, depth)
@@ -264,14 +256,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Shared) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Shared) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Shared) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Shared) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -287,27 +275,16 @@ func (m *Shared) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if len(m.Label) > 0 {
-		b = append(b, "\"label\":"...)
-		if b, err = jsontext.AppendQuote(b, m.Label); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"label\":"...), m.Label); err != nil {
 			return nil, errors.New("proto: cotorp.test.common.Shared.label contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
 	if m.Value != 0 {
-		b = append(b, "\"value\":"...)
-		b = append(b, '"')
-		b = strconv.AppendInt(b, m.Value, 10)
-		b = append(b, '"')
-		b = append(b, ',')
+		b = append(strconv.AppendInt(append(b, ",\"value\":\""...), m.Value, 10), '"')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return commonCloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -373,17 +350,13 @@ func (m *Shared) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := commonClassNone
-		bits := 64
+		class, bits, iv, sv, tok := commonClassNone, 64, int64(0), "", jsontext.Token{}
 		switch f {
 		case 1:
 			class, bits = commonClassSigned, 64
 		case 0:
 			class = commonClassString
 		}
-		var iv int64
-		var sv string
-		var tok jsontext.Token
 		if class != commonClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -419,6 +392,12 @@ func commonPutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + commonVarintPayloadBits - 1) / commonVarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// commonSizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func commonSizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+commonVarintPayloadBits-1)/commonVarintPayloadBits
 }
 
 // commonReadBytes returns the length-delimited value at the start of b and the
@@ -511,6 +490,17 @@ func commonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 		return err
 	}
 	return e.WriteValue(b)
+}
+
+// commonCloseObject finishes a JSON object whose members were appended to b from
+// index start, each preceded by a comma: the first comma becomes the
+// opening brace.
+func commonCloseObject(b []byte, start int) []byte {
+	if len(b) == start {
+		return append(b, "{}"...)
+	}
+	b[start] = '{'
+	return append(b, '}')
 }
 
 // commonEndJSON finishes ProtoMergeJSON for message name: decoding one value

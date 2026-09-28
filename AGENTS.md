@@ -108,8 +108,16 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **`ProtoMarshalToSizedBuffer` writes back to front.** Fields are emitted in
   descending field-number order so that the output ends up ascending.
   - Unknown fields are copied first, so they end up last.
-  - Varints and tags are written with `fg.encVarint`, which calls the
-    `PutVarint` helper.
+  - Each value is written by one expression that evaluates to the new `i`:
+    `fg.putScalar` returns it (a `PutVarint`, `PutFixed32`, `PutFixed64` or
+    `PutBool` call; strings and bytes first emit their copy), and the tag
+    write wraps it: `i = PutVarint(b, <value>, <tag>)`.
+- **Keep generated code dense.** Where gofmt allows it, prefer one line:
+  - one-statement methods on one line (`MarshalBinary`, `ProtoMerge`, and
+    `ProtoCheckInitialized` and `MarshalJSON` without required fields);
+  - `b, m.F = b[n:], expr` to advance and assign in `ProtoMergeDepth`;
+  - `m.F = new(expr)` for explicit-presence fields (Go 1.26);
+  - `a, b := x, y` for several locals (gofmt expands `var (...)` groups).
 - **Wire output must stay byte-identical to protoc** for messages without
   maps. Map entries are sorted by key.
 - **Generated code must build at Go 1.27**, the `go.mod` version. It uses
@@ -121,17 +129,27 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   `json.go`). Marshal appends with `jsontext.AppendQuote` and
   `jsontext.AppendFloat`; `ProtoAppendJSON` declares `err` only when
   `fg.usesErr` is set.
+  - Each member is appended with a leading comma (`,"name":value`), and the
+    `CloseObject` helper turns the first comma into `{`. Array elements and
+    map entries are followed by a comma, and the last one is replaced with
+    `]` or `}`.
+  - `fg.jsonOutExpr` returns a scalar value as one expression appended to a
+    literal (the key, and the opening quote of 64-bit integers and bytes);
+    `fg.jsonOut` emits it, or the statements for strings and messages,
+    which can fail.
 - **JSON unmarshal streams from one decoder.** `ProtoMergeJSONFrom` reads
   one value per loop iteration (a field's value, or an element of the
   repeated or map field named by `in`), parses scalars with one `Parse*`
-  helper call per class, then assigns. Nested messages call `ProtoMergeJSONFrom` on the
-  same decoder.
+  helper call per class, then assigns. Nested messages call
+  `ProtoMergeJSONFrom` on the same decoder. Map entries are stored with the
+  `MapSet` helper, after non-string keys are parsed by `Parse*Key`.
   - A `jsontext.Token` is invalid after the next read or peek, so convert it
     (for example with `tok.String()`) before using the decoder again. An
     enum name stays in `tok` until `ParseEnum` looks it up, which happens
     before the next read.
   - Declare scratch variables such as `iv`, `sv` and `bits` only when a class
-    that reads them is in use, or the unused-variable check fails.
+    that reads them is in use, or the unused-variable check fails. They are
+    declared with `class` in one `:=` statement, with typed zero values.
   - Build error messages with dynamic parts using `fg.errConcat`.
   - Well-known types are selected by full name in `genJSON`.
   - The `-json_*` flags arrive as `gengo.Options` (`JSONEnumNumbers`, `JSONHex`,

@@ -215,7 +215,11 @@ this work. Correctness relies on the protoc-based tests.
   - unused labels, imports and local variables are compile errors;
   - Go constants have no negative zero, so `-0.0` defaults use
     `math.Copysign`;
-  - `new(expr)` (Go 1.26) is used only in cotorp's tests, never in
-    generated code.
+  - `new(expr)` (Go 1.26) allocates a copy of a value, which generated code
+    uses to set explicit-presence fields;
+  - in an assignment such as `b, m.F = b[n:], conv(b)`, every operand on the
+    right is evaluated before anything is assigned, so both see the old `b`;
+  - gofmt keeps a one-statement function body on one line, but expands a
+    parenthesized `var (...)` group onto several lines.
 - **The varint size formula** `(bits.Len64(v|1)+7-1)/7`: derived, and checked
   by the protoc byte-comparison tests.

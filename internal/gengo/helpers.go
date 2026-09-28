@@ -21,13 +21,20 @@ type helperDef struct {
 // helperDefs lists every helper, in declaration order.
 var helperDefs = []helperDef{
 	{"PutVarint", genPutVarint},
+	{"PutFixed32", genPutFixed32},
+	{"PutFixed64", genPutFixed64},
+	{"PutBool", genPutBool},
+	{"SizeLen", genSizeLen},
 	{"ReadBytes", genReadBytes},
 	{"SkipField", genSkipField},
 	{"SkipGroup", genSkipGroup},
 	{"Appended", genAppended},
 	{"SortedKeys", genSortedKeys},
+	{"MapSet", genMapSet},
 	{"WriteJSON", genWriteJSON},
 	{"AppendEnum", genAppendEnum},
+	{"AppendFloat", genAppendFloat},
+	{"CloseObject", genCloseObject},
 	{"EndJSON", genEndJSON},
 	{"StrictDecoder", genStrictDecoder},
 	{"OpenJSON", genOpenJSON},
@@ -43,6 +50,9 @@ var helperDefs = []helperDef{
 	{"ParseBytes", genParseBytes},
 	{"ParseHex", genParseHex},
 	{"ParseEnum", genParseEnum},
+	{"ParseIntKey", genParseIntKey},
+	{"ParseUintKey", genParseUintKey},
+	{"ParseBoolKey", genParseBoolKey},
 	{"JSONError", genJSONError},
 }
 
@@ -105,6 +115,50 @@ func genPutVarint(fg *fileGen, name string) {
 	fg.P("i -= (", fg.std("math/bits"), ".Len64(u|1) + ", pb, " - 1) / ", pb)
 	fg.P(fg.std("encoding/binary"), ".PutUvarint(b[i:], u)")
 	fg.P("return i")
+	fg.P("}")
+	fg.P()
+}
+
+func genPutFixed32(fg *fileGen, name string) {
+	fs := fg.c("Fixed32Size")
+	fg.P("// ", name, " writes u in 4 little-endian bytes ending at b[i] and returns")
+	fg.P("// the index of the first.")
+	fg.P("func ", name, "(b []byte, i int, u uint32) int {")
+	fg.P(fg.std("encoding/binary"), ".LittleEndian.PutUint32(b[i-", fs, ":], u)")
+	fg.P("return i - ", fs)
+	fg.P("}")
+	fg.P()
+}
+
+func genPutFixed64(fg *fileGen, name string) {
+	fs := fg.c("Fixed64Size")
+	fg.P("// ", name, " writes u in 8 little-endian bytes ending at b[i] and returns")
+	fg.P("// the index of the first.")
+	fg.P("func ", name, "(b []byte, i int, u uint64) int {")
+	fg.P(fg.std("encoding/binary"), ".LittleEndian.PutUint64(b[i-", fs, ":], u)")
+	fg.P("return i - ", fs)
+	fg.P("}")
+	fg.P()
+}
+
+func genPutBool(fg *fileGen, name string) {
+	fg.P("// ", name, " writes v as a one-byte varint ending at b[i] and returns its")
+	fg.P("// index.")
+	fg.P("func ", name, "(b []byte, i int, v bool) int {")
+	fg.P("b[i-1] = 0")
+	fg.P("if v {")
+	fg.P("b[i-1] = 1")
+	fg.P("}")
+	fg.P("return i - 1")
+	fg.P("}")
+	fg.P()
+}
+
+func genSizeLen(fg *fileGen, name string) {
+	fg.P("// ", name, " returns the size of a length-delimited value of l bytes,")
+	fg.P("// including its length prefix.")
+	fg.P("func ", name, "(l int) int {")
+	fg.P("return l + ", fg.sizeVarint("uint64(l)"))
 	fg.P("}")
 	fg.P()
 }
@@ -219,6 +273,17 @@ func genSortedKeys(fg *fileGen, name string) {
 	fg.P()
 }
 
+func genMapSet(fg *fileGen, name string) {
+	fg.P("// ", name, " sets (*m)[k] to v, allocating *m if it is nil.")
+	fg.P("func ", name, "[K comparable, V any](m *map[K]V, k K, v V) {")
+	fg.P("if *m == nil {")
+	fg.P("*m = make(map[K]V)")
+	fg.P("}")
+	fg.P("(*m)[k] = v")
+	fg.P("}")
+	fg.P()
+}
+
 // --- JSON marshal -----------------------------------------------------------
 
 func genWriteJSON(fg *fileGen, name string) {
@@ -243,6 +308,38 @@ func genAppendEnum(fg *fileGen, name string) {
 	fg.P("return append(b, '\"')")
 	fg.P("}")
 	fg.P("return ", fg.std("strconv"), ".AppendInt(b, int64(v), 10)")
+	fg.P("}")
+	fg.P()
+}
+
+func genAppendFloat(fg *fileGen, name string) {
+	m := fg.std("math")
+	fg.P("// ", name, " appends f, a float of the given bit size, as a JSON number or")
+	fg.P("// as \"NaN\", \"Infinity\" or \"-Infinity\".")
+	fg.P("func ", name, "(b []byte, f float64, bits int) []byte {")
+	fg.P("switch {")
+	fg.P("case ", m, ".IsNaN(f):")
+	fg.P("return append(b, `\"NaN\"`...)")
+	fg.P("case ", m, ".IsInf(f, 1):")
+	fg.P("return append(b, `\"Infinity\"`...)")
+	fg.P("case ", m, ".IsInf(f, -1):")
+	fg.P("return append(b, `\"-Infinity\"`...)")
+	fg.P("}")
+	fg.P("return ", fg.std("encoding/json/jsontext"), ".AppendFloat(b, f, bits)")
+	fg.P("}")
+	fg.P()
+}
+
+func genCloseObject(fg *fileGen, name string) {
+	fg.P("// ", name, " finishes a JSON object whose members were appended to b from")
+	fg.P("// index start, each preceded by a comma: the first comma becomes the")
+	fg.P("// opening brace.")
+	fg.P("func ", name, "(b []byte, start int) []byte {")
+	fg.P("if len(b) == start {")
+	fg.P("return append(b, \"{}\"...)")
+	fg.P("}")
+	fg.P("b[start] = '{'")
+	fg.P("return append(b, '}')")
 	fg.P("}")
 	fg.P()
 }
@@ -513,6 +610,47 @@ func genParseEnum(fg *fileGen, name string) {
 	fg.P("return E(iv), nil")
 	fg.P("}")
 	fg.P("return 0, nil")
+	fg.P("}")
+	fg.P()
+}
+
+func genParseIntKey(fg *fileGen, name string) {
+	fg.P("// ", name, " parses JSON object key s as a signed integer of the given bit")
+	fg.P("// size, for map field field of message name.")
+	fg.P("func ", name, "(s string, bits int, name, field string) (int64, error) {")
+	fg.P("k, err := ", fg.std("strconv"), ".ParseInt(s, 10, bits)")
+	fg.P("if err != nil {")
+	fg.P("return 0, ", fg.jsonErrorf("name", "ErrInvalidKey", "invalid map key for field ", "field", `": "`, fg.std("strconv")+".Quote(s)"))
+	fg.P("}")
+	fg.P("return k, nil")
+	fg.P("}")
+	fg.P()
+}
+
+func genParseUintKey(fg *fileGen, name string) {
+	fg.P("// ", name, " parses JSON object key s as an unsigned integer of the given")
+	fg.P("// bit size, for map field field of message name.")
+	fg.P("func ", name, "(s string, bits int, name, field string) (uint64, error) {")
+	fg.P("k, err := ", fg.std("strconv"), ".ParseUint(s, 10, bits)")
+	fg.P("if err != nil {")
+	fg.P("return 0, ", fg.jsonErrorf("name", "ErrInvalidKey", "invalid map key for field ", "field", `": "`, fg.std("strconv")+".Quote(s)"))
+	fg.P("}")
+	fg.P("return k, nil")
+	fg.P("}")
+	fg.P()
+}
+
+func genParseBoolKey(fg *fileGen, name string) {
+	fg.P("// ", name, " parses JSON object key s as a boolean, for map field field of")
+	fg.P("// message name.")
+	fg.P("func ", name, "(s, name, field string) (bool, error) {")
+	fg.P("switch s {")
+	fg.P("case \"true\":")
+	fg.P("return true, nil")
+	fg.P("case \"false\":")
+	fg.P("return false, nil")
+	fg.P("}")
+	fg.P("return false, ", fg.jsonErrorf("name", "ErrInvalidKey", "invalid map key for field ", "field", `": "`, fg.std("strconv")+".Quote(s)"))
 	fg.P("}")
 	fg.P()
 }

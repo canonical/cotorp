@@ -215,9 +215,7 @@ func (m *Timestamp) ProtoSize() (n int) {
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Timestamp) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Timestamp) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Timestamp) AppendBinary(b []byte) ([]byte, error) {
@@ -240,12 +238,10 @@ func (m *Timestamp) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Nanos != 0 {
-		i = timestampPutVarint(b, i, uint64(int64(m.Nanos)))
-		i = timestampPutVarint(b, i, 2<<timestampTagTypeBits|timestampWireVarint)
+		i = timestampPutVarint(b, timestampPutVarint(b, i, uint64(int64(m.Nanos))), 2<<timestampTagTypeBits|timestampWireVarint)
 	}
 	if m.Seconds != 0 {
-		i = timestampPutVarint(b, i, uint64(m.Seconds))
-		i = timestampPutVarint(b, i, 1<<timestampTagTypeBits|timestampWireVarint)
+		i = timestampPutVarint(b, timestampPutVarint(b, i, uint64(m.Seconds)), 1<<timestampTagTypeBits|timestampWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -259,9 +255,7 @@ func (m *Timestamp) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Timestamp) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Timestamp) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
@@ -281,15 +275,13 @@ func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Seconds = int64(x)
+			b, m.Seconds = b[n:], int64(x)
 		case 2<<timestampTagTypeBits | timestampWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Nanos = int32(x)
+			b, m.Nanos = b[n:], int32(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := timestampSkipField(b, t, depth)
@@ -309,14 +301,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Timestamp) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Timestamp) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Timestamp) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Timestamp) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.

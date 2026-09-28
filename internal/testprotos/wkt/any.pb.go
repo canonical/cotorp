@@ -153,19 +153,17 @@ func (m *Any) ProtoSize() (n int) {
 		return 0
 	}
 	if len(m.TypeUrl) > 0 {
-		n += 1 + len(m.TypeUrl) + (bits.Len64(uint64(len(m.TypeUrl))|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
+		n += 1 + anySizeLen(len(m.TypeUrl))
 	}
 	if len(m.Value) > 0 {
-		n += 1 + len(m.Value) + (bits.Len64(uint64(len(m.Value))|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
+		n += 1 + anySizeLen(len(m.Value))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Any) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Any) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Any) AppendBinary(b []byte) ([]byte, error) {
@@ -190,8 +188,7 @@ func (m *Any) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if len(m.Value) > 0 {
 		i -= len(m.Value)
 		copy(b[i:], m.Value)
-		i = anyPutVarint(b, i, uint64(len(m.Value)))
-		i = anyPutVarint(b, i, 2<<anyTagTypeBits|anyWireBytes)
+		i = anyPutVarint(b, anyPutVarint(b, i, uint64(len(m.Value))), 2<<anyTagTypeBits|anyWireBytes)
 	}
 	if len(m.TypeUrl) > 0 {
 		if !utf8.ValidString(m.TypeUrl) {
@@ -199,8 +196,7 @@ func (m *Any) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(m.TypeUrl)
 		copy(b[i:], m.TypeUrl)
-		i = anyPutVarint(b, i, uint64(len(m.TypeUrl)))
-		i = anyPutVarint(b, i, 1<<anyTagTypeBits|anyWireBytes)
+		i = anyPutVarint(b, anyPutVarint(b, i, uint64(len(m.TypeUrl))), 1<<anyTagTypeBits|anyWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -214,9 +210,7 @@ func (m *Any) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Any) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Any) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
@@ -239,15 +233,13 @@ func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(anyAnyTypeUrlErrUTF8)
 			}
-			b = b[n:]
-			m.TypeUrl = string(x)
+			b, m.TypeUrl = b[n:], string(x)
 		case 2<<anyTagTypeBits | anyWireBytes:
 			x, n := anyReadBytes(b)
 			if n < 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Value = append([]byte{}, x...)
+			b, m.Value = b[n:], append([]byte{}, x...)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := anySkipField(b, t, depth)
@@ -267,14 +259,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Any) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Any) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Any) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Any) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -334,6 +322,12 @@ func anyPutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + anyVarintPayloadBits - 1) / anyVarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// anySizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func anySizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
 }
 
 // anyReadBytes returns the length-delimited value at the start of b and the

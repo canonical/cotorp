@@ -154,19 +154,14 @@ func (m *Struct) ProtoSize() (n int) {
 		return 0
 	}
 	for k, v := range m.Fields {
-		_, _ = k, v
-		lv := v.ProtoSize()
-		l := 1 + len(k) + (bits.Len64(uint64(len(k))|1)+structVarintPayloadBits-1)/structVarintPayloadBits + 1 + lv + (bits.Len64(uint64(lv)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
-		n += 1 + l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
+		n += 1 + structSizeLen(1+structSizeLen(len(k))+1+structSizeLen(v.ProtoSize()))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Struct) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Struct) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Struct) AppendBinary(b []byte) ([]byte, error) {
@@ -196,18 +191,14 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			i -= n
-			i = structPutVarint(b, i, uint64(n))
-			i = structPutVarint(b, i, structMapValueField<<structTagTypeBits|structWireBytes)
+			i = structPutVarint(b, structPutVarint(b, i-n, uint64(n)), structMapValueField<<structTagTypeBits|structWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(structStructFieldsEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
-			i = structPutVarint(b, i, uint64(len(k)))
-			i = structPutVarint(b, i, structMapKeyField<<structTagTypeBits|structWireBytes)
-			i = structPutVarint(b, i, uint64(start-i))
-			i = structPutVarint(b, i, 1<<structTagTypeBits|structWireBytes)
+			i = structPutVarint(b, structPutVarint(b, i, uint64(len(k))), structMapKeyField<<structTagTypeBits|structWireBytes)
+			i = structPutVarint(b, structPutVarint(b, i, uint64(start-i)), 1<<structTagTypeBits|structWireBytes)
 		}
 	}
 	return len(b) - i, nil
@@ -222,9 +213,7 @@ func (m *Struct) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Struct) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Struct) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
@@ -244,8 +233,7 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 			if n < 0 {
 				goto errParse
 			}
-			var mk string
-			var mv *Value
+			mk, mv := "", (*Value)(nil)
 			for len(v) > 0 {
 				t, n := binary.Uvarint(v)
 				if n <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
@@ -261,8 +249,7 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 					if !utf8.Valid(x) {
 						return errors.New(structStructFieldsEntryKeyErrUTF8)
 					}
-					mk = string(x)
-					v = v[n:]
+					v, mk = v[n:], string(x)
 				case structMapValueField<<structTagTypeBits | structWireBytes:
 					x, n := structReadBytes(v)
 					if n < 0 {
@@ -286,10 +273,7 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 			if mv == nil {
 				mv = &Value{}
 			}
-			if m.Fields == nil {
-				m.Fields = make(map[string]*Value)
-			}
-			m.Fields[mk] = mv
+			structMapSet(&m.Fields, mk, mv)
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
@@ -310,14 +294,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Struct) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Struct) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Struct) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Struct) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -330,25 +310,21 @@ func (m *Struct) MarshalJSONTo(e *jsontext.Encoder) error {
 // check required fields.
 func (m *Struct) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
+	if len(m.GetFields()) == 0 {
+		return append(b, "{}"...), nil
+	}
 	b = append(b, '{')
-	if m != nil {
-		for _, k := range structSortedKeys(m.Fields, make([]string, 0, len(m.Fields))) {
-			v := m.Fields[k]
-			if b, err = jsontext.AppendQuote(b, k); err != nil {
-				return nil, errors.New("proto: google.protobuf.Struct.fields contains invalid UTF-8")
-			}
-			b = append(b, ':')
-			if b, err = v.ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
-			b = append(b, ',')
+	for _, k := range structSortedKeys(m.Fields, make([]string, 0, len(m.Fields))) {
+		v := m.Fields[k]
+		if b, err = jsontext.AppendQuote(b, k); err != nil {
+			return nil, errors.New("proto: google.protobuf.Struct.fields contains invalid UTF-8")
 		}
+		if b, err = v.ProtoAppendJSON(append(b, ':')); err != nil {
+			return nil, err
+		}
+		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
+	b[len(b)-1] = '}'
 	return b, nil
 }
 
@@ -391,15 +367,11 @@ func (m *Struct) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			return err
 		}
 		mk := kt.String()
-		k := mk
 		mv := &Value{}
 		if err := mv.ProtoMergeJSONFrom(d); err != nil {
 			return err
 		}
-		if m.Fields == nil {
-			m.Fields = make(map[string]*Value)
-		}
-		m.Fields[k] = mv
+		structMapSet(&m.Fields, mk, mv)
 	}
 	_, err = d.ReadToken()
 	return err
@@ -548,24 +520,20 @@ func (m *Value) ProtoSize() (n int) {
 	case *Value_NumberValue:
 		n += 1 + structFixed64Size
 	case *Value_StringValue:
-		n += 1 + len(o.StringValue) + (bits.Len64(uint64(len(o.StringValue))|1)+structVarintPayloadBits-1)/structVarintPayloadBits
+		n += 1 + structSizeLen(len(o.StringValue))
 	case *Value_BoolValue:
 		n += 1 + 1
 	case *Value_StructValue:
-		l := o.StructValue.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
+		n += 1 + structSizeLen(o.StructValue.ProtoSize())
 	case *Value_ListValue:
-		l := o.ListValue.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
+		n += 1 + structSizeLen(o.ListValue.ProtoSize())
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Value) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Value) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Value) AppendBinary(b []byte) ([]byte, error) {
@@ -592,27 +560,17 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = structPutVarint(b, i, uint64(n))
-		i = structPutVarint(b, i, 6<<structTagTypeBits|structWireBytes)
+		i = structPutVarint(b, structPutVarint(b, i-n, uint64(n)), 6<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_StructValue); ok {
 		n, err := o.StructValue.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = structPutVarint(b, i, uint64(n))
-		i = structPutVarint(b, i, 5<<structTagTypeBits|structWireBytes)
+		i = structPutVarint(b, structPutVarint(b, i-n, uint64(n)), 5<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_BoolValue); ok {
-		i--
-		if o.BoolValue {
-			b[i] = 1
-		} else {
-			b[i] = 0
-		}
-		i = structPutVarint(b, i, 4<<structTagTypeBits|structWireVarint)
+		i = structPutVarint(b, structPutBool(b, i, o.BoolValue), 4<<structTagTypeBits|structWireVarint)
 	}
 	if o, ok := m.Kind.(*Value_StringValue); ok {
 		if !utf8.ValidString(o.StringValue) {
@@ -620,17 +578,13 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(o.StringValue)
 		copy(b[i:], o.StringValue)
-		i = structPutVarint(b, i, uint64(len(o.StringValue)))
-		i = structPutVarint(b, i, 3<<structTagTypeBits|structWireBytes)
+		i = structPutVarint(b, structPutVarint(b, i, uint64(len(o.StringValue))), 3<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_NumberValue); ok {
-		i -= structFixed64Size
-		binary.LittleEndian.PutUint64(b[i:], math.Float64bits(o.NumberValue))
-		i = structPutVarint(b, i, 2<<structTagTypeBits|structWireFixed64)
+		i = structPutVarint(b, structPutFixed64(b, i, math.Float64bits(o.NumberValue)), 2<<structTagTypeBits|structWireFixed64)
 	}
 	if o, ok := m.Kind.(*Value_NullValue); ok {
-		i = structPutVarint(b, i, uint64(int64(o.NullValue)))
-		i = structPutVarint(b, i, 1<<structTagTypeBits|structWireVarint)
+		i = structPutVarint(b, structPutVarint(b, i, uint64(int64(o.NullValue))), 1<<structTagTypeBits|structWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -644,9 +598,7 @@ func (m *Value) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Value) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
@@ -666,15 +618,12 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Kind = &Value_NullValue{NullValue: NullValue(int32(x))}
+			b, m.Kind = b[n:], &Value_NullValue{NullValue: NullValue(int32(x))}
 		case 2<<structTagTypeBits | structWireFixed64:
 			if len(b) < structFixed64Size {
 				goto errParse
 			}
-			x, n := binary.LittleEndian.Uint64(b), structFixed64Size
-			b = b[n:]
-			m.Kind = &Value_NumberValue{NumberValue: math.Float64frombits(x)}
+			b, m.Kind = b[structFixed64Size:], &Value_NumberValue{NumberValue: math.Float64frombits(binary.LittleEndian.Uint64(b))}
 		case 3<<structTagTypeBits | structWireBytes:
 			x, n := structReadBytes(b)
 			if n < 0 {
@@ -683,15 +632,13 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(structValueStringValueErrUTF8)
 			}
-			b = b[n:]
-			m.Kind = &Value_StringValue{StringValue: string(x)}
+			b, m.Kind = b[n:], &Value_StringValue{StringValue: string(x)}
 		case 4<<structTagTypeBits | structWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Kind = &Value_BoolValue{BoolValue: x != 0}
+			b, m.Kind = b[n:], &Value_BoolValue{BoolValue: x != 0}
 		case 5<<structTagTypeBits | structWireBytes:
 			v, n := structReadBytes(b)
 			if n < 0 {
@@ -743,14 +690,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Value) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Value) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Value) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Value) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -779,11 +722,7 @@ func (m *Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 			return nil, errors.New("proto: google.protobuf.Value.string_value contains invalid UTF-8")
 		}
 	case *Value_BoolValue:
-		if o.BoolValue {
-			b = append(b, "true"...)
-		} else {
-			b = append(b, "false"...)
-		}
+		b = strconv.AppendBool(b, o.BoolValue)
 	case *Value_StructValue:
 		if b, err = o.StructValue.ProtoAppendJSON(b); err != nil {
 			return nil, err
@@ -910,17 +849,14 @@ func (m *ListValue) ProtoSize() (n int) {
 		return 0
 	}
 	for _, v := range m.Values {
-		l := v.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
+		n += 1 + structSizeLen(v.ProtoSize())
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *ListValue) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *ListValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ListValue) AppendBinary(b []byte) ([]byte, error) {
@@ -947,9 +883,7 @@ func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = structPutVarint(b, i, uint64(n))
-		i = structPutVarint(b, i, 1<<structTagTypeBits|structWireBytes)
+		i = structPutVarint(b, structPutVarint(b, i-n, uint64(n)), 1<<structTagTypeBits|structWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -963,9 +897,7 @@ func (m *ListValue) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *ListValue) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *ListValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
@@ -1010,14 +942,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *ListValue) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *ListValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *ListValue) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *ListValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -1030,20 +958,17 @@ func (m *ListValue) MarshalJSONTo(e *jsontext.Encoder) error {
 // check required fields.
 func (m *ListValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
+	if len(m.GetValues()) == 0 {
+		return append(b, "[]"...), nil
+	}
 	b = append(b, '[')
-	if m != nil {
-		for j := range m.Values {
-			if b, err = m.Values[j].ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
-			b = append(b, ',')
+	for j := range m.Values {
+		if b, err = m.Values[j].ProtoAppendJSON(b); err != nil {
+			return nil, err
 		}
+		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = ']'
-	} else {
-		b = append(b, ']')
-	}
+	b[len(b)-1] = ']'
 	return b, nil
 }
 
@@ -1101,6 +1026,29 @@ func structPutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// structPutFixed64 writes u in 8 little-endian bytes ending at b[i] and returns
+// the index of the first.
+func structPutFixed64(b []byte, i int, u uint64) int {
+	binary.LittleEndian.PutUint64(b[i-structFixed64Size:], u)
+	return i - structFixed64Size
+}
+
+// structPutBool writes v as a one-byte varint ending at b[i] and returns its
+// index.
+func structPutBool(b []byte, i int, v bool) int {
+	b[i-1] = 0
+	if v {
+		b[i-1] = 1
+	}
+	return i - 1
+}
+
+// structSizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func structSizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
 }
 
 // structReadBytes returns the length-delimited value at the start of b and the
@@ -1194,6 +1142,14 @@ func structSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// structMapSet sets (*m)[k] to v, allocating *m if it is nil.
+func structMapSet[K comparable, V any](m *map[K]V, k K, v V) {
+	if *m == nil {
+		*m = make(map[K]V)
+	}
+	(*m)[k] = v
 }
 
 // structWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,

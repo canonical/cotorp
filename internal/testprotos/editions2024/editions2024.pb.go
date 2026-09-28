@@ -109,17 +109,14 @@ func (m *Visible) ProtoSize() (n int) {
 		n += 1 + (bits.Len64(uint64(int64((*m.A)))|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
 	}
 	if m.Hidden != nil {
-		l := m.Hidden.ProtoSize()
-		n += 1 + l + (bits.Len64(uint64(l)|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
+		n += 1 + editions2024SizeLen(m.Hidden.ProtoSize())
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Visible) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Visible) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Visible) AppendBinary(b []byte) ([]byte, error) {
@@ -146,13 +143,10 @@ func (m *Visible) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		i -= n
-		i = editions2024PutVarint(b, i, uint64(n))
-		i = editions2024PutVarint(b, i, 2<<editions2024TagTypeBits|editions2024WireBytes)
+		i = editions2024PutVarint(b, editions2024PutVarint(b, i-n, uint64(n)), 2<<editions2024TagTypeBits|editions2024WireBytes)
 	}
 	if m.A != nil {
-		i = editions2024PutVarint(b, i, uint64(int64((*m.A))))
-		i = editions2024PutVarint(b, i, 1<<editions2024TagTypeBits|editions2024WireVarint)
+		i = editions2024PutVarint(b, editions2024PutVarint(b, i, uint64(int64((*m.A)))), 1<<editions2024TagTypeBits|editions2024WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -166,9 +160,7 @@ func (m *Visible) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Visible) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Visible) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
@@ -188,9 +180,7 @@ func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			v := int32(x)
-			m.A = &v
+			b, m.A = b[n:], new(int32(x))
 		case 2<<editions2024TagTypeBits | editions2024WireBytes:
 			v, n := editions2024ReadBytes(b)
 			if n < 0 {
@@ -199,8 +189,7 @@ func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
 			if m.Hidden == nil {
 				m.Hidden = &Visible_Hidden{}
 			}
-			mv := m.Hidden
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
+			if err := m.Hidden.ProtoMergeDepth(v, depth+1); err != nil {
 				return err
 			}
 			b = b[n:]
@@ -223,14 +212,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Visible) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Visible) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Visible) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Visible) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -246,25 +231,16 @@ func (m *Visible) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.A != nil {
-		b = append(b, "\"a\":"...)
-		b = strconv.AppendInt(b, int64((*m.A)), 10)
-		b = append(b, ',')
+		b = strconv.AppendInt(append(b, ",\"a\":"...), int64((*m.A)), 10)
 	}
 	if m.Hidden != nil {
-		b = append(b, "\"hidden\":"...)
-		if b, err = m.Hidden.ProtoAppendJSON(b); err != nil {
+		if b, err = m.Hidden.ProtoAppendJSON(append(b, ",\"hidden\":"...)); err != nil {
 			return nil, err
 		}
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return editions2024CloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -330,14 +306,11 @@ func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := editions2024ClassNone
-		bits := 64
+		class, bits, iv, tok := editions2024ClassNone, 64, int64(0), jsontext.Token{}
 		switch f {
 		case 0:
 			class, bits = editions2024ClassSigned, 32
 		}
-		var iv int64
-		var tok jsontext.Token
 		if class != editions2024ClassNone {
 			if tok, err = d.ReadToken(); err != nil {
 				return err
@@ -352,8 +325,7 @@ func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch f {
 		case 0:
-			x := int32(iv)
-			m.A = &x
+			m.A = new(int32(iv))
 		case 1:
 			if m.Hidden == nil {
 				m.Hidden = &Visible_Hidden{}
@@ -398,16 +370,14 @@ func (m *Visible_Hidden) ProtoSize() (n int) {
 		return 0
 	}
 	if m.S != nil {
-		n += 1 + len((*m.S)) + (bits.Len64(uint64(len((*m.S)))|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
+		n += 1 + editions2024SizeLen(len((*m.S)))
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Visible_Hidden) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Visible_Hidden) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Visible_Hidden) AppendBinary(b []byte) ([]byte, error) {
@@ -435,8 +405,7 @@ func (m *Visible_Hidden) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len((*m.S))
 		copy(b[i:], (*m.S))
-		i = editions2024PutVarint(b, i, uint64(len((*m.S))))
-		i = editions2024PutVarint(b, i, 1<<editions2024TagTypeBits|editions2024WireBytes)
+		i = editions2024PutVarint(b, editions2024PutVarint(b, i, uint64(len((*m.S)))), 1<<editions2024TagTypeBits|editions2024WireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -450,9 +419,7 @@ func (m *Visible_Hidden) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Visible_Hidden) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Visible_Hidden) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
@@ -475,9 +442,7 @@ func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
 			if !utf8.Valid(x) {
 				return errors.New(editions2024VisibleHiddenSErrUTF8)
 			}
-			b = b[n:]
-			v := string(x)
-			m.S = &v
+			b, m.S = b[n:], new(string(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := editions2024SkipField(b, t, depth)
@@ -497,14 +462,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Visible_Hidden) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Visible_Hidden) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Visible_Hidden) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Visible_Hidden) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
@@ -520,20 +481,13 @@ func (m *Visible_Hidden) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
+	start := len(b)
 	if m.S != nil {
-		b = append(b, "\"s\":"...)
-		if b, err = jsontext.AppendQuote(b, (*m.S)); err != nil {
+		if b, err = jsontext.AppendQuote(append(b, ",\"s\":"...), (*m.S)); err != nil {
 			return nil, errors.New("proto: cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8")
 		}
-		b = append(b, ',')
 	}
-	if b[len(b)-1] == ',' {
-		b[len(b)-1] = '}'
-	} else {
-		b = append(b, '}')
-	}
-	return b, nil
+	return editions2024CloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
@@ -597,8 +551,7 @@ func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			continue
 		}
-		class := editions2024ClassString
-		var sv string
+		class, sv := editions2024ClassString, ""
 		tok, err := d.ReadToken()
 		if err != nil {
 			return err
@@ -610,8 +563,7 @@ func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		if err != nil {
 			return err
 		}
-		x := sv
-		m.S = &x
+		m.S = new(sv)
 	}
 	_, err = d.ReadToken()
 	return err
@@ -627,6 +579,12 @@ func editions2024PutVarint(b []byte, i int, u uint64) int {
 	i -= (bits.Len64(u|1) + editions2024VarintPayloadBits - 1) / editions2024VarintPayloadBits
 	binary.PutUvarint(b[i:], u)
 	return i
+}
+
+// editions2024SizeLen returns the size of a length-delimited value of l bytes,
+// including its length prefix.
+func editions2024SizeLen(l int) int {
+	return l + (bits.Len64(uint64(l)|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
 }
 
 // editions2024ReadBytes returns the length-delimited value at the start of b and the
@@ -719,6 +677,17 @@ func editions2024WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
 		return err
 	}
 	return e.WriteValue(b)
+}
+
+// editions2024CloseObject finishes a JSON object whose members were appended to b from
+// index start, each preceded by a comma: the first comma becomes the
+// opening brace.
+func editions2024CloseObject(b []byte, start int) []byte {
+	if len(b) == start {
+		return append(b, "{}"...)
+	}
+	b[start] = '{'
+	return append(b, '}')
 }
 
 // editions2024EndJSON finishes ProtoMergeJSON for message name: decoding one value

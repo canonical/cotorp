@@ -101,157 +101,111 @@ func (fg *fileGen) kind(name string) string {
 
 // --- Marshal ----------------------------------------------------------------
 
-// jsonAppendString emits code appending v as a JSON string. name is used in
-// the invalid UTF-8 error.
-func (fg *fileGen) jsonAppendString(v, name string) {
-	fg.usesErr = true
-	fg.P("if b, err = ", fg.std("encoding/json/jsontext"), ".AppendQuote(b, ", v, "); err != nil {")
-	fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrJSONUTF8", name+" contains invalid UTF-8"))
-	fg.P("}")
+// appendLit returns an expression appending the literal text lit to the
+// byte slice expression dst.
+func appendLit(dst, lit string) string {
+	switch len(lit) {
+	case 0:
+		return dst
+	case 1:
+		return "append(" + dst + ", " + strconv.QuoteRune(rune(lit[0])) + ")"
+	}
+	return "append(" + dst + ", " + strconv.Quote(lit) + "...)"
 }
 
-// jsonAppendValue emits code appending the JSON form of singular value v of
-// field f to b.
-func (fg *fileGen) jsonAppendValue(f *desc.Field, v string) {
+// jsonOutExpr returns an expression appending lit and then the JSON form of
+// singular value v of field f to the byte slice expression dst. It reports
+// false for strings and messages, which can fail and need statements (see
+// jsonOut).
+func (fg *fileGen) jsonOutExpr(f *desc.Field, v, dst, lit string) (string, bool) {
 	conv := fg.std("strconv")
+	d := appendLit(dst, lit)
+	quoted := func(e string) string { return "append(" + e + ", '\"')" }
 	switch f.Kind {
 	case desc.KindInt32, desc.KindSint32, desc.KindSfixed32:
-		fg.P("b = ", conv, ".AppendInt(b, int64(", v, "), 10)")
+		return conv + ".AppendInt(" + d + ", int64(" + v + "), 10)", true
 	case desc.KindUint32, desc.KindFixed32:
-		fg.P("b = ", conv, ".AppendUint(b, uint64(", v, "), 10)")
+		return conv + ".AppendUint(" + d + ", uint64(" + v + "), 10)", true
 	case desc.KindInt64, desc.KindSint64, desc.KindSfixed64:
-		fg.P("b = append(b, '\"')")
-		fg.P("b = ", conv, ".AppendInt(b, ", v, ", 10)")
-		fg.P("b = append(b, '\"')")
+		return quoted(conv + ".AppendInt(" + appendLit(dst, lit+`"`) + ", " + v + ", 10)"), true
 	case desc.KindUint64, desc.KindFixed64:
-		fg.P("b = append(b, '\"')")
-		fg.P("b = ", conv, ".AppendUint(b, ", v, ", 10)")
-		fg.P("b = append(b, '\"')")
+		return quoted(conv + ".AppendUint(" + appendLit(dst, lit+`"`) + ", " + v + ", 10)"), true
 	case desc.KindBool:
-		fg.P("if ", v, " {")
-		fg.P("b = append(b, \"true\"...)")
-		fg.P("} else {")
-		fg.P("b = append(b, \"false\"...)")
-		fg.P("}")
-	case desc.KindFloat, desc.KindDouble:
-		bits := "64"
-		if f.Kind == desc.KindFloat {
-			bits = "32"
-		}
-		m := fg.std("math")
-		fg.P("switch fl := float64(", v, "); {")
-		fg.P("case ", m, ".IsNaN(fl):")
-		fg.P("b = append(b, `\"NaN\"`...)")
-		fg.P("case ", m, ".IsInf(fl, 1):")
-		fg.P("b = append(b, `\"Infinity\"`...)")
-		fg.P("case ", m, ".IsInf(fl, -1):")
-		fg.P("b = append(b, `\"-Infinity\"`...)")
-		fg.P("default:")
-		fg.P("b = ", fg.std("encoding/json/jsontext"), ".AppendFloat(b, fl, ", bits, ")")
-		fg.P("}")
-	case desc.KindString:
-		fg.jsonAppendString(v, f.FullName)
+		return conv + ".AppendBool(" + d + ", " + v + ")", true
+	case desc.KindFloat:
+		return fg.fn("AppendFloat") + "(" + d + ", float64(" + v + "), 32)", true
+	case desc.KindDouble:
+		return fg.fn("AppendFloat") + "(" + d + ", " + v + ", 64)", true
 	case desc.KindBytes:
 		enc := fg.std("encoding/base64") + ".StdEncoding"
 		if fg.g.jsonHex[f.FullName] {
 			enc = fg.std("encoding/hex")
 		}
-		fg.P("b = append(b, '\"')")
-		fg.P("b = ", enc, ".AppendEncode(b, ", v, ")")
-		fg.P("b = append(b, '\"')")
+		return quoted(enc + ".AppendEncode(" + appendLit(dst, lit+`"`) + ", " + v + ")"), true
 	case desc.KindEnum:
-		if f.EnumType.FullName == "google.protobuf.NullValue" {
-			fg.P("b = append(b, \"null\"...)")
-			return
+		switch {
+		case f.EnumType.FullName == "google.protobuf.NullValue":
+			return appendLit(dst, lit+"null"), true
+		case fg.g.opts.JSONEnumNumbers:
+			return conv + ".AppendInt(" + d + ", int64(" + v + "), 10)", true
 		}
-		if fg.g.opts.JSONEnumNumbers {
-			fg.P("b = ", conv, ".AppendInt(b, int64(", v, "), 10)")
-			return
+		return fg.fn("AppendEnum") + "(" + d + ", int32(" + v + "), " + fg.qualify(f.EnumType.File, fg.g.enmNames[f.EnumType]+"_name") + ")", true
+	}
+	return "", false
+}
+
+// jsonOut emits code appending lit and then the JSON form of singular value
+// v of field f to b, followed by a comma if comma is set.
+func (fg *fileGen) jsonOut(f *desc.Field, v, lit string, comma bool) {
+	if e, ok := fg.jsonOutExpr(f, v, "b", lit); ok {
+		if comma {
+			e = "append(" + e + ", ',')"
 		}
-		fg.P("b = ", fg.fn("AppendEnum"), "(b, int32(", v, "), ", fg.qualify(f.EnumType.File, fg.g.enmNames[f.EnumType]+"_name"), ")")
-	case desc.KindMessage:
-		fg.usesErr = true
-		fg.P("if b, err = ", v, ".ProtoAppendJSON(b); err != nil {")
+		fg.P("b = ", e)
+		return
+	}
+	fg.usesErr = true
+	if f.Kind == desc.KindString {
+		fg.jsonAppendString(appendLit("b", lit), v, f.FullName)
+	} else {
+		fg.P("if b, err = ", v, ".ProtoAppendJSON(", appendLit("b", lit), "); err != nil {")
 		fg.P("return nil, err")
 		fg.P("}")
 	}
-}
-
-// jsonAppendMapKey emits code appending map key k as a quoted JSON string.
-func (fg *fileGen) jsonAppendMapKey(key *desc.Field, name string) {
-	conv := fg.std("strconv")
-	switch key.Kind {
-	case desc.KindString:
-		fg.jsonAppendString("k", name)
-	case desc.KindBool:
-		fg.P("if k {")
-		fg.P("b = append(b, `\"true\"`...)")
-		fg.P("} else {")
-		fg.P("b = append(b, `\"false\"`...)")
-		fg.P("}")
-	case desc.KindUint32, desc.KindFixed32, desc.KindUint64, desc.KindFixed64:
-		fg.P("b = append(b, '\"')")
-		fg.P("b = ", conv, ".AppendUint(b, uint64(k), 10)")
-		fg.P("b = append(b, '\"')")
-	default:
-		fg.P("b = append(b, '\"')")
-		fg.P("b = ", conv, ".AppendInt(b, int64(k), 10)")
-		fg.P("b = append(b, '\"')")
+	if comma {
+		fg.P("b = append(b, ',')")
 	}
 }
 
-// jsonAppendField emits code appending `"name":value,` for a populated
-// non-oneof field.
-func (fg *fileGen) jsonAppendField(fi *fieldInfo) {
-	f := fi.f
-	fv := "m." + fi.goName
-	key := strconv.Quote(jsonQuote(f.JSONName) + ":")
-	switch {
-	case f.IsMap:
-		fg.P("if len(", fv, ") > 0 {")
-		fg.P("b = append(b, ", strconv.Quote(jsonQuote(f.JSONName)+":{"), "...)")
-		fg.jsonMapEntries(f, fv)
-		fg.P("b[len(b)-1] = '}'")
-		fg.P("b = append(b, ',')")
-		fg.P("}")
-	case f.Repeated:
-		fg.P("if len(", fv, ") > 0 {")
-		fg.P("b = append(b, ", strconv.Quote(jsonQuote(f.JSONName)+":["), "...)")
-		fg.P("for j := range ", fv, " {")
-		fg.jsonAppendValue(f, fv+"[j]")
-		fg.P("b = append(b, ',')")
-		fg.P("}")
-		fg.P("b[len(b)-1] = ']'")
-		fg.P("b = append(b, ',')")
-		fg.P("}")
-	case f.Kind == desc.KindMessage, f.HasPresence && f.Kind == desc.KindBytes:
-		fg.P("if ", fv, " != nil {")
-		fg.P("b = append(b, ", key, "...)")
-		fg.jsonAppendValue(f, fv)
-		fg.P("b = append(b, ',')")
-		fg.P("}")
-	case f.HasPresence:
-		fg.P("if ", fv, " != nil {")
-		fg.P("b = append(b, ", key, "...)")
-		fg.jsonAppendValue(f, "(*"+fv+")")
-		fg.P("b = append(b, ',')")
-		fg.P("}")
-	default:
-		fg.P("if ", fg.nonZeroExpr(f.Kind, fv), " {")
-		fg.P("b = append(b, ", key, "...)")
-		fg.jsonAppendValue(f, fv)
-		fg.P("b = append(b, ',')")
-		fg.P("}")
-	}
+// jsonAppendString emits code appending string v to the byte slice
+// expression dst as a JSON string, assigning the result to b. name is used
+// in the invalid UTF-8 error.
+func (fg *fileGen) jsonAppendString(dst, v, name string) {
+	fg.usesErr = true
+	fg.P("if b, err = ", fg.std("encoding/json/jsontext"), ".AppendQuote(", dst, ", ", v, "); err != nil {")
+	fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrJSONUTF8", name+" contains invalid UTF-8"))
+	fg.P("}")
 }
 
-// jsonMapEntries emits `"key":value,` for each entry of map fv, in key order.
+// jsonMapEntries emits `key:value,` for each entry of map fv, in key order.
 func (fg *fileGen) jsonMapEntries(f *desc.Field, fv string) {
 	entry := func() {
-		fg.jsonAppendMapKey(f.MapKey, f.FullName)
-		fg.P("b = append(b, ':')")
-		fg.jsonAppendValue(f.MapValue, "v")
-		fg.P("b = append(b, ',')")
+		conv := fg.std("strconv")
+		// Non-string keys are quoted by appending the closing quote with
+		// the colon.
+		sep := `":`
+		switch f.MapKey.Kind {
+		case desc.KindString:
+			fg.jsonAppendString("b", "k", f.FullName)
+			sep = ":"
+		case desc.KindBool:
+			fg.P("b = ", conv, ".AppendBool(append(b, '\"'), k)")
+		case desc.KindUint32, desc.KindFixed32, desc.KindUint64, desc.KindFixed64:
+			fg.P("b = ", conv, ".AppendUint(append(b, '\"'), uint64(k), 10)")
+		default:
+			fg.P("b = ", conv, ".AppendInt(append(b, '\"'), int64(k), 10)")
+		}
+		fg.jsonOut(f.MapValue, "v", sep, true)
 	}
 	if f.MapKey.Kind == desc.KindBool {
 		fg.P("for _, k := range [2]bool{false, true} {")
@@ -269,6 +223,42 @@ func (fg *fileGen) jsonMapEntries(f *desc.Field, fv string) {
 	fg.P("}")
 }
 
+// jsonAppendField emits code appending `,"name":value` for a populated
+// non-oneof field.
+func (fg *fileGen) jsonAppendField(fi *fieldInfo) {
+	f := fi.f
+	fv := "m." + fi.goName
+	key := "," + jsonQuote(f.JSONName) + ":"
+	switch {
+	case f.IsMap:
+		fg.P("if len(", fv, ") > 0 {")
+		fg.P("b = ", appendLit("b", key+"{"))
+		fg.jsonMapEntries(f, fv)
+		fg.P("b[len(b)-1] = '}'")
+		fg.P("}")
+	case f.Repeated:
+		fg.P("if len(", fv, ") > 0 {")
+		fg.P("b = ", appendLit("b", key+"["))
+		fg.P("for j := range ", fv, " {")
+		fg.jsonOut(f, fv+"[j]", "", true)
+		fg.P("}")
+		fg.P("b[len(b)-1] = ']'")
+		fg.P("}")
+	case f.Kind == desc.KindMessage, f.HasPresence && f.Kind == desc.KindBytes:
+		fg.P("if ", fv, " != nil {")
+		fg.jsonOut(f, fv, key, false)
+		fg.P("}")
+	case f.HasPresence:
+		fg.P("if ", fv, " != nil {")
+		fg.jsonOut(f, "(*"+fv+")", key, false)
+		fg.P("}")
+	default:
+		fg.P("if ", fg.nonZeroExpr(f.Kind, fv), " {")
+		fg.jsonOut(f, fv, key, false)
+		fg.P("}")
+	}
+}
+
 func (fg *fileGen) genJSONMarshal(mi *messageInfo, body func()) {
 	name := mi.goName
 	checkInit := func(ret string) {
@@ -279,10 +269,14 @@ func (fg *fileGen) genJSONMarshal(mi *messageInfo, body func()) {
 		}
 	}
 	fg.P("// MarshalJSON returns the ProtoJSON encoding of m.")
-	fg.P("func (m *", name, ") MarshalJSON() ([]byte, error) {")
-	checkInit("nil, err")
-	fg.P("return m.ProtoAppendJSON(nil)")
-	fg.P("}")
+	if mi.m.HasRequired() {
+		fg.P("func (m *", name, ") MarshalJSON() ([]byte, error) {")
+		checkInit("nil, err")
+		fg.P("return m.ProtoAppendJSON(nil)")
+		fg.P("}")
+	} else {
+		fg.P("func (m *", name, ") MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }")
+	}
 	fg.P()
 	fg.P("// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements")
 	fg.P("// json.MarshalerTo from encoding/json/v2.")
@@ -306,12 +300,13 @@ func (fg *fileGen) genJSONMarshal(mi *messageInfo, body func()) {
 }
 
 // genericJSONMarshalBody emits the body of ProtoAppendJSON for an ordinary
-// message.
+// message. Each member is appended with a leading comma, and CloseObject
+// turns the first one into the opening brace.
 func (fg *fileGen) genericJSONMarshalBody(mi *messageInfo) {
 	fg.P("if m == nil {")
 	fg.P("return append(b, \"{}\"...), nil")
 	fg.P("}")
-	fg.P("b = append(b, '{')")
+	fg.P("start := len(b)")
 	for _, fi := range mi.fields {
 		if fi.oneof != nil {
 			v := "o"
@@ -319,20 +314,13 @@ func (fg *fileGen) genericJSONMarshalBody(mi *messageInfo) {
 				v = "_" // always written as null
 			}
 			fg.P("if ", v, ", ok := m.", fi.oneof.goName, ".(*", fi.wrapper, "); ok {")
-			fg.P("b = append(b, ", strconv.Quote(jsonQuote(fi.f.JSONName)+":"), "...)")
-			fg.jsonAppendValue(fi.f, "o."+fi.goName)
-			fg.P("b = append(b, ',')")
+			fg.jsonOut(fi.f, "o."+fi.goName, ","+jsonQuote(fi.f.JSONName)+":", false)
 			fg.P("}")
 			continue
 		}
 		fg.jsonAppendField(fi)
 	}
-	fg.P("if b[len(b)-1] == ',' {")
-	fg.P("b[len(b)-1] = '}'")
-	fg.P("} else {")
-	fg.P("b = append(b, '}')")
-	fg.P("}")
-	fg.P("return b, nil")
+	fg.P("return ", fg.fn("CloseObject"), "(b, start), nil")
 }
 
 // --- Unmarshal --------------------------------------------------------------
@@ -719,21 +707,42 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 			return gkeys[a][1] < gkeys[b][1]
 		})
 		_, hasEnum := groups[[2]int{classEnum, 0}]
+		// The class, bit size and scratch variables are declared together.
+		var names, values []string
+		decl := func(name, value string) {
+			names = append(names, name)
+			values = append(values, value)
+		}
 		if single {
 			k := gkeys[0]
-			fg.P("class := ", fg.class(k[0]))
+			decl("class", fg.class(k[0]))
 			if numeric {
 				if k[1] == 0 {
 					k[1] = 64
 				}
-				fg.P("bits := ", k[1])
+				decl("bits", strconv.Itoa(k[1]))
 			}
 		} else {
-			// Select the parse class for the field.
-			fg.P("class := ", fg.class(classNone))
+			decl("class", fg.class(classNone))
 			if numeric {
-				fg.P("bits := 64")
+				decl("bits", "64")
 			}
+		}
+		scratch := map[int][2]string{classSigned: {"iv", "int64(0)"}, classUnsigned: {"uv", "uint64(0)"}, classFloat: {"fv", "float64(0)"}, classBool: {"bv", "false"}, classString: {"sv", `""`}}
+		for _, c := range []int{classSigned, classUnsigned, classFloat, classBool, classString} {
+			if used[c] {
+				decl(scratch[c][0], scratch[c][1])
+			}
+		}
+		if used[classBytes] || used[classHex] {
+			decl("by", "[]byte(nil)")
+		}
+		if !single {
+			decl("tok", fg.std("encoding/json/jsontext")+".Token{}")
+		}
+		fg.P(joinComma(names), " := ", joinComma(values))
+		if !single {
+			// Select the parse class for the field.
 			fg.P("switch f {")
 			for _, k := range gkeys {
 				fg.P("case ", joinInts(groups[k]), ":")
@@ -745,15 +754,6 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 			}
 			fg.P("}")
 		}
-		scratch := map[int]string{classSigned: "iv int64", classUnsigned: "uv uint64", classFloat: "fv float64", classBool: "bv bool", classString: "sv string"}
-		for _, c := range []int{classSigned, classUnsigned, classFloat, classBool, classString} {
-			if used[c] {
-				fg.P("var ", scratch[c])
-			}
-		}
-		if used[classBytes] || used[classHex] {
-			fg.P("var by []byte")
-		}
 		if single {
 			fg.P("tok, err := d.ReadToken()")
 			fg.P("if err != nil {")
@@ -761,7 +761,6 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 			fg.P("}")
 		} else {
 			// err is declared by jsonOpen or by the key read.
-			fg.P("var tok ", fg.std("encoding/json/jsontext"), ".Token")
 			fg.P("if class != ", fg.class(classNone), " {")
 			fg.P("if tok, err = d.ReadToken(); err != nil {")
 			fg.P("return err")
@@ -877,39 +876,32 @@ func (fg *fileGen) jsonAssign(fi *fieldInfo) {
 	switch {
 	case f.IsMap:
 		key := f.MapKey
-		conv := fg.std("strconv")
-		badKey := func() {
-			fg.P("return ", fg.errConcat(fg.owner(f.FullName)+"ErrInvalidKey", "proto: "+name+": invalid map key for field "+f.Name+": ", conv+".Quote(mk)"))
-		}
+		k := "mk"
+		args := "(mk, " + strconv.Quote(name) + ", " + strconv.Quote(f.Name) + ")"
 		switch key.Kind {
 		case desc.KindString:
-			fg.P("k := mk")
 		case desc.KindBool:
-			fg.P("var k bool")
-			fg.P("switch mk {")
-			fg.P("case \"true\":")
-			fg.P("k = true")
-			fg.P("case \"false\":")
-			fg.P("default:")
-			badKey()
-			fg.P("}")
+			fg.P("k, err := ", fg.fn("ParseBoolKey"), args)
+			k = "k"
 		default:
 			c, bits := scalarClass(key.Kind)
-			parse := "ParseInt"
+			parse := "ParseIntKey"
 			if c == classUnsigned {
-				parse = "ParseUint"
+				parse = "ParseUintKey"
 			}
-			fg.P("k64, err := ", conv, ".", parse, "(mk, 10, ", bits, ")")
+			fg.P("k, err := ", fg.fn(parse), "(mk, ", bits, ", ", strconv.Quote(name), ", ", strconv.Quote(f.Name), ")")
+			k = "k"
+			if bits == 32 {
+				k = fg.scalarGoType(key) + "(k)"
+			}
+		}
+		if k != "mk" {
 			fg.P("if err != nil {")
-			badKey()
+			fg.P("return err")
 			fg.P("}")
-			fg.P("k := ", fg.scalarGoType(key), "(k64)")
 		}
 		val := fg.jsonValueExpr(f.MapValue, name)
-		fg.P("if ", fv, " == nil {")
-		fg.P(fv, " = make(", fg.fieldType(fi), ")")
-		fg.P("}")
-		fg.P(fv, "[k] = ", val)
+		fg.P(fg.fn("MapSet"), "(&", fv, ", ", k, ", ", val, ")")
 	case fi.oneof != nil:
 		val := fg.jsonValueExpr(f, name)
 		fg.P("m.", fi.oneof.goName, " = &", fi.wrapper, "{", fi.goName, ": ", val, "}")
@@ -924,9 +916,7 @@ func (fg *fileGen) jsonAssign(fi *fieldInfo) {
 		fg.P("return err")
 		fg.P("}")
 	case f.HasPresence && f.Kind != desc.KindBytes:
-		val := fg.jsonValueExpr(f, name)
-		fg.P("x := ", val)
-		fg.P(fv, " = &x")
+		fg.P(fv, " = new(", fg.jsonValueExpr(f, name), ")")
 	default:
 		val := fg.jsonValueExpr(f, name)
 		fg.P(fv, " = ", val)
@@ -1096,10 +1086,12 @@ func (fg *fileGen) genJSONDuration(mi *messageInfo) {
 func (fg *fileGen) genJSONWrapper(mi *messageInfo) {
 	fi, idx := fieldByName(mi, "value")
 	fg.genJSONMarshal(mi, func() {
-		fg.P("if m == nil {")
-		fg.P("m = &", mi.goName, "{}")
-		fg.P("}")
-		fg.jsonAppendValue(fi.f, "m."+fi.goName)
+		// The getter handles a nil m.
+		if e, ok := fg.jsonOutExpr(fi.f, "m."+fi.getter+"()", "b", ""); ok {
+			fg.P("return ", e, ", nil")
+			return
+		}
+		fg.jsonOut(fi.f, "m."+fi.getter+"()", "", false)
 		fg.P("return b, nil")
 	})
 	fg.genJSONUnmarshal(mi, func() {
@@ -1119,26 +1111,22 @@ func (fg *fileGen) genJSONContainer(mi *messageInfo, field string, isMap bool) {
 	name := mi.m.FullName
 	fv := "m." + fi.goName
 	fg.genJSONMarshal(mi, func() {
-		open, close := "'['", "']'"
+		open, close := "[", "]"
 		if isMap {
-			open, close = "'{'", "'}'"
+			open, close = "{", "}"
 		}
-		fg.P("b = append(b, ", open, ")")
-		fg.P("if m != nil {")
+		fg.P("if len(m.", fi.getter, "()) == 0 {")
+		fg.P("return ", appendLit("b", open+close), ", nil")
+		fg.P("}")
+		fg.P("b = ", appendLit("b", open))
 		if isMap {
 			fg.jsonMapEntries(fi.f, fv)
 		} else {
 			fg.P("for j := range ", fv, " {")
-			fg.jsonAppendValue(fi.f, fv+"[j]")
-			fg.P("b = append(b, ',')")
+			fg.jsonOut(fi.f, fv+"[j]", "", true)
 			fg.P("}")
 		}
-		fg.P("}")
-		fg.P("if b[len(b)-1] == ',' {")
-		fg.P("b[len(b)-1] = ", close)
-		fg.P("} else {")
-		fg.P("b = append(b, ", close, ")")
-		fg.P("}")
+		fg.P("b[len(b)-1] = '", close, "'")
 		fg.P("return b, nil")
 	})
 	fg.genJSONUnmarshal(mi, func() {
@@ -1184,13 +1172,13 @@ func (fg *fileGen) genJSONValue(mi *messageInfo) {
 		fg.P("}")
 		fg.P("b = ", fg.std("encoding/json/jsontext"), ".AppendFloat(b, o.", num.goName, ", 64)")
 		fg.P("case *", str.wrapper, ":")
-		fg.jsonAppendString("o."+str.goName, str.f.FullName)
+		fg.jsonAppendString("b", "o."+str.goName, str.f.FullName)
 		fg.P("case *", bl.wrapper, ":")
-		fg.jsonAppendValue(bl.f, "o."+bl.goName)
+		fg.jsonOut(bl.f, "o."+bl.goName, "", false)
 		fg.P("case *", st.wrapper, ":")
-		fg.jsonAppendValue(st.f, "o."+st.goName)
+		fg.jsonOut(st.f, "o."+st.goName, "", false)
 		fg.P("case *", lst.wrapper, ":")
-		fg.jsonAppendValue(lst.f, "o."+lst.goName)
+		fg.jsonOut(lst.f, "o."+lst.goName, "", false)
 		fg.P("default:")
 		fg.P("return nil, ", fg.jsonErr(fg.owner(name)+"ErrNoKind", name+": no kind is set"))
 		fg.P("}")

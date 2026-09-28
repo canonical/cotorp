@@ -212,46 +212,38 @@ func (fg *fileGen) sizeExpr(k desc.Kind, v string) string {
 	}
 	switch k {
 	case desc.KindString, desc.KindBytes:
-		return "len(" + v + ") + " + fg.sizeVarint("uint64(len("+v+"))")
+		return fg.fn("SizeLen") + "(len(" + v + "))"
 	}
 	return fg.sizeVarint(varintExpr(k, v))
 }
 
-// encVarint emits code writing uint64 expression e backwards at b[:i].
-func (fg *fileGen) encVarint(e string) {
-	fg.P("i = ", fg.fn("PutVarint"), "(b, i, ", e, ")")
+// putVarint returns an expression writing uint64 expression e backwards
+// ending at b[i], where i is an int expression, and evaluating to the new i.
+func (fg *fileGen) putVarint(i, e string) string {
+	return fg.fn("PutVarint") + "(b, " + i + ", " + e + ")"
 }
 
-// encode emits code writing scalar v (without tag) backwards at b[:i].
-func (fg *fileGen) encode(k desc.Kind, v string) {
-	le := func() string { return fg.std("encoding/binary") + ".LittleEndian" }
+// putScalar returns an expression writing scalar v (without tag) backwards
+// at b[:i] and evaluating to the new i. For strings and bytes it first emits
+// the statements that copy the data.
+func (fg *fileGen) putScalar(k desc.Kind, v string) string {
 	switch k {
 	case desc.KindDouble:
-		fg.P("i -= ", fg.c("Fixed64Size"))
-		fg.P(le(), ".PutUint64(b[i:], ", fg.std("math"), ".Float64bits(", v, "))")
+		return fg.fn("PutFixed64") + "(b, i, " + fg.std("math") + ".Float64bits(" + v + "))"
 	case desc.KindFixed64, desc.KindSfixed64:
-		fg.P("i -= ", fg.c("Fixed64Size"))
-		fg.P(le(), ".PutUint64(b[i:], uint64(", v, "))")
+		return fg.fn("PutFixed64") + "(b, i, uint64(" + v + "))"
 	case desc.KindFloat:
-		fg.P("i -= ", fg.c("Fixed32Size"))
-		fg.P(le(), ".PutUint32(b[i:], ", fg.std("math"), ".Float32bits(", v, "))")
+		return fg.fn("PutFixed32") + "(b, i, " + fg.std("math") + ".Float32bits(" + v + "))"
 	case desc.KindFixed32, desc.KindSfixed32:
-		fg.P("i -= ", fg.c("Fixed32Size"))
-		fg.P(le(), ".PutUint32(b[i:], uint32(", v, "))")
+		return fg.fn("PutFixed32") + "(b, i, uint32(" + v + "))"
 	case desc.KindBool:
-		fg.P("i--")
-		fg.P("if ", v, " {")
-		fg.P("b[i] = 1")
-		fg.P("} else {")
-		fg.P("b[i] = 0")
-		fg.P("}")
+		return fg.fn("PutBool") + "(b, i, " + v + ")"
 	case desc.KindString, desc.KindBytes:
 		fg.P("i -= len(", v, ")")
 		fg.P("copy(b[i:], ", v, ")")
-		fg.encVarint("uint64(len(" + v + "))")
-	default:
-		fg.encVarint(varintExpr(k, v))
+		return fg.putVarint("i", "uint64(len("+v+"))")
 	}
+	return fg.putVarint("i", varintExpr(k, v))
 }
 
 // nonZeroExpr returns a condition that is true when implicit-presence value
@@ -280,62 +272,67 @@ func (fg *fileGen) decBytes(dst, buf string) {
 	fg.P("}")
 }
 
-// decodeScalar emits code decoding one value of f's kind from buf into the
-// raw variable x (consumed length in n) and returns an expression converting
-// x to the Go type.
-func (fg *fileGen) decodeScalar(f *desc.Field, buf string) string {
+// decodeScalar emits code checking that buf starts with a valid value of
+// f's kind, and returns an expression converting it to the Go type and the
+// length it occupies. Varints are decoded into x and length-delimited
+// values into x, with the length in n. It must be used inside
+// ProtoMergeDepth, which defines the errParse label.
+func (fg *fileGen) decodeScalar(f *desc.Field, buf string) (expr, length string) {
 	bin := fg.std("encoding/binary")
+	x := "x"
 	switch wireType(f) {
 	case wireVarint:
 		fg.P("x, n := ", bin, ".Uvarint(", buf, ")")
 		fg.P("if n <= 0 {")
 		fg.P("goto errParse")
 		fg.P("}")
+		length = "n"
 	case wireFixed32:
-		fs := fg.c("Fixed32Size")
-		fg.P("if len(", buf, ") < ", fs, " {")
+		length = fg.c("Fixed32Size")
+		fg.P("if len(", buf, ") < ", length, " {")
 		fg.P("goto errParse")
 		fg.P("}")
-		fg.P("x, n := ", bin, ".LittleEndian.Uint32(", buf, "), ", fs)
+		x = bin + ".LittleEndian.Uint32(" + buf + ")"
 	case wireFixed64:
-		fs := fg.c("Fixed64Size")
-		fg.P("if len(", buf, ") < ", fs, " {")
+		length = fg.c("Fixed64Size")
+		fg.P("if len(", buf, ") < ", length, " {")
 		fg.P("goto errParse")
 		fg.P("}")
-		fg.P("x, n := ", bin, ".LittleEndian.Uint64(", buf, "), ", fs)
+		x = bin + ".LittleEndian.Uint64(" + buf + ")"
 	case wireBytes:
 		fg.decBytes("x", buf)
+		length = "n"
 	}
 	switch f.Kind {
 	case desc.KindInt32, desc.KindSfixed32:
-		return "int32(x)"
+		return "int32(" + x + ")", length
 	case desc.KindEnum:
-		return fg.enumType(f.EnumType) + "(int32(x))"
+		return fg.enumType(f.EnumType) + "(int32(" + x + "))", length
 	case desc.KindUint32:
-		return "uint32(x)"
+		return "uint32(" + x + ")", length
 	case desc.KindInt64, desc.KindSfixed64:
-		return "int64(x)"
+		return "int64(" + x + ")", length
 	case desc.KindUint64, desc.KindFixed64, desc.KindFixed32:
-		return "x"
+		return x, length
 	case desc.KindSint32:
-		return "int32(uint32(x)>>1) ^ -int32(x&1)"
+		return "int32(uint32(x)>>1) ^ -int32(x&1)", length
 	case desc.KindSint64:
-		return "int64(x>>1) ^ -int64(x&1)"
+		return "int64(x>>1) ^ -int64(x&1)", length
 	case desc.KindBool:
-		return "x != 0"
+		return "x != 0", length
 	case desc.KindFloat:
-		return fg.std("math") + ".Float32frombits(x)"
+		return fg.std("math") + ".Float32frombits(" + x + ")", length
 	case desc.KindDouble:
-		return fg.std("math") + ".Float64frombits(x)"
+		return fg.std("math") + ".Float64frombits(" + x + ")", length
 	case desc.KindString:
 		if f.ValidateUTF8 {
 			fg.P("if !", fg.std("unicode/utf8"), ".Valid(x) {")
 			fg.P("return ", fg.errExpr(fg.owner(f.FullName)+"ErrUTF8", fmt.Sprintf(errInvalidUTF8F, f.FullName)))
 			fg.P("}")
 		}
-		return "string(x)"
+		return "string(x)", length
 	case desc.KindBytes:
-		return "append([]byte{}, x...)"
+		return "append([]byte{}, x...)", length
 	}
 	panic("decodeScalar: unexpected kind " + f.Kind.String())
 }

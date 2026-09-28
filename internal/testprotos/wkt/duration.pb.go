@@ -185,9 +185,7 @@ func (m *Duration) ProtoSize() (n int) {
 }
 
 // MarshalBinary returns the wire-format encoding of m.
-func (m *Duration) MarshalBinary() ([]byte, error) {
-	return m.AppendBinary(nil)
-}
+func (m *Duration) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Duration) AppendBinary(b []byte) ([]byte, error) {
@@ -210,12 +208,10 @@ func (m *Duration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Nanos != 0 {
-		i = durationPutVarint(b, i, uint64(int64(m.Nanos)))
-		i = durationPutVarint(b, i, 2<<durationTagTypeBits|durationWireVarint)
+		i = durationPutVarint(b, durationPutVarint(b, i, uint64(int64(m.Nanos))), 2<<durationTagTypeBits|durationWireVarint)
 	}
 	if m.Seconds != 0 {
-		i = durationPutVarint(b, i, uint64(m.Seconds))
-		i = durationPutVarint(b, i, 1<<durationTagTypeBits|durationWireVarint)
+		i = durationPutVarint(b, durationPutVarint(b, i, uint64(m.Seconds)), 1<<durationTagTypeBits|durationWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -229,9 +225,7 @@ func (m *Duration) UnmarshalBinary(b []byte) error {
 
 // ProtoMerge decodes the wire-format message in b and merges it into m.
 // It does not check required fields.
-func (m *Duration) ProtoMerge(b []byte) error {
-	return m.ProtoMergeDepth(b, 0)
-}
+func (m *Duration) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
@@ -251,15 +245,13 @@ func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Seconds = int64(x)
+			b, m.Seconds = b[n:], int64(x)
 		case 2<<durationTagTypeBits | durationWireVarint:
 			x, n := binary.Uvarint(b)
 			if n <= 0 {
 				goto errParse
 			}
-			b = b[n:]
-			m.Nanos = int32(x)
+			b, m.Nanos = b[n:], int32(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
 			n, err := durationSkipField(b, t, depth)
@@ -279,14 +271,10 @@ errDepth:
 
 // ProtoCheckInitialized returns an error if any required field in m
 // or its sub-messages is not set.
-func (m *Duration) ProtoCheckInitialized() error {
-	return nil
-}
+func (m *Duration) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
-func (m *Duration) MarshalJSON() ([]byte, error) {
-	return m.ProtoAppendJSON(nil)
-}
+func (m *Duration) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
 // json.MarshalerTo from encoding/json/v2.
