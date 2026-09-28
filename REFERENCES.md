@@ -123,6 +123,16 @@ was checked against it in both directions. Behaviours taken from it:
 
 - `go vet`, `go test -fuzz`, `go/format`, `go/parser` and `go/ast` were used
   as tools. Nothing was taken from their source.
+- Compiler behaviour found with `go build -gcflags=-m` and allocation
+  profiles, which shaped the per-file helpers (`internal/gengo/helpers.go`):
+  - a method that passes its receiver to a generic function calling the
+    receiver's methods makes the receiver escape (`moved to heap`), because
+    pointer type arguments share one instantiation;
+  - a varint writer with a one-byte fast path inlines (cost 67 of 80), but a
+    length-delimited reader does not (cost 103 to 105);
+  - a small `make` with a variable length, or a `string([]byte)` conversion
+    of up to 32 bytes, stays on the stack when it does not escape, but not
+    once a helper returns it.
 
 ## 2. Prior knowledge used without re-reading its source
 

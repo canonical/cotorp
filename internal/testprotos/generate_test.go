@@ -66,9 +66,10 @@ func TestGeneratedUpToDate(t *testing.T) {
 	}
 }
 
-// TestSelfContained checks that generated files declare no package-level
-// helper functions (all logic lives in methods) and import only the
-// standard library or other generated packages.
+// TestSelfContained checks that generated files import only the standard
+// library or other generated packages, and that their package-level
+// functions are unexported helpers named with the file's prefix, so that no
+// file depends on another file's helpers.
 func TestSelfContained(t *testing.T) {
 	files, err := filepath.Glob("*/*.pb.go")
 	if err != nil || len(files) == 0 {
@@ -85,10 +86,24 @@ func TestSelfContained(t *testing.T) {
 				t.Errorf("%s imports non-stdlib package %q", name, p)
 			}
 		}
+		prefix := filePrefix(name)
 		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil {
-				t.Errorf("%s declares package-level function %s", name, fd.Name.Name)
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && !strings.HasPrefix(fd.Name.Name, prefix) {
+				t.Errorf("%s declares package-level function %s without the prefix %q", name, fd.Name.Name, prefix)
 			}
 		}
 	}
+}
+
+// filePrefix returns the lowerCamelCase base name of a generated file, which
+// starts the names of its helper functions: "wkt/field_mask.pb.go" becomes
+// "fieldMask".
+func filePrefix(path string) string {
+	parts := strings.Split(strings.TrimSuffix(filepath.Base(path), ".pb.go"), "_")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] != "" {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
 }

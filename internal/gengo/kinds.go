@@ -108,6 +108,7 @@ func fixedSize(k desc.Kind) int {
 // Standard library packages used by generated code, by import path.
 var stdPackages = map[string]string{
 	"bytes":                  "bytes",
+	"cmp":                    "cmp",
 	"encoding/base64":        "base64",
 	"encoding/binary":        "binary",
 	"encoding/hex":           "hex",
@@ -216,18 +217,9 @@ func (fg *fileGen) sizeExpr(k desc.Kind, v string) string {
 	return fg.sizeVarint(varintExpr(k, v))
 }
 
-// encVarint emits code writing uint64 expression e backwards at b[:i],
-// using the scratch variable u.
+// encVarint emits code writing uint64 expression e backwards at b[:i].
 func (fg *fileGen) encVarint(e string) {
-	fg.usesU = true
-	fg.P("u = ", e)
-	fg.P("if u < ", fg.c("VarintContBit"), " {")
-	fg.P("i--")
-	fg.P("b[i] = byte(u)")
-	fg.P("} else {")
-	fg.P("i -= ", fg.sizeVarint("u"))
-	fg.P(fg.std("encoding/binary"), ".PutUvarint(b[i:], u)")
-	fg.P("}")
+	fg.P("i = ", fg.fn("PutVarint"), "(b, i, ", e, ")")
 }
 
 // encode emits code writing scalar v (without tag) backwards at b[:i].
@@ -282,12 +274,10 @@ func (fg *fileGen) nonZeroExpr(k desc.Kind, v string) string {
 // variable dst, setting n to the consumed length. It must be used inside
 // ProtoMergeDepth, which defines the errParse label.
 func (fg *fileGen) decBytes(dst, buf string) {
-	fg.P("ln, n := ", fg.std("encoding/binary"), ".Uvarint(", buf, ")")
-	fg.P("if n <= 0 || ln > uint64(len(", buf, ")-n) {")
+	fg.P(dst, ", n := ", fg.fn("ReadBytes"), "(", buf, ")")
+	fg.P("if n < 0 {")
 	fg.P("goto errParse")
 	fg.P("}")
-	fg.P(dst, " := ", buf, "[n : n+int(ln)]")
-	fg.P("n += int(ln)")
 }
 
 // decodeScalar emits code decoding one value of f's kind from buf into the
@@ -350,96 +340,11 @@ func (fg *fileGen) decodeScalar(f *desc.Field, buf string) string {
 	panic("decodeScalar: unexpected kind " + f.Kind.String())
 }
 
-// emitSkip emits a switch that sets n to the length of the field value at
-// the start of buf, given the variables num and typ from its tag.
-func (fg *fileGen) emitSkip(buf string) {
-	bin := fg.std("encoding/binary")
-	fg.P("switch typ {")
-	fg.P("case ", fg.wire(wireVarint), ":")
-	fg.P("_, n = ", bin, ".Uvarint(", buf, ")")
-	fg.P("if n <= 0 {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("case ", fg.wire(wireFixed64), ":")
-	fg.P("if len(", buf, ") < ", fg.c("Fixed64Size"), " {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("n = ", fg.c("Fixed64Size"))
-	fg.P("case ", fg.wire(wireBytes), ":")
-	fg.P("ln, k := ", bin, ".Uvarint(", buf, ")")
-	fg.P("if k <= 0 || ln > uint64(len(", buf, ")-k) {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("n = k + int(ln)")
-	fg.P("case ", fg.wire(wireStartGroup), ":")
-	fg.emitSkipGroup(buf, "num")
-	fg.P("case ", fg.wire(wireFixed32), ":")
-	fg.P("if len(", buf, ") < ", fg.c("Fixed32Size"), " {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("n = ", fg.c("Fixed32Size"))
-	fg.P("default:")
-	fg.P("goto errParse")
-	fg.P("}")
-}
-
 // emitCheckTag emits code that validates a tag decoded into t and n.
 func (fg *fileGen) emitCheckTag(t, n string) {
 	tb := fg.c("TagTypeBits")
 	fg.P("if ", n, " <= 0 || ", t, ">>", tb, " == 0 || ", t, ">>", tb, " > ", fg.c("MaxFieldNumber"), " {")
 	fg.P("goto errParse")
-	fg.P("}")
-}
-
-// emitSkipGroup emits a state machine that sets n to the length of the
-// group body at the start of buf, including its end-group tag. The group's
-// field number is the int32 expression num. Nested groups are tracked with a
-// small stack.
-func (fg *fileGen) emitSkipGroup(buf, num string) {
-	bin := fg.std("encoding/binary")
-	tb := fg.c("TagTypeBits")
-	fg.P("var stk [", fg.c("SkipStackSize"), "]int32")
-	fg.P("open := append(stk[:0], ", num, ")")
-	fg.P("n = 0")
-	fg.P("for len(open) > 0 {")
-	fg.P("if depth+len(open) > ", fg.c("MaxDepth"), " {")
-	fg.P("goto errDepth")
-	fg.P("}")
-	fg.P("t, k := ", bin, ".Uvarint(", buf, "[n:])")
-	fg.emitCheckTag("t", "k")
-	fg.P("n += k")
-	fg.P("switch t & ", fg.c("TagTypeMask"), " {")
-	fg.P("case ", fg.wire(wireVarint), ":")
-	fg.P("_, k = ", bin, ".Uvarint(", buf, "[n:])")
-	fg.P("if k <= 0 {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("case ", fg.wire(wireFixed64), ":")
-	fg.P("k = ", fg.c("Fixed64Size"))
-	fg.P("case ", fg.wire(wireBytes), ":")
-	fg.P("ln, k2 := ", bin, ".Uvarint(", buf, "[n:])")
-	fg.P("if k2 <= 0 || ln > uint64(len(", buf, ")-n-k2) {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("k = k2 + int(ln)")
-	fg.P("case ", fg.wire(wireStartGroup), ":")
-	fg.P("open = append(open, int32(t>>", tb, "))")
-	fg.P("k = 0")
-	fg.P("case ", fg.wire(wireEndGroup), ":")
-	fg.P("if open[len(open)-1] != int32(t>>", tb, ") {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("open = open[:len(open)-1]")
-	fg.P("k = 0")
-	fg.P("case ", fg.wire(wireFixed32), ":")
-	fg.P("k = ", fg.c("Fixed32Size"))
-	fg.P("default:")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("if k > len(", buf, ")-n {")
-	fg.P("goto errParse")
-	fg.P("}")
-	fg.P("n += k")
 	fg.P("}")
 }
 

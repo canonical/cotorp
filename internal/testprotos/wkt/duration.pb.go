@@ -62,8 +62,12 @@ const (
 	durationMillisPerSecond = 1000
 )
 
-// Error message used more than once.
-const durationDurationErrOutOfRange = "proto: google.protobuf.Duration: duration out of range"
+// Error messages used more than once.
+const (
+	durationErrParse              = "proto: cannot parse invalid wire-format data"
+	durationErrDepth              = "proto: exceeded maximum recursion depth"
+	durationDurationErrOutOfRange = "proto: google.protobuf.Duration: duration out of range"
+)
 
 // A Duration represents a signed, fixed-length span of time represented
 // as a count of seconds and fractions of seconds at nanosecond
@@ -188,16 +192,9 @@ func (m *Duration) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Duration) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return durationAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -208,34 +205,17 @@ func (m *Duration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Nanos != 0 {
-		u = uint64(int64(m.Nanos))
-		if u < durationVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<durationTagTypeBits | durationWireVarint
+		i = durationPutVarint(b, i, uint64(int64(m.Nanos)))
+		i = durationPutVarint(b, i, 2<<durationTagTypeBits|durationWireVarint)
 	}
 	if m.Seconds != 0 {
-		u = uint64(m.Seconds)
-		if u < durationVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<durationTagTypeBits | durationWireVarint
+		i = durationPutVarint(b, i, uint64(m.Seconds))
+		i = durationPutVarint(b, i, 1<<durationTagTypeBits|durationWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -282,77 +262,9 @@ func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 			m.Nanos = int32(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>durationTagTypeBits), t&durationTagTypeMask
-			switch typ {
-			case durationWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case durationWireFixed64:
-				if len(b) < durationFixed64Size {
-					goto errParse
-				}
-				n = durationFixed64Size
-			case durationWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case durationWireStartGroup:
-				var stk [durationSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > durationMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>durationTagTypeBits == 0 || t>>durationTagTypeBits > durationMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & durationTagTypeMask {
-					case durationWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case durationWireFixed64:
-						k = durationFixed64Size
-					case durationWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case durationWireStartGroup:
-						open = append(open, int32(t>>durationTagTypeBits))
-						k = 0
-					case durationWireEndGroup:
-						if open[len(open)-1] != int32(t>>durationTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case durationWireFixed32:
-						k = durationFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case durationWireFixed32:
-				if len(b) < durationFixed32Size {
-					goto errParse
-				}
-				n = durationFixed32Size
-			default:
-				goto errParse
+			n, err := durationSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -360,9 +272,9 @@ func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(durationErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(durationErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -380,10 +292,7 @@ func (m *Duration) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Duration) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return durationWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -430,26 +339,15 @@ func (m *Duration) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Duration) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Duration: unexpected data after JSON value")
-	}
-	return nil
+	return durationEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Duration")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Duration) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := durationStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Duration{}
 	return m.ProtoMergeJSONFrom(d)
@@ -497,4 +395,139 @@ func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	m.Seconds, m.Nanos = secs, int32(nanos)
 	return nil
+}
+
+// durationPutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func durationPutVarint(b []byte, i int, u uint64) int {
+	if u < durationVarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// durationReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func durationReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// durationSkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func durationSkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & durationTagTypeMask {
+	case durationWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case durationWireFixed64:
+		if len(b) >= durationFixed64Size {
+			return durationFixed64Size, nil
+		}
+	case durationWireBytes:
+		if _, n := durationReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case durationWireStartGroup:
+		return durationSkipGroup(b, int32(t>>durationTagTypeBits), depth)
+	case durationWireFixed32:
+		if len(b) >= durationFixed32Size {
+			return durationFixed32Size, nil
+		}
+	}
+	return 0, errors.New(durationErrParse)
+}
+
+// durationSkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func durationSkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [durationSkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > durationMaxDepth {
+			return 0, errors.New(durationErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>durationTagTypeBits == 0 || t>>durationTagTypeBits > durationMaxFieldNumber {
+			return 0, errors.New(durationErrParse)
+		}
+		n += k
+		switch t & durationTagTypeMask {
+		case durationWireStartGroup:
+			open = append(open, int32(t>>durationTagTypeBits))
+		case durationWireEndGroup:
+			if open[len(open)-1] != int32(t>>durationTagTypeBits) {
+				return 0, errors.New(durationErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := durationSkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// durationAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func durationAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// durationWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func durationWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// durationEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func durationEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return durationJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// durationStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func durationStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// durationJSONError returns an error about the ProtoJSON value of message name.
+func durationJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

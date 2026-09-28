@@ -12,8 +12,9 @@ import (
 )
 
 // This file generates ProtoJSON (https://protobuf.dev/programming-guides/json/)
-// methods. As with the binary methods, all logic is inlined and only the
-// standard library and other generated messages' methods are called.
+// methods. As with the binary methods, only the standard library, the file's
+// helper functions (see helpers.go) and other generated messages' methods are
+// called.
 //
 // Marshaling appends to a byte slice (ProtoAppendJSON), using jsontext to
 // quote strings and format floats. MarshalJSONTo hands that output to a
@@ -24,9 +25,8 @@ import (
 // decoder rejects malformed JSON, invalid UTF-8 and duplicate names. Each
 // iteration of a message's loop reads one value: either a field's value or
 // an element of the repeated or map field it is inside. Scalars are parsed by
-// one shared block per class (so the number and base64 parsing code appears
-// once per message rather than once per field) and then assigned to the
-// field. A token is only valid until the next read from the decoder, so each
+// one helper call per class (so the parsing code appears once per file) and
+// then assigned to the field. A token is only valid until the next read from the decoder, so each
 // value is converted before the decoder is used again.
 
 // Scalar parse classes.
@@ -39,7 +39,7 @@ const (
 	classString   = 5
 	classBytes    = 6
 	classHex      = 7 // bytes fields selected with Options.JSONHex
-	classEnum     = 8 // resolved to classString or classSigned by token kind
+	classEnum     = 8 // an enum name, or resolved to classSigned or classNone by token kind
 )
 
 // jsonQuote returns the JSON encoding of s as a Go string literal.
@@ -168,13 +168,7 @@ func (fg *fileGen) jsonAppendValue(f *desc.Field, v string) {
 			fg.P("b = ", conv, ".AppendInt(b, int64(", v, "), 10)")
 			return
 		}
-		fg.P("if s, ok := ", fg.qualify(f.EnumType.File, fg.g.enmNames[f.EnumType]+"_name"), "[int32(", v, ")]; ok {")
-		fg.P("b = append(b, '\"')")
-		fg.P("b = append(b, s...)")
-		fg.P("b = append(b, '\"')")
-		fg.P("} else {")
-		fg.P("b = ", conv, ".AppendInt(b, int64(", v, "), 10)")
-		fg.P("}")
+		fg.P("b = ", fg.fn("AppendEnum"), "(b, int32(", v, "), ", fg.qualify(f.EnumType.File, fg.g.enmNames[f.EnumType]+"_name"), ")")
 	case desc.KindMessage:
 		fg.usesErr = true
 		fg.P("if b, err = ", v, ".ProtoAppendJSON(b); err != nil {")
@@ -269,12 +263,7 @@ func (fg *fileGen) jsonMapEntries(f *desc.Field, fv string) {
 		fg.P("}")
 		return
 	}
-	fg.P("keys := make([]", fg.scalarGoType(f.MapKey), ", 0, len(", fv, "))")
-	fg.P("for k := range ", fv, " {")
-	fg.P("keys = append(keys, k)")
-	fg.P("}")
-	fg.P(fg.std("slices"), ".Sort(keys)")
-	fg.P("for _, k := range keys {")
+	fg.P("for _, k := range ", fg.fn("SortedKeys"), "(", fv, ", make([]", fg.scalarGoType(f.MapKey), ", 0, len(", fv, "))) {")
 	fg.P("v := ", fv, "[k]")
 	entry()
 	fg.P("}")
@@ -300,10 +289,7 @@ func (fg *fileGen) genJSONMarshal(mi *messageInfo, body func()) {
 	fg.P("func (m *", name, ") MarshalJSONTo(e *", fg.std("encoding/json/jsontext"), ".Encoder) error {")
 	checkInit("err")
 	fg.P("b, err := m.ProtoAppendJSON(e.AvailableBuffer())")
-	fg.P("if err != nil {")
-	fg.P("return err")
-	fg.P("}")
-	fg.P("return e.WriteValue(b)")
+	fg.P("return ", fg.fn("WriteJSON"), "(e, b, err)")
 	fg.P("}")
 	fg.P()
 	fg.usesErr = false
@@ -376,26 +362,15 @@ func (fg *fileGen) genJSONUnmarshal(mi *messageInfo, body func()) {
 	fg.P("// It does not check required fields.")
 	fg.P("func (m *", name, ") ProtoMergeJSON(b []byte) error {")
 	fg.P("d := ", jt, ".NewDecoder(", fg.std("bytes"), ".NewBuffer(b))")
-	fg.P("if err := m.ProtoMergeJSONFrom(d); err != nil {")
-	fg.P("return err")
-	fg.P("}")
-	fg.P("if _, err := d.ReadToken(); err != ", fg.std("io"), ".EOF {")
-	fg.P("return ", fg.jsonErr(fg.owner(full)+"ErrTrailingData", full+": unexpected data after JSON value"))
-	fg.P("}")
-	fg.P("return nil")
+	fg.P("return ", fg.fn("EndJSON"), "(d, m.ProtoMergeJSONFrom(d), ", strconv.Quote(full), ")")
 	fg.P("}")
 	fg.P()
 	fg.P("// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value")
 	fg.P("// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.")
 	fg.P("func (m *", name, ") UnmarshalJSONFrom(d *", jt, ".Decoder) error {")
-	fg.P("if lax, _ := ", fg.std("encoding/json/v2"), ".GetOption(d.Options(), ", jt, ".AllowInvalidUTF8); lax {")
-	fg.P("// ProtoJSON rejects invalid UTF-8, which d would replace (as")
-	fg.P("// encoding/json does), so decode the value with a strict decoder.")
-	fg.P("v, err := d.ReadValue()")
+	fg.P("d, err := ", fg.fn("StrictDecoder"), "(d)")
 	fg.P("if err != nil {")
 	fg.P("return err")
-	fg.P("}")
-	fg.P("return m.UnmarshalJSON(v)")
 	fg.P("}")
 	fg.P("*m = ", name, "{}")
 	merge("ProtoMergeJSONFrom(d)")
@@ -426,6 +401,15 @@ func (fg *fileGen) jsonReadOpen(name, kind, hint, what string) {
 	fg.P("}")
 }
 
+// jsonOpen emits code reading the first token of the value of message name,
+// which must be of the given kind; null leaves m unchanged. It declares err.
+func (fg *fileGen) jsonOpen(name, kind, what string) {
+	fg.P("ok, err := ", fg.fn("OpenJSON"), "(d, ", fg.kind(kind), ", ", strconv.Quote(name), ", ", strconv.Quote(what), ")")
+	fg.P("if !ok {")
+	fg.P("return err")
+	fg.P("}")
+}
+
 // jsonUnknown emits code rejecting unknown field key, or skipping its value
 // with Options.JSONDiscardUnknown.
 func (fg *fileGen) jsonUnknown(name, key string) {
@@ -443,7 +427,7 @@ func (fg *fileGen) jsonUnknown(name, key string) {
 // ordinary message.
 func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 	name := mi.m.FullName
-	fg.jsonReadOpen(name, "BeginObject", "ErrNotObject", "object")
+	fg.jsonOpen(name, "BeginObject", "object")
 	if len(mi.fields) == 0 {
 		if fg.g.opts.JSONDiscardUnknown {
 			fg.P("for d.PeekKind() != ", fg.kind("EndObject"), " {")
@@ -575,23 +559,19 @@ func (fg *fileGen) genericJSONUnmarshalBody(mi *messageInfo) {
 			fg.P("}")
 			fg.P("oneofs[", k, "] = true")
 		}
-		open := func(idxs []int, kind, hint, what string) {
+		open := func(idxs []int, kind, what string) {
 			if len(idxs) == 0 {
 				return
 			}
 			fg.P("case ", joinInts(idxs), ":")
-			fg.P("tok, err := d.ReadToken()")
-			fg.P("if err != nil {")
+			fg.P("if err := ", fg.fn("ExpectJSON"), "(d, ", fg.kind(kind), ", ", strconv.Quote(name), ", ", strconv.Quote(what), "); err != nil {")
 			fg.P("return err")
-			fg.P("}")
-			fg.P("if tok.Kind() != ", fg.kind(kind), " {")
-			fg.P("return ", fg.jsonErr(fg.owner(name)+hint, name+": expected a JSON "+what))
 			fg.P("}")
 			fg.P("in = ", fg.kind(kind))
 			fg.P("continue")
 		}
-		open(arrays, "BeginArray", "ErrNotArray", "array")
-		open(objects, "BeginObject", "ErrNotObject", "object")
+		open(arrays, "BeginArray", "array")
+		open(objects, "BeginObject", "object")
 		fg.P("}")
 	}
 	if containers {
@@ -719,7 +699,6 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 		case desc.KindMessage:
 			continue
 		case desc.KindEnum:
-			used[classString] = true
 			used[classSigned] = true
 		default:
 			k[0], k[1] = fg.fieldClass(vf)
@@ -781,23 +760,16 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 			fg.P("return err")
 			fg.P("}")
 		} else {
+			// err is declared by jsonOpen or by the key read.
 			fg.P("var tok ", fg.std("encoding/json/jsontext"), ".Token")
 			fg.P("if class != ", fg.class(classNone), " {")
-			fg.P("var err error")
 			fg.P("if tok, err = d.ReadToken(); err != nil {")
 			fg.P("return err")
 			fg.P("}")
 		}
 		if hasEnum {
 			fg.P("if class == ", fg.class(classEnum), " {")
-			fg.P("switch tok.Kind() {")
-			fg.P("case ", fg.kind("Null"), ":")
-			fg.P("class = ", fg.class(classNone))
-			fg.P("case ", fg.kind("String"), ":")
-			fg.P("class = ", fg.class(classString))
-			fg.P("default:")
-			fg.P("class, bits = ", fg.class(classSigned), ", 32")
-			fg.P("}")
+			fg.P("class, bits = ", fg.fn("EnumClass"), "(tok.Kind())")
 			fg.P("}")
 		}
 		if !single {
@@ -817,158 +789,37 @@ func (fg *fileGen) jsonValue(mi *messageInfo, idxs []int) {
 	fg.P("}")
 }
 
-// jsonParseClasses emits the shared scalar parse blocks, which convert token
-// tok to the scratch variable for its class.
+// jsonParseClasses emits a switch converting token tok to the scratch
+// variable for its class, using the parse helpers.
 func (fg *fileGen) jsonParseClasses(used map[int]bool, name string) {
-	jt := fg.std("encoding/json/jsontext")
-	invalid := func(hint, what, part string) {
-		fg.P("return ", fg.errConcat(fg.owner(name)+hint, "proto: "+name+": invalid "+what+" ", part))
-	}
-	// Numbers may also be quoted, in which case the token is a string
-	// holding a JSON number.
-	numberCheck := func() {
-		fg.P("if k := tok.Kind(); k != ", fg.kind("Number"), " && (k != ", fg.kind("String"), " || s == \"\" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !", jt, ".Value(s).IsValid()) {")
-		invalid("ErrInvalidNumber", "number", "s")
-		fg.P("}")
-	}
+	q := strconv.Quote(name)
 	fg.P("switch class {")
-	if used[classSigned] || used[classUnsigned] {
-		conv := fg.std("strconv")
-		var cases []string
-		if used[classSigned] {
-			cases = append(cases, fg.class(classSigned))
+	for _, c := range []struct {
+		class       int
+		dst, helper string
+		bits        bool
+	}{
+		{classSigned, "iv", "ParseInt", true},
+		{classUnsigned, "uv", "ParseUint", true},
+		{classFloat, "fv", "ParseFloat", true},
+		{classBool, "bv", "ParseBool", false},
+		{classString, "sv", "ParseString", false},
+		{classBytes, "by", "ParseBytes", false},
+		{classHex, "by", "ParseHex", false},
+	} {
+		if !used[c.class] {
+			continue
 		}
-		if used[classUnsigned] {
-			cases = append(cases, fg.class(classUnsigned))
+		fg.P("case ", fg.class(c.class), ":")
+		if c.bits {
+			fg.P(c.dst, ", err = ", fg.fn(c.helper), "(tok, bits, ", q, ")")
+		} else {
+			fg.P(c.dst, ", err = ", fg.fn(c.helper), "(tok, ", q, ")")
 		}
-		fg.P("case ", joinComma(cases), ":")
-		fg.P("s := tok.String()")
-		numberCheck()
-		fg.P("var err error")
-		switch {
-		case used[classSigned] && used[classUnsigned]:
-			fg.P("if class == ", fg.class(classSigned), " {")
-			fg.P("iv, err = ", conv, ".ParseInt(s, 10, bits)")
-			fg.P("} else {")
-			fg.P("uv, err = ", conv, ".ParseUint(s, 10, bits)")
-			fg.P("}")
-		case used[classSigned]:
-			fg.P("iv, err = ", conv, ".ParseInt(s, 10, bits)")
-		default:
-			fg.P("uv, err = ", conv, ".ParseUint(s, 10, bits)")
-		}
-		fg.P("if err != nil {")
-		fg.P("// Accept exponent and fraction forms that denote an exact integer,")
-		fg.P("// bounding the exponent so that exact arithmetic stays cheap.")
-		fg.P("if i := ", fg.std("strings"), ".IndexAny(s, \"eE\"); i >= 0 {")
-		fg.P("if e, err := ", conv, ".Atoi(s[i+1:]); err != nil || e > ", fg.c("MaxJSONExponent"), " || e < -", fg.c("MaxJSONExponent"), " {")
-		invalid("ErrInvalidInteger", "integer", "s")
-		fg.P("}")
-		fg.P("}")
-		fg.P("r, ok := new(", fg.std("math/big"), ".Rat).SetString(s)")
-		fg.P("if !ok || !r.IsInt() {")
-		invalid("ErrInvalidInteger", "integer", "s")
-		fg.P("}")
-		fg.P("n := r.Num()")
-		signed := func() {
-			m := fg.std("math")
-			fg.P("if !n.IsInt64() || (bits == 32 && (n.Int64() < ", m, ".MinInt32 || n.Int64() > ", m, ".MaxInt32)) {")
-			invalid("ErrInvalidInteger", "integer", "s")
-			fg.P("}")
-			fg.P("iv = n.Int64()")
-		}
-		unsigned := func() {
-			fg.P("if !n.IsUint64() || (bits == 32 && n.Uint64() > ", fg.std("math"), ".MaxUint32) {")
-			invalid("ErrInvalidInteger", "integer", "s")
-			fg.P("}")
-			fg.P("uv = n.Uint64()")
-		}
-		switch {
-		case used[classSigned] && used[classUnsigned]:
-			fg.P("if class == ", fg.class(classSigned), " {")
-			signed()
-			fg.P("} else {")
-			unsigned()
-			fg.P("}")
-		case used[classSigned]:
-			signed()
-		default:
-			unsigned()
-		}
-		fg.P("}")
 	}
-	if used[classFloat] {
-		m := fg.std("math")
-		fg.P("case ", fg.class(classFloat), ":")
-		fg.P("s := tok.String()")
-		fg.P("special := false")
-		fg.P("if tok.Kind() == ", fg.kind("String"), " {")
-		fg.P("switch s {")
-		fg.P("case \"NaN\":")
-		fg.P("fv, special = ", m, ".NaN(), true")
-		fg.P("case \"Infinity\":")
-		fg.P("fv, special = ", m, ".Inf(1), true")
-		fg.P("case \"-Infinity\":")
-		fg.P("fv, special = ", m, ".Inf(-1), true")
-		fg.P("}")
-		fg.P("}")
-		fg.P("if !special {")
-		numberCheck()
-		fg.P("var err error")
-		fg.P("if fv, err = ", fg.std("strconv"), ".ParseFloat(s, bits); err != nil {")
-		invalid("ErrInvalidNumber", "number", "s")
-		fg.P("}")
-		fg.P("}")
-	}
-	if used[classBool] {
-		fg.P("case ", fg.class(classBool), ":")
-		fg.P("switch tok.Kind() {")
-		fg.P("case ", fg.kind("True"), ":")
-		fg.P("bv = true")
-		fg.P("case ", fg.kind("False"), ":")
-		fg.P("default:")
-		invalid("ErrInvalidBool", "boolean", "tok.String()")
-		fg.P("}")
-	}
-	if used[classString] {
-		fg.P("case ", fg.class(classString), ":")
-		fg.P("if tok.Kind() != ", fg.kind("String"), " {")
-		invalid("ErrInvalidString", "string", "tok.String()")
-		fg.P("}")
-		fg.P("sv = tok.String()")
-	}
-	if used[classBytes] {
-		b64 := fg.std("encoding/base64")
-		fg.P("case ", fg.class(classBytes), ":")
-		fg.P("s := tok.String()")
-		fg.P("if tok.Kind() != ", fg.kind("String"), " {")
-		invalid("ErrInvalidBytes", "bytes", "s")
-		fg.P("}")
-		fg.P("// Accept standard and URL-safe alphabets, with or without padding.")
-		fg.P("enc := ", b64, ".StdEncoding")
-		fg.P("if ", fg.std("strings"), ".ContainsAny(s, \"-_\") {")
-		fg.P("enc = ", b64, ".URLEncoding")
-		fg.P("}")
-		fg.P("if len(s)%", fg.c("Base64Quantum"), " != 0 {")
-		fg.P("enc = enc.WithPadding(", b64, ".NoPadding)")
-		fg.P("}")
-		fg.P("var err error")
-		fg.P("if by, err = enc.DecodeString(s); err != nil {")
-		invalid("ErrInvalidBytes", "bytes", "s")
-		fg.P("}")
-	}
-	if used[classHex] {
-		fg.P("case ", fg.class(classHex), ":")
-		fg.P("s := tok.String()")
-		fg.P("if tok.Kind() != ", fg.kind("String"), " {")
-		invalid("ErrInvalidHex", "hex bytes", "s")
-		fg.P("}")
-		fg.P("// Either case is accepted.")
-		fg.P("var err error")
-		fg.P("if by, err = ", fg.std("encoding/hex"), ".DecodeString(s); err != nil {")
-		invalid("ErrInvalidHex", "hex bytes", "s")
-		fg.P("}")
-	}
+	fg.P("}")
+	fg.P("if err != nil {")
+	fg.P("return err")
 	fg.P("}")
 }
 
@@ -1002,17 +853,10 @@ func (fg *fileGen) scratchExpr(f *desc.Field) string {
 func (fg *fileGen) jsonValueExpr(vf *desc.Field, name string) string {
 	switch vf.Kind {
 	case desc.KindEnum:
-		et := fg.enumType(vf.EnumType)
-		fg.P("var ev ", et)
-		fg.P("switch class {")
-		fg.P("case ", fg.class(classString), ":")
-		fg.P("n, ok := ", fg.qualify(vf.EnumType.File, fg.g.enmNames[vf.EnumType]+"_value"), "[sv]")
-		fg.P("if !ok {")
-		fg.P("return ", fg.errConcat(fg.owner(name)+"ErrInvalid"+camelCase(vf.EnumType.Name), "proto: "+name+": invalid value for enum "+vf.EnumType.FullName+": ", fg.std("strconv")+".Quote(sv)"))
-		fg.P("}")
-		fg.P("ev = ", et, "(n)")
-		fg.P("case ", fg.class(classSigned), ":")
-		fg.P("ev = ", et, "(iv)")
+		values := fg.qualify(vf.EnumType.File, fg.g.enmNames[vf.EnumType]+"_value")
+		fg.P("ev, err := ", fg.fn("ParseEnum"), "[", fg.enumType(vf.EnumType), "](class, tok, iv, ", values, ", ", strconv.Quote(name), ", ", strconv.Quote(vf.EnumType.FullName), ")")
+		fg.P("if err != nil {")
+		fg.P("return err")
 		fg.P("}")
 		return "ev"
 	case desc.KindMessage:
@@ -1300,10 +1144,10 @@ func (fg *fileGen) genJSONContainer(mi *messageInfo, field string, isMap bool) {
 	fg.genJSONUnmarshal(mi, func() {
 		end := "EndArray"
 		if isMap {
-			fg.jsonReadOpen(name, "BeginObject", "ErrNotObject", "object")
+			fg.jsonOpen(name, "BeginObject", "object")
 			end = "EndObject"
 		} else {
-			fg.jsonReadOpen(name, "BeginArray", "ErrNotArray", "array")
+			fg.jsonOpen(name, "BeginArray", "array")
 		}
 		fg.P("for d.PeekKind() != ", fg.kind(end), " {")
 		if isMap {

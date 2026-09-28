@@ -5,6 +5,7 @@ package proto2pb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json/jsontext"
@@ -78,26 +79,10 @@ const (
 
 // Error messages used more than once.
 const (
-	proto2ErrSizeChanged                      = "proto: message size changed during marshal"
-	proto2ErrParse                            = "proto: cannot parse invalid wire-format data"
-	proto2ErrDepth                            = "proto: exceeded maximum recursion depth"
-	proto2DefaultsErrInvalidNumber            = "proto: cotorp.test.proto2.Defaults: invalid number "
-	proto2DefaultsErrInvalidInteger           = "proto: cotorp.test.proto2.Defaults: invalid integer "
-	proto2DefaultsErrInvalidBytes             = "proto: cotorp.test.proto2.Defaults: invalid bytes "
-	proto2DefaultsErrInvalidClosed            = "proto: cotorp.test.proto2.Defaults: invalid value for enum cotorp.test.proto2.Closed: "
-	proto2RequiredErrNotObject                = "proto: cotorp.test.proto2.Required: expected a JSON object"
-	proto2RequiredErrInvalidInteger           = "proto: cotorp.test.proto2.Required: invalid integer "
-	proto2GroupsErrInvalidInteger             = "proto: cotorp.test.proto2.Groups: invalid integer "
-	proto2GroupsOptGroupErrInvalidInteger     = "proto: cotorp.test.proto2.Groups.OptGroup: invalid integer "
-	proto2GroupsRepGroupErrInvalidInteger     = "proto: cotorp.test.proto2.Groups.RepGroup: invalid integer "
-	proto2GroupsRepGroupDeepErrInvalidInteger = "proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid integer "
-	proto2ClosedEnumsErrNotObject             = "proto: cotorp.test.proto2.ClosedEnums: expected a JSON object"
-	proto2ClosedEnumsErrInvalidInteger        = "proto: cotorp.test.proto2.ClosedEnums: invalid integer "
-	proto2ClosedEnumsErrInvalidClosed         = "proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: "
-	proto2PackedErrInvalidNumber              = "proto: cotorp.test.proto2.Packed: invalid number "
-	proto2PackedErrInvalidInteger             = "proto: cotorp.test.proto2.Packed: invalid integer "
-	proto2ExtendableErrInvalidInteger         = "proto: cotorp.test.proto2.Extendable: invalid integer "
-	proto2ExtGroupErrInvalidInteger           = "proto: cotorp.test.proto2.ExtGroup: invalid integer "
+	proto2ErrParse          = "proto: cannot parse invalid wire-format data"
+	proto2ErrDepth          = "proto: exceeded maximum recursion depth"
+	proto2ErrInvalidInteger = "invalid integer "
+	proto2ErrInvalidNumber  = "invalid number "
 )
 
 type Closed int32
@@ -462,16 +447,9 @@ func (m *Defaults) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Defaults) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -482,7 +460,6 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -490,66 +467,32 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if m.DDoubleInt != nil {
 		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DDoubleInt)))
-		i -= 2
-		binary.PutUvarint(b[i:], 20<<proto2TagTypeBits|proto2WireFixed64)
+		i = proto2PutVarint(b, i, 20<<proto2TagTypeBits|proto2WireFixed64)
 	}
 	if m.DFloatNegZero != nil {
 		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], math.Float32bits((*m.DFloatNegZero)))
-		i -= 2
-		binary.PutUvarint(b[i:], 19<<proto2TagTypeBits|proto2WireFixed32)
+		i = proto2PutVarint(b, i, 19<<proto2TagTypeBits|proto2WireFixed32)
 	}
 	if m.DEnumNodefault != nil {
-		u = uint64(int64((*m.DEnumNodefault)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 18<<proto2TagTypeBits|proto2WireVarint)
+		i = proto2PutVarint(b, i, uint64(int64((*m.DEnumNodefault))))
+		i = proto2PutVarint(b, i, 18<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DEnum != nil {
-		u = uint64(int64((*m.DEnum)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 17<<proto2TagTypeBits|proto2WireVarint)
+		i = proto2PutVarint(b, i, uint64(int64((*m.DEnum))))
+		i = proto2PutVarint(b, i, 17<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DBytes != nil {
 		i -= len(m.DBytes)
 		copy(b[i:], m.DBytes)
-		u = uint64(len(m.DBytes))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 16<<proto2TagTypeBits|proto2WireBytes)
+		i = proto2PutVarint(b, i, uint64(len(m.DBytes)))
+		i = proto2PutVarint(b, i, 16<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.DString != nil {
 		i -= len((*m.DString))
 		copy(b[i:], (*m.DString))
-		u = uint64(len((*m.DString)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 15<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(len((*m.DString))))
+		i = proto2PutVarint(b, i, 15<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.DBool != nil {
 		i--
@@ -558,122 +501,66 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 14<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, 14<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DNan != nil {
 		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DNan)))
-		i--
-		b[i] = 13<<proto2TagTypeBits | proto2WireFixed64
+		i = proto2PutVarint(b, i, 13<<proto2TagTypeBits|proto2WireFixed64)
 	}
 	if m.DDouble != nil {
 		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DDouble)))
-		i--
-		b[i] = 12<<proto2TagTypeBits | proto2WireFixed64
+		i = proto2PutVarint(b, i, 12<<proto2TagTypeBits|proto2WireFixed64)
 	}
 	if m.DFloat != nil {
 		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], math.Float32bits((*m.DFloat)))
-		i--
-		b[i] = 11<<proto2TagTypeBits | proto2WireFixed32
+		i = proto2PutVarint(b, i, 11<<proto2TagTypeBits|proto2WireFixed32)
 	}
 	if m.DSfixed64 != nil {
 		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], uint64((*m.DSfixed64)))
-		i--
-		b[i] = 10<<proto2TagTypeBits | proto2WireFixed64
+		i = proto2PutVarint(b, i, 10<<proto2TagTypeBits|proto2WireFixed64)
 	}
 	if m.DSfixed32 != nil {
 		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], uint32((*m.DSfixed32)))
-		i--
-		b[i] = 9<<proto2TagTypeBits | proto2WireFixed32
+		i = proto2PutVarint(b, i, 9<<proto2TagTypeBits|proto2WireFixed32)
 	}
 	if m.DFixed64 != nil {
 		i -= proto2Fixed64Size
 		binary.LittleEndian.PutUint64(b[i:], uint64((*m.DFixed64)))
-		i--
-		b[i] = 8<<proto2TagTypeBits | proto2WireFixed64
+		i = proto2PutVarint(b, i, 8<<proto2TagTypeBits|proto2WireFixed64)
 	}
 	if m.DFixed32 != nil {
 		i -= proto2Fixed32Size
 		binary.LittleEndian.PutUint32(b[i:], uint32((*m.DFixed32)))
-		i--
-		b[i] = 7<<proto2TagTypeBits | proto2WireFixed32
+		i = proto2PutVarint(b, i, 7<<proto2TagTypeBits|proto2WireFixed32)
 	}
 	if m.DSint64 != nil {
-		u = (uint64((*m.DSint64)<<1) ^ uint64((*m.DSint64)>>63))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, (uint64((*m.DSint64)<<1) ^ uint64((*m.DSint64)>>63)))
+		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DSint32 != nil {
-		u = uint64(uint32((*m.DSint32)<<1) ^ uint32((*m.DSint32)>>31))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(uint32((*m.DSint32)<<1)^uint32((*m.DSint32)>>31)))
+		i = proto2PutVarint(b, i, 5<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DUint64 != nil {
-		u = (*m.DUint64)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, (*m.DUint64))
+		i = proto2PutVarint(b, i, 4<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DUint32 != nil {
-		u = uint64((*m.DUint32))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64((*m.DUint32)))
+		i = proto2PutVarint(b, i, 3<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DInt64 != nil {
-		u = uint64((*m.DInt64))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64((*m.DInt64)))
+		i = proto2PutVarint(b, i, 2<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.DInt32 != nil {
-		u = uint64(int64((*m.DInt32)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.DInt32))))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -817,22 +704,18 @@ func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.DBool = &v
 		case 15<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.DString = &v
 		case 16<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.DBytes = append([]byte{}, x...)
 		case 17<<proto2TagTypeBits | proto2WireVarint:
@@ -879,77 +762,9 @@ func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
 			m.DDoubleInt = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -977,10 +792,7 @@ func (m *Defaults) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Defaults) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1118,24 +930,12 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.DEnum != nil {
 		b = append(b, "\"dEnum\":"...)
-		if s, ok := Closed_name[int32((*m.DEnum))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.DEnum)), 10)
-		}
+		b = proto2AppendEnum(b, int32((*m.DEnum)), Closed_name)
 		b = append(b, ',')
 	}
 	if m.DEnumNodefault != nil {
 		b = append(b, "\"dEnumNodefault\":"...)
-		if s, ok := Closed_name[int32((*m.DEnumNodefault))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.DEnumNodefault)), 10)
-		}
+		b = proto2AppendEnum(b, int32((*m.DEnumNodefault)), Closed_name)
 		b = append(b, ',')
 	}
 	if m.DFloatNegZero != nil {
@@ -1185,26 +985,15 @@ func (m *Defaults) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Defaults) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Defaults: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Defaults")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Defaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Defaults{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1214,16 +1003,9 @@ func (m *Defaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Defaults", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Defaults: expected a JSON object")
 	}
 	var seen [20]bool
 	var f int
@@ -1323,110 +1105,29 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var by []byte
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == proto2ClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = proto2ClassNone
-				case jsontext.KindString:
-					class = proto2ClassString
-				default:
-					class, bits = proto2ClassSigned, 32
-				}
+				class, bits = proto2EnumClass(tok.Kind())
 			}
 		}
 		switch class {
-		case proto2ClassSigned, proto2ClassUnsigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New(proto2DefaultsErrInvalidNumber + s)
-			}
-			var err error
-			if class == proto2ClassSigned {
-				iv, err = strconv.ParseInt(s, 10, bits)
-			} else {
-				uv, err = strconv.ParseUint(s, 10, bits)
-			}
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2DefaultsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2DefaultsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if class == proto2ClassSigned {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(proto2DefaultsErrInvalidInteger + s)
-					}
-					iv = n.Int64()
-				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(proto2DefaultsErrInvalidInteger + s)
-					}
-					uv = n.Uint64()
-				}
-			}
+		case proto2ClassSigned:
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Defaults")
+		case proto2ClassUnsigned:
+			uv, err = proto2ParseUint(tok, bits, "cotorp.test.proto2.Defaults")
 		case proto2ClassFloat:
-			s := tok.String()
-			special := false
-			if tok.Kind() == jsontext.KindString {
-				switch s {
-				case "NaN":
-					fv, special = math.NaN(), true
-				case "Infinity":
-					fv, special = math.Inf(1), true
-				case "-Infinity":
-					fv, special = math.Inf(-1), true
-				}
-			}
-			if !special {
-				if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-					return errors.New(proto2DefaultsErrInvalidNumber + s)
-				}
-				var err error
-				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(proto2DefaultsErrInvalidNumber + s)
-				}
-			}
+			fv, err = proto2ParseFloat(tok, bits, "cotorp.test.proto2.Defaults")
 		case proto2ClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid boolean " + tok.String())
-			}
+			bv, err = proto2ParseBool(tok, "cotorp.test.proto2.Defaults")
 		case proto2ClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Defaults")
 		case proto2ClassBytes:
-			s := tok.String()
-			if tok.Kind() != jsontext.KindString {
-				return errors.New(proto2DefaultsErrInvalidBytes + s)
-			}
-			// Accept standard and URL-safe alphabets, with or without padding.
-			enc := base64.StdEncoding
-			if strings.ContainsAny(s, "-_") {
-				enc = base64.URLEncoding
-			}
-			if len(s)%proto2Base64Quantum != 0 {
-				enc = enc.WithPadding(base64.NoPadding)
-			}
-			var err error
-			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(proto2DefaultsErrInvalidBytes + s)
-			}
+			by, err = proto2ParseBytes(tok, "cotorp.test.proto2.Defaults")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -1477,30 +1178,16 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 15:
 			m.DBytes = by
 		case 16:
-			var ev Closed
-			switch class {
-			case proto2ClassString:
-				n, ok := Closed_value[sv]
-				if !ok {
-					return errors.New(proto2DefaultsErrInvalidClosed + strconv.Quote(sv))
-				}
-				ev = Closed(n)
-			case proto2ClassSigned:
-				ev = Closed(iv)
+			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.Defaults", "cotorp.test.proto2.Closed")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.DEnum = &x
 		case 17:
-			var ev Closed
-			switch class {
-			case proto2ClassString:
-				n, ok := Closed_value[sv]
-				if !ok {
-					return errors.New(proto2DefaultsErrInvalidClosed + strconv.Quote(sv))
-				}
-				ev = Closed(n)
-			case proto2ClassSigned:
-				ev = Closed(iv)
+			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.Defaults", "cotorp.test.proto2.Closed")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.DEnumNodefault = &x
@@ -1646,16 +1333,9 @@ func (m *Required) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1666,7 +1346,6 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -1677,24 +1356,11 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(n))
+		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if len(m.InnerMap) > 0 {
-		keys := make([]string, 0, len(m.InnerMap))
-		for k := range m.InnerMap {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(proto2SortedKeys(m.InnerMap, make([]string, 0, len(m.InnerMap)))) {
 			v := m.InnerMap[k]
 			start := i
 			n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -1702,38 +1368,14 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 				return 0, err
 			}
 			i -= n
-			u = uint64(n)
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = proto2MapValueField<<proto2TagTypeBits | proto2WireBytes
+			i = proto2PutVarint(b, i, uint64(n))
+			i = proto2PutVarint(b, i, proto2MapValueField<<proto2TagTypeBits|proto2WireBytes)
 			i -= len(k)
 			copy(b[i:], k)
-			u = uint64(len(k))
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = proto2MapKeyField<<proto2TagTypeBits | proto2WireBytes
-			u = uint64(start - i)
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 5<<proto2TagTypeBits | proto2WireBytes
+			i = proto2PutVarint(b, i, uint64(len(k)))
+			i = proto2PutVarint(b, i, proto2MapKeyField<<proto2TagTypeBits|proto2WireBytes)
+			i = proto2PutVarint(b, i, uint64(start-i))
+			i = proto2PutVarint(b, i, 5<<proto2TagTypeBits|proto2WireBytes)
 		}
 	}
 	for _, v := range slices.Backward(m.Inners) {
@@ -1742,16 +1384,8 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(n))
+		i = proto2PutVarint(b, i, 4<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.Inner != nil {
 		n, err := m.Inner.ProtoMarshalToSizedBuffer(b[:i])
@@ -1759,42 +1393,18 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(n))
+		i = proto2PutVarint(b, i, 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.ReqString != nil {
 		i -= len((*m.ReqString))
 		copy(b[i:], (*m.ReqString))
-		u = uint64(len((*m.ReqString)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(len((*m.ReqString))))
+		i = proto2PutVarint(b, i, 2<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.ReqInt32 != nil {
-		u = uint64(int64((*m.ReqInt32)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.ReqInt32))))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -1837,22 +1447,18 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			v := int32(x)
 			m.ReqInt32 = &v
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.ReqString = &v
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Inner == nil {
 				m.Inner = &Required_Inner{}
 			}
@@ -1862,12 +1468,10 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 4<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &Required_Inner{}
 			m.Inners = append(m.Inners, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -1875,12 +1479,10 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 5<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk string
 			var mv *Required_Inner
 			for len(v) > 0 {
@@ -1891,21 +1493,17 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 				v = v[n:]
 				switch t {
 				case proto2MapKeyField<<proto2TagTypeBits | proto2WireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := proto2ReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					mk = string(x)
 					v = v[n:]
 				case proto2MapValueField<<proto2TagTypeBits | proto2WireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := proto2ReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if mv == nil {
 						mv = &Required_Inner{}
 					}
@@ -1914,77 +1512,9 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 					}
 					v = v[n:]
 				default:
-					num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-					switch typ {
-					case proto2WireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						if len(v) < proto2Fixed64Size {
-							goto errParse
-						}
-						n = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case proto2WireStartGroup:
-						var stk [proto2SkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > proto2MaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & proto2TagTypeMask {
-							case proto2WireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case proto2WireFixed64:
-								k = proto2Fixed64Size
-							case proto2WireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case proto2WireStartGroup:
-								open = append(open, int32(t>>proto2TagTypeBits))
-								k = 0
-							case proto2WireEndGroup:
-								if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case proto2WireFixed32:
-								k = proto2Fixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case proto2WireFixed32:
-						if len(v) < proto2Fixed32Size {
-							goto errParse
-						}
-						n = proto2Fixed32Size
-					default:
-						goto errParse
+					n, err := proto2SkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -1998,12 +1528,10 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			m.InnerMap[mk] = mv
 			b = b[n:]
 		case 6<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mv *Required_Inner
 			if o, ok := m.O.(*Required_InnerOneof); ok && o.InnerOneof != nil {
 				mv = o.InnerOneof
@@ -2017,77 +1545,9 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -2148,10 +1608,7 @@ func (m *Required) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -2194,12 +1651,7 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.InnerMap) > 0 {
 		b = append(b, "\"innerMap\":{"...)
-		keys := make([]string, 0, len(m.InnerMap))
-		for k := range m.InnerMap {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range proto2SortedKeys(m.InnerMap, make([]string, 0, len(m.InnerMap))) {
 			v := m.InnerMap[k]
 			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto2.Required.inner_map contains invalid UTF-8")
@@ -2242,26 +1694,15 @@ func (m *Required) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Required) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Required: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Required")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Required) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Required{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -2274,16 +1715,9 @@ func (m *Required) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Required", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New(proto2RequiredErrNotObject)
 	}
 	var seen [6]bool
 	var oneofs [1]bool
@@ -2336,22 +1770,14 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				}
 				oneofs[0] = true
 			case 3:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Required", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: cotorp.test.proto2.Required: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
 			case 4:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Required", "object"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginObject {
-					return errors.New(proto2RequiredErrNotObject)
 				}
 				in = jsontext.KindBeginObject
 				continue
@@ -2387,42 +1813,18 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.Required: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2RequiredErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2RequiredErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2RequiredErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Required")
 		case proto2ClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.proto2.Required: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Required")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -2514,16 +1916,9 @@ func (m *Required_Inner) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -2545,8 +1940,7 @@ func (m *Required_Inner) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -2590,77 +1984,9 @@ func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
 			m.Flag = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -2700,10 +2026,7 @@ func (m *Required_Inner) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -2744,26 +2067,15 @@ func (m *Required_Inner) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Required_Inner) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Required.Inner: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Required.Inner")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Required_Inner) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Required_Inner{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -2776,16 +2088,9 @@ func (m *Required_Inner) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Required.Inner", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Required.Inner: expected a JSON object")
 	}
 	var seen [1]bool
 	var f int
@@ -2823,13 +2128,10 @@ func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch class {
 		case proto2ClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: cotorp.test.proto2.Required.Inner: invalid boolean " + tok.String())
-			}
+			bv, err = proto2ParseBool(tok, "cotorp.test.proto2.Required.Inner")
+		}
+		if err != nil {
+			return err
 		}
 		x := bv
 		m.Flag = &x
@@ -2907,16 +2209,9 @@ func (m *Groups) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -2927,44 +2222,31 @@ func (m *Groups) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.After != nil {
-		u = uint64(int64((*m.After)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.After))))
+		i = proto2PutVarint(b, i, 8<<proto2TagTypeBits|proto2WireVarint)
 	}
 	for _, v := range slices.Backward(m.Repgroup) {
-		i--
-		b[i] = 4<<proto2TagTypeBits | proto2WireEndGroup
+		i = proto2PutVarint(b, i, 4<<proto2TagTypeBits|proto2WireEndGroup)
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
 		i -= n
-		i--
-		b[i] = 4<<proto2TagTypeBits | proto2WireStartGroup
+		i = proto2PutVarint(b, i, 4<<proto2TagTypeBits|proto2WireStartGroup)
 	}
 	if m.Optgroup != nil {
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireEndGroup
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireEndGroup)
 		n, err := m.Optgroup.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
 		i -= n
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireStartGroup
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireStartGroup)
 	}
 	return len(b) - i, nil
 }
@@ -2996,51 +2278,9 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireStartGroup:
-			var n int
-			var stk [proto2SkipStackSize]int32
-			open := append(stk[:0], 1)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > proto2MaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & proto2TagTypeMask {
-				case proto2WireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case proto2WireFixed64:
-					k = proto2Fixed64Size
-				case proto2WireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case proto2WireStartGroup:
-					open = append(open, int32(t>>proto2TagTypeBits))
-					k = 0
-				case proto2WireEndGroup:
-					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case proto2WireFixed32:
-					k = proto2Fixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			n, err := proto2SkipGroup(b, 1, depth)
+			if err != nil {
+				return err
 			}
 			if m.Optgroup == nil {
 				m.Optgroup = &Groups_OptGroup{}
@@ -3051,51 +2291,9 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 4<<proto2TagTypeBits | proto2WireStartGroup:
-			var n int
-			var stk [proto2SkipStackSize]int32
-			open := append(stk[:0], 4)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > proto2MaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & proto2TagTypeMask {
-				case proto2WireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case proto2WireFixed64:
-					k = proto2Fixed64Size
-				case proto2WireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case proto2WireStartGroup:
-					open = append(open, int32(t>>proto2TagTypeBits))
-					k = 0
-				case proto2WireEndGroup:
-					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case proto2WireFixed32:
-					k = proto2Fixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			n, err := proto2SkipGroup(b, 4, depth)
+			if err != nil {
+				return err
 			}
 			mv := &Groups_RepGroup{}
 			m.Repgroup = append(m.Repgroup, mv)
@@ -3113,77 +2311,9 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 			m.After = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -3211,10 +2341,7 @@ func (m *Groups) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Groups) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -3267,26 +2394,15 @@ func (m *Groups) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Groups) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Groups{}
 	return m.ProtoMergeJSONFrom(d)
@@ -3296,16 +2412,9 @@ func (m *Groups) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Groups: expected a JSON object")
 	}
 	var seen [3]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -3345,12 +2454,8 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 1:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Groups", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: cotorp.test.proto2.Groups: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -3376,37 +2481,16 @@ func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var iv int64
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.Groups: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -3487,16 +2571,9 @@ func (m *Groups_OptGroup) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups_OptGroup) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -3507,7 +2584,6 @@ func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -3515,28 +2591,12 @@ func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if m.B != nil {
 		i -= len((*m.B))
 		copy(b[i:], (*m.B))
-		u = uint64(len((*m.B)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(len((*m.B))))
+		i = proto2PutVarint(b, i, 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.A != nil {
-		u = uint64(int64((*m.A)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.A))))
+		i = proto2PutVarint(b, i, 2<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -3576,88 +2636,18 @@ func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
 			v := int32(x)
 			m.A = &v
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.B = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -3685,10 +2675,7 @@ func (m *Groups_OptGroup) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Groups_OptGroup) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -3730,26 +2717,15 @@ func (m *Groups_OptGroup) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups.OptGroup")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups_OptGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Groups_OptGroup{}
 	return m.ProtoMergeJSONFrom(d)
@@ -3759,16 +2735,9 @@ func (m *Groups_OptGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups.OptGroup", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -3812,42 +2781,18 @@ func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsOptGroupErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsOptGroupErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsOptGroupErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups.OptGroup")
 		case proto2ClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Groups.OptGroup")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -3919,16 +2864,9 @@ func (m *Groups_RepGroup) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups_RepGroup) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -3939,33 +2877,22 @@ func (m *Groups_RepGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Deep != nil {
-		i--
-		b[i] = 6<<proto2TagTypeBits | proto2WireEndGroup
+		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireEndGroup)
 		n, err := m.Deep.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
 		i -= n
-		i--
-		b[i] = 6<<proto2TagTypeBits | proto2WireStartGroup
+		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireStartGroup)
 	}
 	if m.C != nil {
-		u = uint64(int64((*m.C)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.C))))
+		i = proto2PutVarint(b, i, 5<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -4005,51 +2932,9 @@ func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 			v := int32(x)
 			m.C = &v
 		case 6<<proto2TagTypeBits | proto2WireStartGroup:
-			var n int
-			var stk [proto2SkipStackSize]int32
-			open := append(stk[:0], 6)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > proto2MaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & proto2TagTypeMask {
-				case proto2WireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case proto2WireFixed64:
-					k = proto2Fixed64Size
-				case proto2WireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case proto2WireStartGroup:
-					open = append(open, int32(t>>proto2TagTypeBits))
-					k = 0
-				case proto2WireEndGroup:
-					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case proto2WireFixed32:
-					k = proto2Fixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
+			n, err := proto2SkipGroup(b, 6, depth)
+			if err != nil {
+				return err
 			}
 			if m.Deep == nil {
 				m.Deep = &Groups_RepGroup_Deep{}
@@ -4061,77 +2946,9 @@ func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -4159,10 +2976,7 @@ func (m *Groups_RepGroup) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Groups_RepGroup) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -4204,26 +3018,15 @@ func (m *Groups_RepGroup) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups.RepGroup")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups_RepGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Groups_RepGroup{}
 	return m.ProtoMergeJSONFrom(d)
@@ -4233,16 +3036,9 @@ func (m *Groups_RepGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups.RepGroup", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -4283,37 +3079,16 @@ func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var iv int64
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsRepGroupErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsRepGroupErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsRepGroupErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups.RepGroup")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -4377,16 +3152,9 @@ func (m *Groups_RepGroup_Deep) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups_RepGroup_Deep) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -4397,22 +3165,13 @@ func (m *Groups_RepGroup_Deep) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.D != nil {
-		u = uint64((*m.D))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64((*m.D)))
+		i = proto2PutVarint(b, i, 7<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -4453,77 +3212,9 @@ func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
 			m.D = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -4551,10 +3242,7 @@ func (m *Groups_RepGroup_Deep) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Groups_RepGroup_Deep) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -4590,26 +3278,15 @@ func (m *Groups_RepGroup_Deep) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups.RepGroup.Deep")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups_RepGroup_Deep) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Groups_RepGroup_Deep{}
 	return m.ProtoMergeJSONFrom(d)
@@ -4619,16 +3296,9 @@ func (m *Groups_RepGroup_Deep) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups.RepGroup.Deep", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: expected a JSON object")
 	}
 	var seen [1]bool
 	var f int
@@ -4667,30 +3337,10 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups.RepGroup.Deep")
+		}
+		if err != nil {
+			return err
 		}
 		x := iv
 		m.D = &x
@@ -4815,16 +3465,9 @@ func (m *ClosedEnums) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ClosedEnums) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -4835,110 +3478,41 @@ func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
-		u = uint64(int64(o.InOneof))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64(o.InOneof)))
+		i = proto2PutVarint(b, i, 5<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if len(m.ByKey) > 0 {
-		keys := make([]int32, 0, len(m.ByKey))
-		for k := range m.ByKey {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(proto2SortedKeys(m.ByKey, make([]int32, 0, len(m.ByKey)))) {
 			v := m.ByKey[k]
 			start := i
-			u = uint64(int64(v))
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = proto2MapValueField<<proto2TagTypeBits | proto2WireVarint
-			u = uint64(int64(k))
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = proto2MapKeyField<<proto2TagTypeBits | proto2WireVarint
-			u = uint64(start - i)
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 4<<proto2TagTypeBits | proto2WireBytes
+			i = proto2PutVarint(b, i, uint64(int64(v)))
+			i = proto2PutVarint(b, i, proto2MapValueField<<proto2TagTypeBits|proto2WireVarint)
+			i = proto2PutVarint(b, i, uint64(int64(k)))
+			i = proto2PutVarint(b, i, proto2MapKeyField<<proto2TagTypeBits|proto2WireVarint)
+			i = proto2PutVarint(b, i, uint64(start-i))
+			i = proto2PutVarint(b, i, 4<<proto2TagTypeBits|proto2WireBytes)
 		}
 	}
 	if len(m.Packed) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.Packed) {
-			u = uint64(int64(v))
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
+			i = proto2PutVarint(b, i, uint64(int64(v)))
 		}
-		u = uint64(start - i)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(start-i))
+		i = proto2PutVarint(b, i, 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	for _, v := range slices.Backward(m.Rep) {
-		u = uint64(int64(v))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64(v)))
+		i = proto2PutVarint(b, i, 2<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if m.Single != nil {
-		u = uint64(int64((*m.Single)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.Single))))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -4983,12 +3557,10 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 			v := e
 			m.Single = &v
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -5015,12 +3587,10 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			m.Rep = append(m.Rep, e)
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -5047,12 +3617,10 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			m.Packed = append(m.Packed, e)
 		case 4<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk int32
 			var mv ClosedZero
 			for len(v) > 0 {
@@ -5077,77 +3645,9 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 					mv = ClosedZero(int32(x))
 					v = v[n:]
 				default:
-					num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-					switch typ {
-					case proto2WireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						if len(v) < proto2Fixed64Size {
-							goto errParse
-						}
-						n = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case proto2WireStartGroup:
-						var stk [proto2SkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > proto2MaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & proto2TagTypeMask {
-							case proto2WireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case proto2WireFixed64:
-								k = proto2Fixed64Size
-							case proto2WireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case proto2WireStartGroup:
-								open = append(open, int32(t>>proto2TagTypeBits))
-								k = 0
-							case proto2WireEndGroup:
-								if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case proto2WireFixed32:
-								k = proto2Fixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case proto2WireFixed32:
-						if len(v) < proto2Fixed32Size {
-							goto errParse
-						}
-						n = proto2Fixed32Size
-					default:
-						goto errParse
+					n, err := proto2SkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -5176,77 +3676,9 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 			m.O = &ClosedEnums_InOneof{InOneof: e}
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -5274,10 +3706,7 @@ func (m *ClosedEnums) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *ClosedEnums) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -5289,25 +3718,13 @@ func (m *ClosedEnums) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if m.Single != nil {
 		b = append(b, "\"single\":"...)
-		if s, ok := Closed_name[int32((*m.Single))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Single)), 10)
-		}
+		b = proto2AppendEnum(b, int32((*m.Single)), Closed_name)
 		b = append(b, ',')
 	}
 	if len(m.Rep) > 0 {
 		b = append(b, "\"rep\":["...)
 		for j := range m.Rep {
-			if s, ok := Closed_name[int32(m.Rep[j])]; ok {
-				b = append(b, '"')
-				b = append(b, s...)
-				b = append(b, '"')
-			} else {
-				b = strconv.AppendInt(b, int64(m.Rep[j]), 10)
-			}
+			b = proto2AppendEnum(b, int32(m.Rep[j]), Closed_name)
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -5316,13 +3733,7 @@ func (m *ClosedEnums) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Packed) > 0 {
 		b = append(b, "\"packed\":["...)
 		for j := range m.Packed {
-			if s, ok := Closed_name[int32(m.Packed[j])]; ok {
-				b = append(b, '"')
-				b = append(b, s...)
-				b = append(b, '"')
-			} else {
-				b = strconv.AppendInt(b, int64(m.Packed[j]), 10)
-			}
+			b = proto2AppendEnum(b, int32(m.Packed[j]), Closed_name)
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -5330,24 +3741,13 @@ func (m *ClosedEnums) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.ByKey) > 0 {
 		b = append(b, "\"byKey\":{"...)
-		keys := make([]int32, 0, len(m.ByKey))
-		for k := range m.ByKey {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range proto2SortedKeys(m.ByKey, make([]int32, 0, len(m.ByKey))) {
 			v := m.ByKey[k]
 			b = append(b, '"')
 			b = strconv.AppendInt(b, int64(k), 10)
 			b = append(b, '"')
 			b = append(b, ':')
-			if s, ok := ClosedZero_name[int32(v)]; ok {
-				b = append(b, '"')
-				b = append(b, s...)
-				b = append(b, '"')
-			} else {
-				b = strconv.AppendInt(b, int64(v), 10)
-			}
+			b = proto2AppendEnum(b, int32(v), ClosedZero_name)
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
@@ -5355,13 +3755,7 @@ func (m *ClosedEnums) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
 		b = append(b, "\"inOneof\":"...)
-		if s, ok := Closed_name[int32(o.InOneof)]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64(o.InOneof), 10)
-		}
+		b = proto2AppendEnum(b, int32(o.InOneof), Closed_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -5383,26 +3777,15 @@ func (m *ClosedEnums) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.ClosedEnums: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.ClosedEnums")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ClosedEnums) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ClosedEnums{}
 	return m.ProtoMergeJSONFrom(d)
@@ -5412,16 +3795,9 @@ func (m *ClosedEnums) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.ClosedEnums", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New(proto2ClosedEnumsErrNotObject)
 	}
 	var seen [5]bool
 	var oneofs [1]bool
@@ -5472,22 +3848,14 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				}
 				oneofs[0] = true
 			case 1, 2:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.ClosedEnums", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
 			case 3:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.ClosedEnums", "object"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginObject {
-					return errors.New(proto2ClosedEnumsErrNotObject)
 				}
 				in = jsontext.KindBeginObject
 				continue
@@ -5518,95 +3886,40 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			class = proto2ClassEnum
 		}
 		var iv int64
-		var sv string
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == proto2ClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = proto2ClassNone
-				case jsontext.KindString:
-					class = proto2ClassString
-				default:
-					class, bits = proto2ClassSigned, 32
-				}
+				class, bits = proto2EnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2ClosedEnumsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2ClosedEnumsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2ClosedEnumsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
-		case proto2ClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.ClosedEnums")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
-			var ev Closed
-			switch class {
-			case proto2ClassString:
-				n, ok := Closed_value[sv]
-				if !ok {
-					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
-				}
-				ev = Closed(n)
-			case proto2ClassSigned:
-				ev = Closed(iv)
+			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Single = &x
 		case 1:
-			var ev Closed
-			switch class {
-			case proto2ClassString:
-				n, ok := Closed_value[sv]
-				if !ok {
-					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
-				}
-				ev = Closed(n)
-			case proto2ClassSigned:
-				ev = Closed(iv)
+			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
+			if err != nil {
+				return err
 			}
 			m.Rep = append(m.Rep, ev)
 		case 2:
-			var ev Closed
-			switch class {
-			case proto2ClassString:
-				n, ok := Closed_value[sv]
-				if !ok {
-					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
-				}
-				ev = Closed(n)
-			case proto2ClassSigned:
-				ev = Closed(iv)
+			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
+			if err != nil {
+				return err
 			}
 			m.Packed = append(m.Packed, ev)
 		case 3:
@@ -5615,32 +3928,18 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid map key for field by_key: " + strconv.Quote(mk))
 			}
 			k := int32(k64)
-			var ev ClosedZero
-			switch class {
-			case proto2ClassString:
-				n, ok := ClosedZero_value[sv]
-				if !ok {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.ClosedZero: " + strconv.Quote(sv))
-				}
-				ev = ClosedZero(n)
-			case proto2ClassSigned:
-				ev = ClosedZero(iv)
+			ev, err := proto2ParseEnum[ClosedZero](class, tok, iv, ClosedZero_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.ClosedZero")
+			if err != nil {
+				return err
 			}
 			if m.ByKey == nil {
 				m.ByKey = make(map[int32]ClosedZero)
 			}
 			m.ByKey[k] = ev
 		case 4:
-			var ev Closed
-			switch class {
-			case proto2ClassString:
-				n, ok := Closed_value[sv]
-				if !ok {
-					return errors.New(proto2ClosedEnumsErrInvalidClosed + strconv.Quote(sv))
-				}
-				ev = Closed(n)
-			case proto2ClassSigned:
-				ev = Closed(iv)
+			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
+			if err != nil {
+				return err
 			}
 			m.O = &ClosedEnums_InOneof{InOneof: ev}
 		}
@@ -5760,16 +4059,9 @@ func (m *Packed) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Packed) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -5780,22 +4072,13 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	for _, v := range slices.Backward(m.UInt32) {
-		u = uint64(int64(v))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64(v)))
+		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireVarint)
 	}
 	if len(m.PBool) > 0 {
 		start := i
@@ -5807,16 +4090,8 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 				b[i] = 0
 			}
 		}
-		u = uint64(start - i)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(start-i))
+		i = proto2PutVarint(b, i, 5<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if len(m.PDouble) > 0 {
 		start := i
@@ -5824,16 +4099,8 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			i -= proto2Fixed64Size
 			binary.LittleEndian.PutUint64(b[i:], math.Float64bits(v))
 		}
-		u = uint64(start - i)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(start-i))
+		i = proto2PutVarint(b, i, 4<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if len(m.PFixed32) > 0 {
 		start := i
@@ -5841,62 +4108,24 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			i -= proto2Fixed32Size
 			binary.LittleEndian.PutUint32(b[i:], uint32(v))
 		}
-		u = uint64(start - i)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(start-i))
+		i = proto2PutVarint(b, i, 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if len(m.PSint64) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.PSint64) {
-			u = (uint64((v)<<1) ^ uint64((v)>>63))
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
+			i = proto2PutVarint(b, i, (uint64((v)<<1) ^ uint64((v)>>63)))
 		}
-		u = uint64(start - i)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(start-i))
+		i = proto2PutVarint(b, i, 2<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if len(m.PInt32) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.PInt32) {
-			u = uint64(int64(v))
-			if u < proto2VarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
+			i = proto2PutVarint(b, i, uint64(int64(v)))
 		}
-		u = uint64(start - i)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(start-i))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -5928,12 +4157,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -5951,12 +4178,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.PInt32 = append(m.PInt32, int32(x))
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -5974,12 +4199,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.PSint64 = append(m.PSint64, int64(x>>1)^-int64(x&1))
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			if len(v)%proto2Fixed32Size != 0 {
 				goto errParse
@@ -6003,12 +4226,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.PFixed32 = append(m.PFixed32, x)
 		case 4<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			if len(v)%proto2Fixed64Size != 0 {
 				goto errParse
@@ -6032,12 +4253,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.PDouble = append(m.PDouble, math.Float64frombits(x))
 		case 5<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -6055,12 +4274,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.PBool = append(m.PBool, x != 0)
 		case 6<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -6079,77 +4296,9 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 			m.UInt32 = append(m.UInt32, int32(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -6177,10 +4326,7 @@ func (m *Packed) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Packed) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -6278,26 +4424,15 @@ func (m *Packed) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Packed) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Packed: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Packed")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Packed) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Packed{}
 	return m.ProtoMergeJSONFrom(d)
@@ -6307,16 +4442,9 @@ func (m *Packed) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Packed", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Packed: expected a JSON object")
 	}
 	var seen [6]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -6362,12 +4490,8 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0, 1, 2, 3, 4, 5:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Packed", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: cotorp.test.proto2.Packed: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -6404,78 +4528,22 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var bv bool
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
-		case proto2ClassSigned, proto2ClassUnsigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New(proto2PackedErrInvalidNumber + s)
-			}
-			var err error
-			if class == proto2ClassSigned {
-				iv, err = strconv.ParseInt(s, 10, bits)
-			} else {
-				uv, err = strconv.ParseUint(s, 10, bits)
-			}
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2PackedErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2PackedErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if class == proto2ClassSigned {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(proto2PackedErrInvalidInteger + s)
-					}
-					iv = n.Int64()
-				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(proto2PackedErrInvalidInteger + s)
-					}
-					uv = n.Uint64()
-				}
-			}
+		case proto2ClassSigned:
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Packed")
+		case proto2ClassUnsigned:
+			uv, err = proto2ParseUint(tok, bits, "cotorp.test.proto2.Packed")
 		case proto2ClassFloat:
-			s := tok.String()
-			special := false
-			if tok.Kind() == jsontext.KindString {
-				switch s {
-				case "NaN":
-					fv, special = math.NaN(), true
-				case "Infinity":
-					fv, special = math.Inf(1), true
-				case "-Infinity":
-					fv, special = math.Inf(-1), true
-				}
-			}
-			if !special {
-				if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-					return errors.New(proto2PackedErrInvalidNumber + s)
-				}
-				var err error
-				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(proto2PackedErrInvalidNumber + s)
-				}
-			}
+			fv, err = proto2ParseFloat(tok, bits, "cotorp.test.proto2.Packed")
 		case proto2ClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: cotorp.test.proto2.Packed: invalid boolean " + tok.String())
-			}
+			bv, err = proto2ParseBool(tok, "cotorp.test.proto2.Packed")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -6541,16 +4609,9 @@ func (m *Extendable) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Extendable) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -6561,22 +4622,13 @@ func (m *Extendable) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Known != nil {
-		u = uint64(int64((*m.Known)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.Known))))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -6617,77 +4669,9 @@ func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
 			m.Known = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -6715,10 +4699,7 @@ func (m *Extendable) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Extendable) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -6752,26 +4733,15 @@ func (m *Extendable) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Extendable) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Extendable: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Extendable")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Extendable) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Extendable{}
 	return m.ProtoMergeJSONFrom(d)
@@ -6781,16 +4751,9 @@ func (m *Extendable) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Extendable", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Extendable: expected a JSON object")
 	}
 	var seen [1]bool
 	var f int
@@ -6829,30 +4792,10 @@ func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.Extendable: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2ExtendableErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2ExtendableErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2ExtendableErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Extendable")
+		}
+		if err != nil {
+			return err
 		}
 		x := int32(iv)
 		m.Known = &x
@@ -6894,16 +4837,9 @@ func (m *Scope) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Scope) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -6947,77 +4883,9 @@ func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
-		num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-		switch typ {
-		case proto2WireVarint:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-		case proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			n = proto2Fixed64Size
-		case proto2WireBytes:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case proto2WireStartGroup:
-			var stk [proto2SkipStackSize]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > proto2MaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & proto2TagTypeMask {
-				case proto2WireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case proto2WireFixed64:
-					k = proto2Fixed64Size
-				case proto2WireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case proto2WireStartGroup:
-					open = append(open, int32(t>>proto2TagTypeBits))
-					k = 0
-				case proto2WireEndGroup:
-					if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case proto2WireFixed32:
-					k = proto2Fixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case proto2WireFixed32:
-			if len(b) < proto2Fixed32Size {
-				goto errParse
-			}
-			n = proto2Fixed32Size
-		default:
-			goto errParse
+		n, err := proto2SkipField(b, t, depth)
+		if err != nil {
+			return err
 		}
 		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 		b = b[n:]
@@ -7044,10 +4912,7 @@ func (m *Scope) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Scope) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -7076,26 +4941,15 @@ func (m *Scope) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Scope) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Scope: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Scope")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Scope) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Scope{}
 	return m.ProtoMergeJSONFrom(d)
@@ -7105,16 +4959,9 @@ func (m *Scope) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Scope) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Scope", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Scope: expected a JSON object")
 	}
 	if d.PeekKind() != jsontext.KindEndObject {
 		kt, err := d.ReadToken()
@@ -7196,16 +5043,9 @@ func (m *Proto2Strings) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Proto2Strings) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -7216,7 +5056,6 @@ func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -7227,44 +5066,20 @@ func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(n))
+		i = proto2PutVarint(b, i, 3<<proto2TagTypeBits|proto2WireBytes)
 	}
 	for _, v := range slices.Backward(m.Rs) {
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(len(v)))
+		i = proto2PutVarint(b, i, 2<<proto2TagTypeBits|proto2WireBytes)
 	}
 	if m.S != nil {
 		i -= len((*m.S))
 		copy(b[i:], (*m.S))
-		u = uint64(len((*m.S)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireBytes
+		i = proto2PutVarint(b, i, uint64(len((*m.S))))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -7296,31 +5111,25 @@ func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.S = &v
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.Rs = append(m.Rs, string(x))
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := proto2ReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Shared == nil {
 				m.Shared = &commonpb.Shared{}
 			}
@@ -7331,77 +5140,9 @@ func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -7429,10 +5170,7 @@ func (m *Proto2Strings) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Proto2Strings) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -7487,26 +5225,15 @@ func (m *Proto2Strings) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Proto2Strings) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.Proto2Strings: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Proto2Strings")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Proto2Strings) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Proto2Strings{}
 	return m.ProtoMergeJSONFrom(d)
@@ -7516,16 +5243,9 @@ func (m *Proto2Strings) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Proto2Strings", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.Proto2Strings: expected a JSON object")
 	}
 	var seen [3]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -7565,12 +5285,8 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 1:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Proto2Strings", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: cotorp.test.proto2.Proto2Strings: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -7595,17 +5311,16 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != proto2ClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case proto2ClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.proto2.Proto2Strings: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Proto2Strings")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -7671,16 +5386,9 @@ func (m *ExtGroup) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ExtGroup) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(proto2ErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return proto2Appended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -7691,22 +5399,13 @@ func (m *ExtGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.G != nil {
-		u = uint64(int64((*m.G)))
-		if u < proto2VarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<proto2TagTypeBits | proto2WireVarint
+		i = proto2PutVarint(b, i, uint64(int64((*m.G))))
+		i = proto2PutVarint(b, i, 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -7747,77 +5446,9 @@ func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
 			m.G = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>proto2TagTypeBits), t&proto2TagTypeMask
-			switch typ {
-			case proto2WireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case proto2WireFixed64:
-				if len(b) < proto2Fixed64Size {
-					goto errParse
-				}
-				n = proto2Fixed64Size
-			case proto2WireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case proto2WireStartGroup:
-				var stk [proto2SkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > proto2MaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & proto2TagTypeMask {
-					case proto2WireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case proto2WireFixed64:
-						k = proto2Fixed64Size
-					case proto2WireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case proto2WireStartGroup:
-						open = append(open, int32(t>>proto2TagTypeBits))
-						k = 0
-					case proto2WireEndGroup:
-						if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case proto2WireFixed32:
-						k = proto2Fixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case proto2WireFixed32:
-				if len(b) < proto2Fixed32Size {
-					goto errParse
-				}
-				n = proto2Fixed32Size
-			default:
-				goto errParse
+			n, err := proto2SkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -7845,10 +5476,7 @@ func (m *ExtGroup) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *ExtGroup) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return proto2WriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -7882,26 +5510,15 @@ func (m *ExtGroup) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.proto2.ExtGroup: unexpected data after JSON value")
-	}
-	return nil
+	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.ExtGroup")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ExtGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := proto2StrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ExtGroup{}
 	return m.ProtoMergeJSONFrom(d)
@@ -7911,16 +5528,9 @@ func (m *ExtGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.ExtGroup", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: cotorp.test.proto2.ExtGroup: expected a JSON object")
 	}
 	var seen [1]bool
 	var f int
@@ -7959,34 +5569,346 @@ func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.proto2.ExtGroup: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2ExtGroupErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(proto2ExtGroupErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2ExtGroupErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.ExtGroup")
+		}
+		if err != nil {
+			return err
 		}
 		x := int32(iv)
 		m.G = &x
 	}
 	_, err = d.ReadToken()
 	return err
+}
+
+// proto2PutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func proto2PutVarint(b []byte, i int, u uint64) int {
+	if u < proto2VarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// proto2ReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func proto2ReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// proto2SkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func proto2SkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & proto2TagTypeMask {
+	case proto2WireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case proto2WireFixed64:
+		if len(b) >= proto2Fixed64Size {
+			return proto2Fixed64Size, nil
+		}
+	case proto2WireBytes:
+		if _, n := proto2ReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case proto2WireStartGroup:
+		return proto2SkipGroup(b, int32(t>>proto2TagTypeBits), depth)
+	case proto2WireFixed32:
+		if len(b) >= proto2Fixed32Size {
+			return proto2Fixed32Size, nil
+		}
+	}
+	return 0, errors.New(proto2ErrParse)
+}
+
+// proto2SkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func proto2SkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [proto2SkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > proto2MaxDepth {
+			return 0, errors.New(proto2ErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
+			return 0, errors.New(proto2ErrParse)
+		}
+		n += k
+		switch t & proto2TagTypeMask {
+		case proto2WireStartGroup:
+			open = append(open, int32(t>>proto2TagTypeBits))
+		case proto2WireEndGroup:
+			if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
+				return 0, errors.New(proto2ErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := proto2SkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// proto2Appended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func proto2Appended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// proto2SortedKeys appends the keys of m to keys, which should be empty, and
+// sorts them. The caller allocates keys, so that it can stay on the stack.
+func proto2SortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// proto2WriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func proto2WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// proto2AppendEnum appends enum value v as its name in names, or as a number
+// if it has none.
+func proto2AppendEnum(b []byte, v int32, names map[int32]string) []byte {
+	if s, ok := names[v]; ok {
+		b = append(b, '"')
+		b = append(b, s...)
+		return append(b, '"')
+	}
+	return strconv.AppendInt(b, int64(v), 10)
+}
+
+// proto2EndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func proto2EndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return proto2JSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// proto2StrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func proto2StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// proto2OpenJSON reads the first token of the value of message name, which
+// must be of the given kind. It reports false if the value is null, which
+// leaves the message unchanged, or on error.
+func proto2OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return false, d.SkipValue()
+	}
+	err := proto2ExpectJSON(d, kind, name, what)
+	return err == nil, err
+}
+
+// proto2ExpectJSON reads a token of the given kind, a JSON what, in message name.
+func proto2ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != kind {
+		return proto2JSONError(name, "expected a JSON "+what)
+	}
+	return nil
+}
+
+// proto2EnumClass returns the parse class and bit size for an enum value of
+// the given token kind: nothing to parse for null, a number, or a name,
+// which stays in the token until it is looked up.
+func proto2EnumClass(k jsontext.Kind) (int, int) {
+	switch k {
+	case jsontext.KindNull:
+		return proto2ClassNone, 0
+	case jsontext.KindString:
+		return proto2ClassEnum, 0
+	}
+	return proto2ClassSigned, 32
+}
+
+// proto2ParseInt parses tok, a number or a quoted number, as a signed integer
+// of the given bit size, for a field of message name.
+func proto2ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
+	s, err := proto2JSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseInt(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := proto2ExactInt(s)
+	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+		return 0, proto2JSONError(name, proto2ErrInvalidInteger+s)
+	}
+	return n.Int64(), nil
+}
+
+// proto2ParseUint parses tok, a number or a quoted number, as an unsigned
+// integer of the given bit size, for a field of message name.
+func proto2ParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
+	s, err := proto2JSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseUint(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := proto2ExactInt(s)
+	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+		return 0, proto2JSONError(name, proto2ErrInvalidInteger+s)
+	}
+	return n.Uint64(), nil
+}
+
+// proto2ExactInt returns the integer that JSON number s denotes exactly, in an
+// exponent or fraction form, or nil. The exponent is bounded so that exact
+// arithmetic stays cheap.
+func proto2ExactInt(s string) *big.Int {
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
+			return nil
+		}
+	}
+	r, ok := new(big.Rat).SetString(s)
+	if !ok || !r.IsInt() {
+		return nil
+	}
+	return r.Num()
+}
+
+// proto2ParseFloat parses tok, a number, a quoted number, or "NaN", "Infinity"
+// or "-Infinity", as a float of the given bit size, for a field of
+// message name.
+func proto2ParseFloat(tok jsontext.Token, bits int, name string) (float64, error) {
+	if tok.Kind() == jsontext.KindString {
+		switch tok.String() {
+		case "NaN":
+			return math.NaN(), nil
+		case "Infinity":
+			return math.Inf(1), nil
+		case "-Infinity":
+			return math.Inf(-1), nil
+		}
+	}
+	s, err := proto2JSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	v, err := strconv.ParseFloat(s, bits)
+	if err != nil {
+		return 0, proto2JSONError(name, proto2ErrInvalidNumber+s)
+	}
+	return v, nil
+}
+
+// proto2JSONNumber returns the text of tok, which must be a number or a string
+// holding a JSON number, for a field of message name.
+func proto2JSONNumber(tok jsontext.Token, name string) (string, error) {
+	s := tok.String()
+	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+		return "", proto2JSONError(name, proto2ErrInvalidNumber+s)
+	}
+	return s, nil
+}
+
+// proto2ParseBool parses tok as a boolean for a field of message name.
+func proto2ParseBool(tok jsontext.Token, name string) (bool, error) {
+	switch tok.Kind() {
+	case jsontext.KindTrue:
+		return true, nil
+	case jsontext.KindFalse:
+		return false, nil
+	}
+	return false, proto2JSONError(name, "invalid boolean "+tok.String())
+}
+
+// proto2ParseString parses tok as a string for a field of message name.
+func proto2ParseString(tok jsontext.Token, name string) (string, error) {
+	if tok.Kind() != jsontext.KindString {
+		return "", proto2JSONError(name, "invalid string "+tok.String())
+	}
+	return tok.String(), nil
+}
+
+// proto2ParseBytes parses tok as base64 bytes for a field of message name,
+// accepting standard and URL-safe alphabets, with or without padding.
+func proto2ParseBytes(tok jsontext.Token, name string) ([]byte, error) {
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
+		enc := base64.StdEncoding
+		if strings.ContainsAny(s, "-_") {
+			enc = base64.URLEncoding
+		}
+		if len(s)%proto2Base64Quantum != 0 {
+			enc = enc.WithPadding(base64.NoPadding)
+		}
+		if by, err := enc.DecodeString(s); err == nil {
+			return by, nil
+		}
+	}
+	return nil, proto2JSONError(name, "invalid bytes "+s)
+}
+
+// proto2ParseEnum converts an enum value read with the given class, a name in
+// tok or a number in iv, to E. values maps names to numbers.
+func proto2ParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
+	switch class {
+	case proto2ClassEnum:
+		s := tok.String()
+		n, ok := values[s]
+		if !ok {
+			return 0, proto2JSONError(name, "invalid value for enum "+enum+": "+strconv.Quote(s))
+		}
+		return E(n), nil
+	case proto2ClassSigned:
+		return E(iv), nil
+	}
+	return 0, nil
+}
+
+// proto2JSONError returns an error about the ProtoJSON value of message name.
+func proto2JSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

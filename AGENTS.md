@@ -25,7 +25,7 @@ ignored.
 | `cmd/cotorp` | CLI: flags, input resolution, writing output files. |
 | `internal/parser` | Lexer, recursive-descent parser and AST for proto2, proto3 and editions. |
 | `internal/desc` | Linker: symbol tables, protoc-style name resolution, lowering of every syntax to per-field editions features, and validation. |
-| `internal/gengo` | Go generator. `gengo.go` handles naming, packages and imports; `message.go` handles types and getters; `methods.go` handles binary size, marshal, unmarshal and required checks; `json.go` handles ProtoJSON, including the well-known types; `kinds.go` holds per-kind snippets; `consts.go` holds the file-level constants. |
+| `internal/gengo` | Go generator. `gengo.go` handles naming, packages and imports; `message.go` handles types and getters; `methods.go` handles binary size, marshal, unmarshal and required checks; `json.go` handles ProtoJSON, including the well-known types; `kinds.go` holds per-kind snippets; `consts.go` holds the file-level constants; `helpers.go` holds the per-file helper functions. |
 | `internal/compiler` | Loads files from `-I` paths plus the bundled includes, and links imports in dependency order. |
 | `internal/wkt` | Embedded `google/protobuf/*.proto` files, copied unmodified from protoc 36.1. Do not edit them; they are under Google's license (`internal/wkt/LICENSE`). |
 | `internal/testprotos` | Test `.proto` sources (`proto/`), the committed generated packages, and the compatibility, fuzz and staleness tests. |
@@ -48,13 +48,27 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **After any change to `internal/gengo` or `internal/desc`, run
   `go generate ./internal/testprotos` and commit the regenerated `*.pb.go`
   files.** `TestGeneratedUpToDate` fails if they are stale.
-- **Generated code must be self-contained.** Every file declares types,
-  constants, vars and methods only, never package-level functions.
-  `TestSelfContained` enforces this. All wire logic is inlined into methods;
-  methods may call the standard library and the methods of other generated
-  messages (`ProtoSize`, `ProtoMarshalToSizedBuffer`, `ProtoMergeDepth`,
-  `ProtoCheckInitialized`, `ProtoAppendJSON`, `ProtoMergeJSONFrom`) and the
-  exported enum tables (`IsValid`, `E_name`, `E_value`).
+- **Generated code must be self-contained.** A file never depends on another
+  file's code other than the exported API of generated messages
+  (`ProtoSize`, `ProtoMarshalToSizedBuffer`, `ProtoMergeDepth`,
+  `ProtoCheckInitialized`, `ProtoAppendJSON`, `ProtoMergeJSONFrom`) and
+  enums (`IsValid`, `E_name`, `E_value`).
+  - Code that would repeat in every message goes in an unexported helper
+    function, declared from `helperDefs` in `helpers.go` and named
+    `fg.fn("Name")` (the file prefix plus the suffix). A file declares only
+    the helpers it uses. `TestSelfContained` rejects package-level functions
+    without the file's prefix.
+  - **Helpers never take a message.** Calling methods through an interface
+    or a type parameter makes the message escape to the heap, so
+    `var m M; m.UnmarshalBinary(b)` would allocate. The method calls its own
+    methods and passes the results (`Appended`, `WriteJSON`, `EndJSON`).
+    Check with `go build -gcflags=-m`.
+  - Keep hot-path helpers inlinable (`PutVarint` is) or measure them
+    (`ReadBytes` is not inlinable and costs about 1% of binary decoding). A
+    slice or string a helper returns is heap-allocated, where the same code
+    inline may use the stack: `SortedKeys` takes a slice the caller makes,
+    and enum names are looked up from the token in `ParseEnum` rather than
+    returned by `ParseString`.
 - **Stdlib imports are tracked.** Reference a stdlib package only through
   `fg.std("import/path")`, which records the import and returns the package
   name. Writing `binary.` or `math.` directly into generated code leads to a
@@ -68,8 +82,10 @@ proves little. CI installs protoc 36.1 and fails if it is missing
     `fg.errConcat(hint, msg, parts...)`. A message used more than once in a
     file becomes a constant named by `hint` (`"ErrParse"`, or
     `fg.owner(fullName)+"ErrX"` for per-message text); otherwise it stays an
-    inline literal.
-  - Constant names are the file's prefix (the lowerCamel `.proto` base
+    inline literal. Inside helpers, JSON errors about a message are built
+    with `fg.jsonErrorf`, which calls the `JSONError` helper with the
+    message name passed in.
+  - Constant and helper names are the file's prefix (the lowerCamel `.proto` base
     name) plus a suffix, because several files may share a Go package.
     Names are deduplicated against the package within one run.
 - **No bare `{ }` blocks.** Emitted snippets must not need their own scope;
@@ -78,11 +94,13 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   to `localNames` in `gengo.go`, so that import aliases cannot shadow it.
 - **`ProtoMergeDepth` switches on the whole tag.** Each field contributes
   `case num<<TagTypeBits | WireX:` cases (two for packable repeated fields);
-  the `default` case splits the tag into `num` and `typ` and skips or keeps
-  the unknown field. Map entries decode with the same pattern.
+  the `default` case measures the unknown field with the `SkipField` helper
+  and keeps it. Map entries decode with the same pattern.
 - **`goto` rules in `ProtoMergeDepth`:**
   - Decode failures `goto errParse` and depth failures `goto errDepth`; both
-    labels sit at the end of the function.
+    labels sit at the end of the function. Helpers cannot jump to them, so
+    they report failure with a negative length (`ReadBytes`) or return the
+    error (`SkipField`, `SkipGroup`).
   - Declare no variables at the top level of the function body between the
     first `goto` and the labels. Declare them inside the `for` loop or other
     blocks, or the jump will not compile.
@@ -90,8 +108,8 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **`ProtoMarshalToSizedBuffer` writes back to front.** Fields are emitted in
   descending field-number order so that the output ends up ascending.
   - Unknown fields are copied first, so they end up last.
-  - `fg.encVarint` uses the scratch variable `u`; the declaration is emitted
-    only when `fg.usesU` is set during `fg.capture`.
+  - Varints and tags are written with `fg.encVarint`, which calls the
+    `PutVarint` helper.
 - **Wire output must stay byte-identical to protoc** for messages without
   maps. Map entries are sorted by key.
 - **Generated code must build at Go 1.27**, the `go.mod` version. It uses
@@ -105,11 +123,13 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   `fg.usesErr` is set.
 - **JSON unmarshal streams from one decoder.** `ProtoMergeJSONFrom` reads
   one value per loop iteration (a field's value, or an element of the
-  repeated or map field named by `in`), parses scalars with one shared block
-  per class, then assigns. Nested messages call `ProtoMergeJSONFrom` on the
+  repeated or map field named by `in`), parses scalars with one `Parse*`
+  helper call per class, then assigns. Nested messages call `ProtoMergeJSONFrom` on the
   same decoder.
   - A `jsontext.Token` is invalid after the next read or peek, so convert it
-    (for example with `tok.String()`) before using the decoder again.
+    (for example with `tok.String()`) before using the decoder again. An
+    enum name stays in `tok` until `ParseEnum` looks it up, which happens
+    before the next read.
   - Declare scratch variables such as `iv`, `sv` and `bits` only when a class
     that reads them is in use, or the unused-variable check fails.
   - Build error messages with dynamic parts using `fg.errConcat`.

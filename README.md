@@ -5,9 +5,11 @@
 unmarshaling. The generated code imports **only the Go standard
 library** (plus other cotorp-generated packages it references). There is no
 runtime module, no shared helper file, no reflection, and no dependency on
-`google.golang.org/protobuf`. All wire-format logic is inlined into each
-message's methods, which call only standard library functions (such as
-`binary.Uvarint` and `bits.Len64`) and the methods of other messages.
+`google.golang.org/protobuf`. Wire-format logic is generated into each
+message's methods, plus a few small unexported helper functions per file
+(writing varints, skipping unknown fields, parsing JSON scalars). These call
+only standard library functions (such as `binary.Uvarint` and `bits.Len64`)
+and the methods of other messages.
 
 The compiler itself is also stdlib-only and has its own `.proto` parser, so
 `protoc` is not needed to generate code.
@@ -48,7 +50,7 @@ Each `.proto` file produces exactly one self-contained `.pb.go` file, so a Go
 package can be generated across several invocations. The exception is two
 `.proto` files with the same base name (for example `a/types.proto` and
 `b/types.proto`) in one Go package: generate them in the same invocation, so
-that their file-level constants get distinct names. Generated code requires
+that their file-level constants and helper functions get distinct names. Generated code requires
 Go 1.27 or later.
 
 ## Generated API

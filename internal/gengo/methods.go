@@ -10,9 +10,10 @@ import (
 	"github.com/canonical/cotorp/internal/desc"
 )
 
-// This file generates the wire-format methods. All encoding and decoding
-// logic is emitted inline; the only calls are to the standard library and
-// to the corresponding methods of other generated messages.
+// This file generates the wire-format methods. Encoding and decoding logic
+// is emitted inline, except for code shared by every message (writing
+// varints, reading length-delimited values and skipping unknown fields),
+// which calls the file's helper functions (see helpers.go).
 
 // --- Size -----------------------------------------------------------------
 
@@ -134,20 +135,12 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 		fg.P("}")
 	}
 	fg.P("size := m.ProtoSize()")
-	fg.P("l := len(b)")
-	fg.P("b = ", fg.std("slices"), ".Grow(b, size)[:l+size]")
-	fg.P("n, err := m.ProtoMarshalToSizedBuffer(b[l:])")
-	fg.P("if err != nil {")
-	fg.P("return b[:l], err")
-	fg.P("}")
-	fg.P("if n != size {")
-	fg.P("return b[:l], ", fg.errExpr("ErrSizeChanged", errSizeMsg))
-	fg.P("}")
-	fg.P("return b, nil")
+	fg.P("b = ", fg.std("slices"), ".Grow(b, size)")
+	fg.P("n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])")
+	fg.P("return ", fg.fn("Appended"), "(b, size, n, err)")
 	fg.P("}")
 	fg.P()
 
-	fg.usesU = false
 	body := fg.capture(func() {
 		for _, fi := range slices.Backward(mi.byNum) {
 			if fi.oneof != nil {
@@ -167,9 +160,6 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 	fg.P("return 0, nil")
 	fg.P("}")
 	fg.P("i := len(b)")
-	if fg.usesU {
-		fg.P("var u uint64")
-	}
 	fg.P("if len(m.unknownFields) > 0 {")
 	fg.P("i -= len(m.unknownFields)")
 	fg.P("copy(b[i:], m.unknownFields)")
@@ -183,14 +173,7 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 // writeTag emits code writing the tag of field f with wire type wt
 // backwards at b[:i].
 func (fg *fileGen) writeTag(f *desc.Field, wt int) {
-	tag := fg.tagExpr(fg.fieldNum(f), wt)
-	if n := tagSize(f.Number, wt); n > 1 {
-		fg.P("i -= ", n)
-		fg.P(fg.std("encoding/binary"), ".PutUvarint(b[i:], ", tag, ")")
-		return
-	}
-	fg.P("i--")
-	fg.P("b[i] = ", tag)
+	fg.encVarint(fg.tagExpr(fg.fieldNum(f), wt))
 }
 
 // marshalSingular emits code writing present value v (with tag) of field f.
@@ -244,12 +227,7 @@ func (fg *fileGen) marshalField(fi *fieldInfo) {
 			entry()
 			fg.P("}")
 		} else {
-			fg.P("keys := make([]", fg.scalarGoType(f.MapKey), ", 0, len(", fv, "))")
-			fg.P("for k := range ", fv, " {")
-			fg.P("keys = append(keys, k)")
-			fg.P("}")
-			fg.P(fg.std("slices"), ".Sort(keys)")
-			fg.P("for _, k := range ", fg.std("slices"), ".Backward(keys) {")
+			fg.P("for _, k := range ", fg.std("slices"), ".Backward(", fg.fn("SortedKeys"), "(", fv, ", make([]", fg.scalarGoType(f.MapKey), ", 0, len(", fv, ")))) {")
 			fg.P("v := ", fv, "[k]")
 			entry()
 			fg.P("}")
@@ -326,8 +304,10 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 		fg.P("default:")
 	}
 	fg.P("// Unknown field, or a known field with an unexpected wire type.")
-	fg.splitTag()
-	fg.emitSkip("b")
+	fg.P("n, err := ", fg.fn("SkipField"), "(b, t, depth)")
+	fg.P("if err != nil {")
+	fg.P("return err")
+	fg.P("}")
 	fg.P("m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)")
 	fg.P("b = b[n:]")
 	if len(mi.byNum) > 0 {
@@ -341,12 +321,6 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 	fg.P("return ", fg.errExpr("ErrDepth", errDepthMsg))
 	fg.P("}")
 	fg.P()
-}
-
-// splitTag emits code splitting tag t into the variables num and typ used
-// by emitSkip.
-func (fg *fileGen) splitTag() {
-	fg.P("num, typ := int32(t>>", fg.c("TagTypeBits"), "), t&", fg.c("TagTypeMask"))
 }
 
 // appendUnknownVarint emits code preserving raw varint x of field f as an
@@ -395,8 +369,10 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 		}
 		if f.Delimited {
 			fg.P("case ", fg.tagExpr(num, wireStartGroup), ":")
-			fg.P("var n int")
-			fg.emitSkipGroup("b", num)
+			fg.P("n, err := ", fg.fn("SkipGroup"), "(b, ", num, ", depth)")
+			fg.P("if err != nil {")
+			fg.P("return err")
+			fg.P("}")
 			target()
 			fg.P("if err := mv.ProtoMergeDepth(b[:n-", tagSize(f.Number, wireEndGroup), "], depth+1); err != nil {")
 			fg.P("return err")
@@ -501,8 +477,10 @@ func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 	}
 	fg.P("v = v[n:]")
 	fg.P("default:")
-	fg.splitTag()
-	fg.emitSkip("v")
+	fg.P("n, err := ", fg.fn("SkipField"), "(v, t, depth)")
+	fg.P("if err != nil {")
+	fg.P("return err")
+	fg.P("}")
 	fg.P("v = v[n:]")
 	fg.P("}")
 	fg.P("}")

@@ -5,6 +5,7 @@ package wktpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -56,7 +57,6 @@ const (
 
 // Error messages used more than once.
 const (
-	structErrSizeChanged              = "proto: message size changed during marshal"
 	structStructFieldsEntryKeyErrUTF8 = "proto: field google.protobuf.Struct.FieldsEntry.key contains invalid UTF-8"
 	structErrParse                    = "proto: cannot parse invalid wire-format data"
 	structErrDepth                    = "proto: exceeded maximum recursion depth"
@@ -171,16 +171,9 @@ func (m *Struct) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Struct) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(structErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return structAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -191,18 +184,12 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if len(m.Fields) > 0 {
-		keys := make([]string, 0, len(m.Fields))
-		for k := range m.Fields {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(structSortedKeys(m.Fields, make([]string, 0, len(m.Fields)))) {
 			v := m.Fields[k]
 			start := i
 			n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -210,41 +197,17 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 				return 0, err
 			}
 			i -= n
-			u = uint64(n)
-			if u < structVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = structMapValueField<<structTagTypeBits | structWireBytes
+			i = structPutVarint(b, i, uint64(n))
+			i = structPutVarint(b, i, structMapValueField<<structTagTypeBits|structWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(structStructFieldsEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
-			u = uint64(len(k))
-			if u < structVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = structMapKeyField<<structTagTypeBits | structWireBytes
-			u = uint64(start - i)
-			if u < structVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 1<<structTagTypeBits | structWireBytes
+			i = structPutVarint(b, i, uint64(len(k)))
+			i = structPutVarint(b, i, structMapKeyField<<structTagTypeBits|structWireBytes)
+			i = structPutVarint(b, i, uint64(start-i))
+			i = structPutVarint(b, i, 1<<structTagTypeBits|structWireBytes)
 		}
 	}
 	return len(b) - i, nil
@@ -277,12 +240,10 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<structTagTypeBits | structWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := structReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk string
 			var mv *Value
 			for len(v) > 0 {
@@ -293,24 +254,20 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 				v = v[n:]
 				switch t {
 				case structMapKeyField<<structTagTypeBits | structWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := structReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if !utf8.Valid(x) {
 						return errors.New(structStructFieldsEntryKeyErrUTF8)
 					}
 					mk = string(x)
 					v = v[n:]
 				case structMapValueField<<structTagTypeBits | structWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := structReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if mv == nil {
 						mv = &Value{}
 					}
@@ -319,77 +276,9 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 					}
 					v = v[n:]
 				default:
-					num, typ := int32(t>>structTagTypeBits), t&structTagTypeMask
-					switch typ {
-					case structWireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case structWireFixed64:
-						if len(v) < structFixed64Size {
-							goto errParse
-						}
-						n = structFixed64Size
-					case structWireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case structWireStartGroup:
-						var stk [structSkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > structMaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & structTagTypeMask {
-							case structWireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case structWireFixed64:
-								k = structFixed64Size
-							case structWireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case structWireStartGroup:
-								open = append(open, int32(t>>structTagTypeBits))
-								k = 0
-							case structWireEndGroup:
-								if open[len(open)-1] != int32(t>>structTagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case structWireFixed32:
-								k = structFixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case structWireFixed32:
-						if len(v) < structFixed32Size {
-							goto errParse
-						}
-						n = structFixed32Size
-					default:
-						goto errParse
+					n, err := structSkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -404,77 +293,9 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>structTagTypeBits), t&structTagTypeMask
-			switch typ {
-			case structWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case structWireFixed64:
-				if len(b) < structFixed64Size {
-					goto errParse
-				}
-				n = structFixed64Size
-			case structWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case structWireStartGroup:
-				var stk [structSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > structMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & structTagTypeMask {
-					case structWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case structWireFixed64:
-						k = structFixed64Size
-					case structWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case structWireStartGroup:
-						open = append(open, int32(t>>structTagTypeBits))
-						k = 0
-					case structWireEndGroup:
-						if open[len(open)-1] != int32(t>>structTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case structWireFixed32:
-						k = structFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case structWireFixed32:
-				if len(b) < structFixed32Size {
-					goto errParse
-				}
-				n = structFixed32Size
-			default:
-				goto errParse
+			n, err := structSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -502,10 +323,7 @@ func (m *Struct) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Struct) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return structWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -514,12 +332,7 @@ func (m *Struct) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
 	b = append(b, '{')
 	if m != nil {
-		keys := make([]string, 0, len(m.Fields))
-		for k := range m.Fields {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range structSortedKeys(m.Fields, make([]string, 0, len(m.Fields))) {
 			v := m.Fields[k]
 			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: google.protobuf.Struct.fields contains invalid UTF-8")
@@ -550,26 +363,15 @@ func (m *Struct) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Struct) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Struct: unexpected data after JSON value")
-	}
-	return nil
+	return structEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Struct")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Struct) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := structStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Struct{}
 	return m.ProtoMergeJSONFrom(d)
@@ -579,16 +381,9 @@ func (m *Struct) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Struct) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := structOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.Struct", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.Struct: expected a JSON object")
 	}
 	for d.PeekKind() != jsontext.KindEndObject {
 		kt, err := d.ReadToken()
@@ -775,16 +570,9 @@ func (m *Value) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Value) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(structErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return structAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -795,7 +583,6 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -806,16 +593,8 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < structVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<structTagTypeBits | structWireBytes
+		i = structPutVarint(b, i, uint64(n))
+		i = structPutVarint(b, i, 6<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_StructValue); ok {
 		n, err := o.StructValue.ProtoMarshalToSizedBuffer(b[:i])
@@ -823,16 +602,8 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < structVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<structTagTypeBits | structWireBytes
+		i = structPutVarint(b, i, uint64(n))
+		i = structPutVarint(b, i, 5<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_BoolValue); ok {
 		i--
@@ -841,8 +612,7 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 4<<structTagTypeBits | structWireVarint
+		i = structPutVarint(b, i, 4<<structTagTypeBits|structWireVarint)
 	}
 	if o, ok := m.Kind.(*Value_StringValue); ok {
 		if !utf8.ValidString(o.StringValue) {
@@ -850,34 +620,17 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(o.StringValue)
 		copy(b[i:], o.StringValue)
-		u = uint64(len(o.StringValue))
-		if u < structVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<structTagTypeBits | structWireBytes
+		i = structPutVarint(b, i, uint64(len(o.StringValue)))
+		i = structPutVarint(b, i, 3<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_NumberValue); ok {
 		i -= structFixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits(o.NumberValue))
-		i--
-		b[i] = 2<<structTagTypeBits | structWireFixed64
+		i = structPutVarint(b, i, 2<<structTagTypeBits|structWireFixed64)
 	}
 	if o, ok := m.Kind.(*Value_NullValue); ok {
-		u = uint64(int64(o.NullValue))
-		if u < structVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<structTagTypeBits | structWireVarint
+		i = structPutVarint(b, i, uint64(int64(o.NullValue)))
+		i = structPutVarint(b, i, 1<<structTagTypeBits|structWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -923,12 +676,10 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.Kind = &Value_NumberValue{NumberValue: math.Float64frombits(x)}
 		case 3<<structTagTypeBits | structWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := structReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			if !utf8.Valid(x) {
 				return errors.New(structValueStringValueErrUTF8)
 			}
@@ -942,12 +693,10 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.Kind = &Value_BoolValue{BoolValue: x != 0}
 		case 5<<structTagTypeBits | structWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := structReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mv *Struct
 			if o, ok := m.Kind.(*Value_StructValue); ok && o.StructValue != nil {
 				mv = o.StructValue
@@ -960,12 +709,10 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 6<<structTagTypeBits | structWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := structReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mv *ListValue
 			if o, ok := m.Kind.(*Value_ListValue); ok && o.ListValue != nil {
 				mv = o.ListValue
@@ -979,77 +726,9 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>structTagTypeBits), t&structTagTypeMask
-			switch typ {
-			case structWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case structWireFixed64:
-				if len(b) < structFixed64Size {
-					goto errParse
-				}
-				n = structFixed64Size
-			case structWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case structWireStartGroup:
-				var stk [structSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > structMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & structTagTypeMask {
-					case structWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case structWireFixed64:
-						k = structFixed64Size
-					case structWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case structWireStartGroup:
-						open = append(open, int32(t>>structTagTypeBits))
-						k = 0
-					case structWireEndGroup:
-						if open[len(open)-1] != int32(t>>structTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case structWireFixed32:
-						k = structFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case structWireFixed32:
-				if len(b) < structFixed32Size {
-					goto errParse
-				}
-				n = structFixed32Size
-			default:
-				goto errParse
+			n, err := structSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1077,10 +756,7 @@ func (m *Value) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Value) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return structWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1133,26 +809,15 @@ func (m *Value) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Value) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Value: unexpected data after JSON value")
-	}
-	return nil
+	return structEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Value")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := structStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Value{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1260,16 +925,9 @@ func (m *ListValue) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ListValue) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(structErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return structAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1280,7 +938,6 @@ func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -1291,16 +948,8 @@ func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < structVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<structTagTypeBits | structWireBytes
+		i = structPutVarint(b, i, uint64(n))
+		i = structPutVarint(b, i, 1<<structTagTypeBits|structWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -1332,12 +981,10 @@ func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<structTagTypeBits | structWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := structReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &Value{}
 			m.Values = append(m.Values, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -1346,77 +993,9 @@ func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>structTagTypeBits), t&structTagTypeMask
-			switch typ {
-			case structWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case structWireFixed64:
-				if len(b) < structFixed64Size {
-					goto errParse
-				}
-				n = structFixed64Size
-			case structWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case structWireStartGroup:
-				var stk [structSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > structMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & structTagTypeMask {
-					case structWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case structWireFixed64:
-						k = structFixed64Size
-					case structWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case structWireStartGroup:
-						open = append(open, int32(t>>structTagTypeBits))
-						k = 0
-					case structWireEndGroup:
-						if open[len(open)-1] != int32(t>>structTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case structWireFixed32:
-						k = structFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case structWireFixed32:
-				if len(b) < structFixed32Size {
-					goto errParse
-				}
-				n = structFixed32Size
-			default:
-				goto errParse
+			n, err := structSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1444,10 +1023,7 @@ func (m *ListValue) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *ListValue) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return structWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1482,26 +1058,15 @@ func (m *ListValue) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ListValue) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ListValue: unexpected data after JSON value")
-	}
-	return nil
+	return structEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.ListValue")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ListValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := structStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ListValue{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1511,16 +1076,9 @@ func (m *ListValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ListValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := structOpenJSON(d, jsontext.KindBeginArray, "google.protobuf.ListValue", "array")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginArray {
-		return errors.New("proto: google.protobuf.ListValue: expected a JSON array")
 	}
 	for d.PeekKind() != jsontext.KindEndArray {
 		mv := &Value{}
@@ -1531,4 +1089,172 @@ func (m *ListValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	_, err = d.ReadToken()
 	return err
+}
+
+// structPutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func structPutVarint(b []byte, i int, u uint64) int {
+	if u < structVarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// structReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func structReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// structSkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func structSkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & structTagTypeMask {
+	case structWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case structWireFixed64:
+		if len(b) >= structFixed64Size {
+			return structFixed64Size, nil
+		}
+	case structWireBytes:
+		if _, n := structReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case structWireStartGroup:
+		return structSkipGroup(b, int32(t>>structTagTypeBits), depth)
+	case structWireFixed32:
+		if len(b) >= structFixed32Size {
+			return structFixed32Size, nil
+		}
+	}
+	return 0, errors.New(structErrParse)
+}
+
+// structSkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func structSkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [structSkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > structMaxDepth {
+			return 0, errors.New(structErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
+			return 0, errors.New(structErrParse)
+		}
+		n += k
+		switch t & structTagTypeMask {
+		case structWireStartGroup:
+			open = append(open, int32(t>>structTagTypeBits))
+		case structWireEndGroup:
+			if open[len(open)-1] != int32(t>>structTagTypeBits) {
+				return 0, errors.New(structErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := structSkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// structAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func structAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// structSortedKeys appends the keys of m to keys, which should be empty, and
+// sorts them. The caller allocates keys, so that it can stay on the stack.
+func structSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// structWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func structWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// structEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func structEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return structJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// structStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func structStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// structOpenJSON reads the first token of the value of message name, which
+// must be of the given kind. It reports false if the value is null, which
+// leaves the message unchanged, or on error.
+func structOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return false, d.SkipValue()
+	}
+	err := structExpectJSON(d, kind, name, what)
+	return err == nil, err
+}
+
+// structExpectJSON reads a token of the given kind, a JSON what, in message name.
+func structExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != kind {
+		return structJSONError(name, "expected a JSON "+what)
+	}
+	return nil
+}
+
+// structJSONError returns an error about the ProtoJSON value of message name.
+func structJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

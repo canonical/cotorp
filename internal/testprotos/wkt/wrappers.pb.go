@@ -69,17 +69,11 @@ const (
 
 // Error messages used more than once.
 const (
-	wrappersErrSizeChanged               = "proto: message size changed during marshal"
-	wrappersErrParse                     = "proto: cannot parse invalid wire-format data"
-	wrappersErrDepth                     = "proto: exceeded maximum recursion depth"
-	wrappersDoubleValueErrInvalidNumber  = "proto: google.protobuf.DoubleValue: invalid number "
-	wrappersFloatValueErrInvalidNumber   = "proto: google.protobuf.FloatValue: invalid number "
-	wrappersInt64ValueErrInvalidInteger  = "proto: google.protobuf.Int64Value: invalid integer "
-	wrappersUInt64ValueErrInvalidInteger = "proto: google.protobuf.UInt64Value: invalid integer "
-	wrappersInt32ValueErrInvalidInteger  = "proto: google.protobuf.Int32Value: invalid integer "
-	wrappersUInt32ValueErrInvalidInteger = "proto: google.protobuf.UInt32Value: invalid integer "
-	wrappersStringValueValueErrUTF8      = "proto: field google.protobuf.StringValue.value contains invalid UTF-8"
-	wrappersBytesValueErrInvalidBytes    = "proto: google.protobuf.BytesValue: invalid bytes "
+	wrappersErrParse                = "proto: cannot parse invalid wire-format data"
+	wrappersErrDepth                = "proto: exceeded maximum recursion depth"
+	wrappersStringValueValueErrUTF8 = "proto: field google.protobuf.StringValue.value contains invalid UTF-8"
+	wrappersErrInvalidInteger       = "invalid integer "
+	wrappersErrInvalidNumber        = "invalid number "
 )
 
 // Wrapper message for `double`.
@@ -134,16 +128,9 @@ func (m *DoubleValue) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *DoubleValue) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -161,8 +148,7 @@ func (m *DoubleValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if math.Float64bits(m.Value) != 0 {
 		i -= wrappersFixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits(m.Value))
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireFixed64
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireFixed64)
 	}
 	return len(b) - i, nil
 }
@@ -202,77 +188,9 @@ func (m *DoubleValue) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = math.Float64frombits(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -300,10 +218,7 @@ func (m *DoubleValue) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *DoubleValue) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -336,26 +251,15 @@ func (m *DoubleValue) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *DoubleValue) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DoubleValue: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.DoubleValue")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *DoubleValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = DoubleValue{}
 	return m.ProtoMergeJSONFrom(d)
@@ -378,27 +282,10 @@ func (m *DoubleValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassFloat:
-		s := tok.String()
-		special := false
-		if tok.Kind() == jsontext.KindString {
-			switch s {
-			case "NaN":
-				fv, special = math.NaN(), true
-			case "Infinity":
-				fv, special = math.Inf(1), true
-			case "-Infinity":
-				fv, special = math.Inf(-1), true
-			}
-		}
-		if !special {
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New(wrappersDoubleValueErrInvalidNumber + s)
-			}
-			var err error
-			if fv, err = strconv.ParseFloat(s, bits); err != nil {
-				return errors.New(wrappersDoubleValueErrInvalidNumber + s)
-			}
-		}
+		fv, err = wrappersParseFloat(tok, bits, "google.protobuf.DoubleValue")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = fv
 	return nil
@@ -456,16 +343,9 @@ func (m *FloatValue) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FloatValue) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -483,8 +363,7 @@ func (m *FloatValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if math.Float32bits(m.Value) != 0 {
 		i -= wrappersFixed32Size
 		binary.LittleEndian.PutUint32(b[i:], math.Float32bits(m.Value))
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireFixed32
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireFixed32)
 	}
 	return len(b) - i, nil
 }
@@ -524,77 +403,9 @@ func (m *FloatValue) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = math.Float32frombits(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -622,10 +433,7 @@ func (m *FloatValue) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FloatValue) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -658,26 +466,15 @@ func (m *FloatValue) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FloatValue) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FloatValue: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FloatValue")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FloatValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FloatValue{}
 	return m.ProtoMergeJSONFrom(d)
@@ -700,27 +497,10 @@ func (m *FloatValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassFloat:
-		s := tok.String()
-		special := false
-		if tok.Kind() == jsontext.KindString {
-			switch s {
-			case "NaN":
-				fv, special = math.NaN(), true
-			case "Infinity":
-				fv, special = math.Inf(1), true
-			case "-Infinity":
-				fv, special = math.Inf(-1), true
-			}
-		}
-		if !special {
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New(wrappersFloatValueErrInvalidNumber + s)
-			}
-			var err error
-			if fv, err = strconv.ParseFloat(s, bits); err != nil {
-				return errors.New(wrappersFloatValueErrInvalidNumber + s)
-			}
-		}
+		fv, err = wrappersParseFloat(tok, bits, "google.protobuf.FloatValue")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = float32(fv)
 	return nil
@@ -778,16 +558,9 @@ func (m *Int64Value) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Int64Value) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -798,22 +571,13 @@ func (m *Int64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Value != 0 {
-		u = uint64(m.Value)
-		if u < wrappersVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
+		i = wrappersPutVarint(b, i, uint64(m.Value))
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -853,77 +617,9 @@ func (m *Int64Value) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = int64(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -951,10 +647,7 @@ func (m *Int64Value) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Int64Value) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -980,26 +673,15 @@ func (m *Int64Value) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Int64Value) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Int64Value: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Int64Value")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Int64Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Int64Value{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1022,30 +704,10 @@ func (m *Int64Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassSigned:
-		s := tok.String()
-		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-			return errors.New("proto: google.protobuf.Int64Value: invalid number " + s)
-		}
-		var err error
-		iv, err = strconv.ParseInt(s, 10, bits)
-		if err != nil {
-			// Accept exponent and fraction forms that denote an exact integer,
-			// bounding the exponent so that exact arithmetic stays cheap.
-			if i := strings.IndexAny(s, "eE"); i >= 0 {
-				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-					return errors.New(wrappersInt64ValueErrInvalidInteger + s)
-				}
-			}
-			r, ok := new(big.Rat).SetString(s)
-			if !ok || !r.IsInt() {
-				return errors.New(wrappersInt64ValueErrInvalidInteger + s)
-			}
-			n := r.Num()
-			if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-				return errors.New(wrappersInt64ValueErrInvalidInteger + s)
-			}
-			iv = n.Int64()
-		}
+		iv, err = wrappersParseInt(tok, bits, "google.protobuf.Int64Value")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = iv
 	return nil
@@ -1103,16 +765,9 @@ func (m *UInt64Value) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *UInt64Value) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1123,22 +778,13 @@ func (m *UInt64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Value != 0 {
-		u = m.Value
-		if u < wrappersVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
+		i = wrappersPutVarint(b, i, m.Value)
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -1178,77 +824,9 @@ func (m *UInt64Value) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = x
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1276,10 +854,7 @@ func (m *UInt64Value) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *UInt64Value) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1305,26 +880,15 @@ func (m *UInt64Value) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *UInt64Value) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.UInt64Value: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.UInt64Value")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *UInt64Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = UInt64Value{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1347,30 +911,10 @@ func (m *UInt64Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassUnsigned:
-		s := tok.String()
-		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-			return errors.New("proto: google.protobuf.UInt64Value: invalid number " + s)
-		}
-		var err error
-		uv, err = strconv.ParseUint(s, 10, bits)
-		if err != nil {
-			// Accept exponent and fraction forms that denote an exact integer,
-			// bounding the exponent so that exact arithmetic stays cheap.
-			if i := strings.IndexAny(s, "eE"); i >= 0 {
-				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-					return errors.New(wrappersUInt64ValueErrInvalidInteger + s)
-				}
-			}
-			r, ok := new(big.Rat).SetString(s)
-			if !ok || !r.IsInt() {
-				return errors.New(wrappersUInt64ValueErrInvalidInteger + s)
-			}
-			n := r.Num()
-			if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-				return errors.New(wrappersUInt64ValueErrInvalidInteger + s)
-			}
-			uv = n.Uint64()
-		}
+		uv, err = wrappersParseUint(tok, bits, "google.protobuf.UInt64Value")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = uv
 	return nil
@@ -1428,16 +972,9 @@ func (m *Int32Value) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Int32Value) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1448,22 +985,13 @@ func (m *Int32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Value != 0 {
-		u = uint64(int64(m.Value))
-		if u < wrappersVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
+		i = wrappersPutVarint(b, i, uint64(int64(m.Value)))
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -1503,77 +1031,9 @@ func (m *Int32Value) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = int32(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1601,10 +1061,7 @@ func (m *Int32Value) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Int32Value) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1628,26 +1085,15 @@ func (m *Int32Value) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Int32Value) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Int32Value: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Int32Value")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Int32Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Int32Value{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1670,30 +1116,10 @@ func (m *Int32Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassSigned:
-		s := tok.String()
-		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-			return errors.New("proto: google.protobuf.Int32Value: invalid number " + s)
-		}
-		var err error
-		iv, err = strconv.ParseInt(s, 10, bits)
-		if err != nil {
-			// Accept exponent and fraction forms that denote an exact integer,
-			// bounding the exponent so that exact arithmetic stays cheap.
-			if i := strings.IndexAny(s, "eE"); i >= 0 {
-				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-					return errors.New(wrappersInt32ValueErrInvalidInteger + s)
-				}
-			}
-			r, ok := new(big.Rat).SetString(s)
-			if !ok || !r.IsInt() {
-				return errors.New(wrappersInt32ValueErrInvalidInteger + s)
-			}
-			n := r.Num()
-			if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-				return errors.New(wrappersInt32ValueErrInvalidInteger + s)
-			}
-			iv = n.Int64()
-		}
+		iv, err = wrappersParseInt(tok, bits, "google.protobuf.Int32Value")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = int32(iv)
 	return nil
@@ -1751,16 +1177,9 @@ func (m *UInt32Value) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *UInt32Value) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1771,22 +1190,13 @@ func (m *UInt32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Value != 0 {
-		u = uint64(m.Value)
-		if u < wrappersVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
+		i = wrappersPutVarint(b, i, uint64(m.Value))
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -1826,77 +1236,9 @@ func (m *UInt32Value) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = uint32(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1924,10 +1266,7 @@ func (m *UInt32Value) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *UInt32Value) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1951,26 +1290,15 @@ func (m *UInt32Value) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *UInt32Value) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.UInt32Value: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.UInt32Value")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *UInt32Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = UInt32Value{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1993,30 +1321,10 @@ func (m *UInt32Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassUnsigned:
-		s := tok.String()
-		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-			return errors.New("proto: google.protobuf.UInt32Value: invalid number " + s)
-		}
-		var err error
-		uv, err = strconv.ParseUint(s, 10, bits)
-		if err != nil {
-			// Accept exponent and fraction forms that denote an exact integer,
-			// bounding the exponent so that exact arithmetic stays cheap.
-			if i := strings.IndexAny(s, "eE"); i >= 0 {
-				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-					return errors.New(wrappersUInt32ValueErrInvalidInteger + s)
-				}
-			}
-			r, ok := new(big.Rat).SetString(s)
-			if !ok || !r.IsInt() {
-				return errors.New(wrappersUInt32ValueErrInvalidInteger + s)
-			}
-			n := r.Num()
-			if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-				return errors.New(wrappersUInt32ValueErrInvalidInteger + s)
-			}
-			uv = n.Uint64()
-		}
+		uv, err = wrappersParseUint(tok, bits, "google.protobuf.UInt32Value")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = uint32(uv)
 	return nil
@@ -2074,16 +1382,9 @@ func (m *BoolValue) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *BoolValue) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -2105,8 +1406,7 @@ func (m *BoolValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireVarint
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -2146,77 +1446,9 @@ func (m *BoolValue) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = x != 0
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -2244,10 +1476,7 @@ func (m *BoolValue) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *BoolValue) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -2275,26 +1504,15 @@ func (m *BoolValue) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *BoolValue) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.BoolValue: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.BoolValue")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *BoolValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = BoolValue{}
 	return m.ProtoMergeJSONFrom(d)
@@ -2316,13 +1534,10 @@ func (m *BoolValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassBool:
-		switch tok.Kind() {
-		case jsontext.KindTrue:
-			bv = true
-		case jsontext.KindFalse:
-		default:
-			return errors.New("proto: google.protobuf.BoolValue: invalid boolean " + tok.String())
-		}
+		bv, err = wrappersParseBool(tok, "google.protobuf.BoolValue")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = bv
 	return nil
@@ -2380,16 +1595,9 @@ func (m *StringValue) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *StringValue) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -2400,7 +1608,6 @@ func (m *StringValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -2411,16 +1618,8 @@ func (m *StringValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(m.Value)
 		copy(b[i:], m.Value)
-		u = uint64(len(m.Value))
-		if u < wrappersVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireBytes
+		i = wrappersPutVarint(b, i, uint64(len(m.Value)))
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -2452,12 +1651,10 @@ func (m *StringValue) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := wrappersReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			if !utf8.Valid(x) {
 				return errors.New(wrappersStringValueValueErrUTF8)
 			}
@@ -2465,77 +1662,9 @@ func (m *StringValue) ProtoMergeDepth(b []byte, depth int) error {
 			m.Value = string(x)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -2563,10 +1692,7 @@ func (m *StringValue) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *StringValue) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -2593,26 +1719,15 @@ func (m *StringValue) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *StringValue) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.StringValue: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.StringValue")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *StringValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = StringValue{}
 	return m.ProtoMergeJSONFrom(d)
@@ -2634,10 +1749,10 @@ func (m *StringValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassString:
-		if tok.Kind() != jsontext.KindString {
-			return errors.New("proto: google.protobuf.StringValue: invalid string " + tok.String())
-		}
-		sv = tok.String()
+		sv, err = wrappersParseString(tok, "google.protobuf.StringValue")
+	}
+	if err != nil {
+		return err
 	}
 	m.Value = sv
 	return nil
@@ -2695,16 +1810,9 @@ func (m *BytesValue) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *BytesValue) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(wrappersErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return wrappersAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -2715,7 +1823,6 @@ func (m *BytesValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -2723,16 +1830,8 @@ func (m *BytesValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if len(m.Value) > 0 {
 		i -= len(m.Value)
 		copy(b[i:], m.Value)
-		u = uint64(len(m.Value))
-		if u < wrappersVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<wrappersTagTypeBits | wrappersWireBytes
+		i = wrappersPutVarint(b, i, uint64(len(m.Value)))
+		i = wrappersPutVarint(b, i, 1<<wrappersTagTypeBits|wrappersWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -2764,87 +1863,17 @@ func (m *BytesValue) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := wrappersReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.Value = append([]byte{}, x...)
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>wrappersTagTypeBits), t&wrappersTagTypeMask
-			switch typ {
-			case wrappersWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case wrappersWireFixed64:
-				if len(b) < wrappersFixed64Size {
-					goto errParse
-				}
-				n = wrappersFixed64Size
-			case wrappersWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case wrappersWireStartGroup:
-				var stk [wrappersSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > wrappersMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & wrappersTagTypeMask {
-					case wrappersWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case wrappersWireFixed64:
-						k = wrappersFixed64Size
-					case wrappersWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case wrappersWireStartGroup:
-						open = append(open, int32(t>>wrappersTagTypeBits))
-						k = 0
-					case wrappersWireEndGroup:
-						if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case wrappersWireFixed32:
-						k = wrappersFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case wrappersWireFixed32:
-				if len(b) < wrappersFixed32Size {
-					goto errParse
-				}
-				n = wrappersFixed32Size
-			default:
-				goto errParse
+			n, err := wrappersSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -2872,10 +1901,7 @@ func (m *BytesValue) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *BytesValue) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return wrappersWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -2901,26 +1927,15 @@ func (m *BytesValue) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *BytesValue) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.BytesValue: unexpected data after JSON value")
-	}
-	return nil
+	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.BytesValue")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *BytesValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := wrappersStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = BytesValue{}
 	return m.ProtoMergeJSONFrom(d)
@@ -2942,11 +1957,254 @@ func (m *BytesValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	switch class {
 	case wrappersClassBytes:
-		s := tok.String()
-		if tok.Kind() != jsontext.KindString {
-			return errors.New(wrappersBytesValueErrInvalidBytes + s)
+		by, err = wrappersParseBytes(tok, "google.protobuf.BytesValue")
+	}
+	if err != nil {
+		return err
+	}
+	m.Value = by
+	return nil
+}
+
+// wrappersPutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func wrappersPutVarint(b []byte, i int, u uint64) int {
+	if u < wrappersVarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// wrappersReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func wrappersReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// wrappersSkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func wrappersSkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & wrappersTagTypeMask {
+	case wrappersWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
 		}
-		// Accept standard and URL-safe alphabets, with or without padding.
+	case wrappersWireFixed64:
+		if len(b) >= wrappersFixed64Size {
+			return wrappersFixed64Size, nil
+		}
+	case wrappersWireBytes:
+		if _, n := wrappersReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case wrappersWireStartGroup:
+		return wrappersSkipGroup(b, int32(t>>wrappersTagTypeBits), depth)
+	case wrappersWireFixed32:
+		if len(b) >= wrappersFixed32Size {
+			return wrappersFixed32Size, nil
+		}
+	}
+	return 0, errors.New(wrappersErrParse)
+}
+
+// wrappersSkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func wrappersSkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [wrappersSkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > wrappersMaxDepth {
+			return 0, errors.New(wrappersErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
+			return 0, errors.New(wrappersErrParse)
+		}
+		n += k
+		switch t & wrappersTagTypeMask {
+		case wrappersWireStartGroup:
+			open = append(open, int32(t>>wrappersTagTypeBits))
+		case wrappersWireEndGroup:
+			if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
+				return 0, errors.New(wrappersErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := wrappersSkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// wrappersAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func wrappersAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// wrappersWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func wrappersWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// wrappersEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func wrappersEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return wrappersJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// wrappersStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func wrappersStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// wrappersParseInt parses tok, a number or a quoted number, as a signed integer
+// of the given bit size, for a field of message name.
+func wrappersParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
+	s, err := wrappersJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseInt(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := wrappersExactInt(s)
+	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+		return 0, wrappersJSONError(name, wrappersErrInvalidInteger+s)
+	}
+	return n.Int64(), nil
+}
+
+// wrappersParseUint parses tok, a number or a quoted number, as an unsigned
+// integer of the given bit size, for a field of message name.
+func wrappersParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
+	s, err := wrappersJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseUint(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := wrappersExactInt(s)
+	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+		return 0, wrappersJSONError(name, wrappersErrInvalidInteger+s)
+	}
+	return n.Uint64(), nil
+}
+
+// wrappersExactInt returns the integer that JSON number s denotes exactly, in an
+// exponent or fraction form, or nil. The exponent is bounded so that exact
+// arithmetic stays cheap.
+func wrappersExactInt(s string) *big.Int {
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+			return nil
+		}
+	}
+	r, ok := new(big.Rat).SetString(s)
+	if !ok || !r.IsInt() {
+		return nil
+	}
+	return r.Num()
+}
+
+// wrappersParseFloat parses tok, a number, a quoted number, or "NaN", "Infinity"
+// or "-Infinity", as a float of the given bit size, for a field of
+// message name.
+func wrappersParseFloat(tok jsontext.Token, bits int, name string) (float64, error) {
+	if tok.Kind() == jsontext.KindString {
+		switch tok.String() {
+		case "NaN":
+			return math.NaN(), nil
+		case "Infinity":
+			return math.Inf(1), nil
+		case "-Infinity":
+			return math.Inf(-1), nil
+		}
+	}
+	s, err := wrappersJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	v, err := strconv.ParseFloat(s, bits)
+	if err != nil {
+		return 0, wrappersJSONError(name, wrappersErrInvalidNumber+s)
+	}
+	return v, nil
+}
+
+// wrappersJSONNumber returns the text of tok, which must be a number or a string
+// holding a JSON number, for a field of message name.
+func wrappersJSONNumber(tok jsontext.Token, name string) (string, error) {
+	s := tok.String()
+	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+		return "", wrappersJSONError(name, wrappersErrInvalidNumber+s)
+	}
+	return s, nil
+}
+
+// wrappersParseBool parses tok as a boolean for a field of message name.
+func wrappersParseBool(tok jsontext.Token, name string) (bool, error) {
+	switch tok.Kind() {
+	case jsontext.KindTrue:
+		return true, nil
+	case jsontext.KindFalse:
+		return false, nil
+	}
+	return false, wrappersJSONError(name, "invalid boolean "+tok.String())
+}
+
+// wrappersParseString parses tok as a string for a field of message name.
+func wrappersParseString(tok jsontext.Token, name string) (string, error) {
+	if tok.Kind() != jsontext.KindString {
+		return "", wrappersJSONError(name, "invalid string "+tok.String())
+	}
+	return tok.String(), nil
+}
+
+// wrappersParseBytes parses tok as base64 bytes for a field of message name,
+// accepting standard and URL-safe alphabets, with or without padding.
+func wrappersParseBytes(tok jsontext.Token, name string) ([]byte, error) {
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
 		enc := base64.StdEncoding
 		if strings.ContainsAny(s, "-_") {
 			enc = base64.URLEncoding
@@ -2954,11 +2212,14 @@ func (m *BytesValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		if len(s)%wrappersBase64Quantum != 0 {
 			enc = enc.WithPadding(base64.NoPadding)
 		}
-		var err error
-		if by, err = enc.DecodeString(s); err != nil {
-			return errors.New(wrappersBytesValueErrInvalidBytes + s)
+		if by, err := enc.DecodeString(s); err == nil {
+			return by, nil
 		}
 	}
-	m.Value = by
-	return nil
+	return nil, wrappersJSONError(name, "invalid bytes "+s)
+}
+
+// wrappersJSONError returns an error about the ProtoJSON value of message name.
+func wrappersJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

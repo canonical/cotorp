@@ -43,6 +43,12 @@ const (
 	emptySkipStackSize = 16    // group nesting tracked without allocating
 )
 
+// Error messages used more than once.
+const (
+	emptyErrParse = "proto: cannot parse invalid wire-format data"
+	emptyErrDepth = "proto: exceeded maximum recursion depth"
+)
+
 // A generic empty message that you can re-use to avoid defining duplicated
 // empty messages in your APIs. A typical example is to use it as the request
 // or the response type of an API method. For instance:
@@ -83,16 +89,9 @@ func (m *Empty) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Empty) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return emptyAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -136,86 +135,18 @@ func (m *Empty) ProtoMergeDepth(b []byte, depth int) error {
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
-		num, typ := int32(t>>emptyTagTypeBits), t&emptyTagTypeMask
-		switch typ {
-		case emptyWireVarint:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-		case emptyWireFixed64:
-			if len(b) < emptyFixed64Size {
-				goto errParse
-			}
-			n = emptyFixed64Size
-		case emptyWireBytes:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case emptyWireStartGroup:
-			var stk [emptySkipStackSize]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > emptyMaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>emptyTagTypeBits == 0 || t>>emptyTagTypeBits > emptyMaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & emptyTagTypeMask {
-				case emptyWireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case emptyWireFixed64:
-					k = emptyFixed64Size
-				case emptyWireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case emptyWireStartGroup:
-					open = append(open, int32(t>>emptyTagTypeBits))
-					k = 0
-				case emptyWireEndGroup:
-					if open[len(open)-1] != int32(t>>emptyTagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case emptyWireFixed32:
-					k = emptyFixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case emptyWireFixed32:
-			if len(b) < emptyFixed32Size {
-				goto errParse
-			}
-			n = emptyFixed32Size
-		default:
-			goto errParse
+		n, err := emptySkipField(b, t, depth)
+		if err != nil {
+			return err
 		}
 		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 		b = b[n:]
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(emptyErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(emptyErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -233,10 +164,7 @@ func (m *Empty) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Empty) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return emptyWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -265,26 +193,15 @@ func (m *Empty) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Empty) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.Empty: unexpected data after JSON value")
-	}
-	return nil
+	return emptyEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Empty")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Empty) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := emptyStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Empty{}
 	return m.ProtoMergeJSONFrom(d)
@@ -294,16 +211,9 @@ func (m *Empty) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Empty) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := emptyOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.Empty", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.Empty: expected a JSON object")
 	}
 	if d.PeekKind() != jsontext.KindEndObject {
 		kt, err := d.ReadToken()
@@ -314,4 +224,150 @@ func (m *Empty) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	_, err = d.ReadToken()
 	return err
+}
+
+// emptyReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func emptyReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// emptySkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func emptySkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & emptyTagTypeMask {
+	case emptyWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case emptyWireFixed64:
+		if len(b) >= emptyFixed64Size {
+			return emptyFixed64Size, nil
+		}
+	case emptyWireBytes:
+		if _, n := emptyReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case emptyWireStartGroup:
+		return emptySkipGroup(b, int32(t>>emptyTagTypeBits), depth)
+	case emptyWireFixed32:
+		if len(b) >= emptyFixed32Size {
+			return emptyFixed32Size, nil
+		}
+	}
+	return 0, errors.New(emptyErrParse)
+}
+
+// emptySkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func emptySkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [emptySkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > emptyMaxDepth {
+			return 0, errors.New(emptyErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>emptyTagTypeBits == 0 || t>>emptyTagTypeBits > emptyMaxFieldNumber {
+			return 0, errors.New(emptyErrParse)
+		}
+		n += k
+		switch t & emptyTagTypeMask {
+		case emptyWireStartGroup:
+			open = append(open, int32(t>>emptyTagTypeBits))
+		case emptyWireEndGroup:
+			if open[len(open)-1] != int32(t>>emptyTagTypeBits) {
+				return 0, errors.New(emptyErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := emptySkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// emptyAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func emptyAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// emptyWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func emptyWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// emptyEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func emptyEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return emptyJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// emptyStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func emptyStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// emptyOpenJSON reads the first token of the value of message name, which
+// must be of the given kind. It reports false if the value is null, which
+// leaves the message unchanged, or on error.
+func emptyOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return false, d.SkipValue()
+	}
+	err := emptyExpectJSON(d, kind, name, what)
+	return err == nil, err
+}
+
+// emptyExpectJSON reads a token of the given kind, a JSON what, in message name.
+func emptyExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != kind {
+		return emptyJSONError(name, "expected a JSON "+what)
+	}
+	return nil
+}
+
+// emptyJSONError returns an error about the ProtoJSON value of message name.
+func emptyJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

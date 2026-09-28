@@ -70,34 +70,10 @@ const (
 
 // Error messages used more than once.
 const (
-	descriptorErrSizeChanged                                              = "proto: message size changed during marshal"
-	descriptorErrParse                                                    = "proto: cannot parse invalid wire-format data"
-	descriptorErrDepth                                                    = "proto: exceeded maximum recursion depth"
-	descriptorFileDescriptorProtoErrInvalidInteger                        = "proto: google.protobuf.FileDescriptorProto: invalid integer "
-	descriptorDescriptorProtoErrInvalidInteger                            = "proto: google.protobuf.DescriptorProto: invalid integer "
-	descriptorDescriptorProtoExtensionRangeErrInvalidInteger              = "proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer "
-	descriptorDescriptorProtoReservedRangeErrInvalidInteger               = "proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer "
-	descriptorExtensionRangeOptionsErrInvalidInteger                      = "proto: google.protobuf.ExtensionRangeOptions: invalid integer "
-	descriptorExtensionRangeOptionsDeclarationErrInvalidInteger           = "proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer "
-	descriptorFieldDescriptorProtoErrInvalidInteger                       = "proto: google.protobuf.FieldDescriptorProto: invalid integer "
-	descriptorEnumDescriptorProtoErrInvalidInteger                        = "proto: google.protobuf.EnumDescriptorProto: invalid integer "
-	descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger       = "proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer "
-	descriptorEnumValueDescriptorProtoErrInvalidInteger                   = "proto: google.protobuf.EnumValueDescriptorProto: invalid integer "
-	descriptorFileOptionsErrInvalidInteger                                = "proto: google.protobuf.FileOptions: invalid integer "
-	descriptorFieldOptionsErrInvalidInteger                               = "proto: google.protobuf.FieldOptions: invalid integer "
-	descriptorFieldOptionsEditionDefaultErrInvalidInteger                 = "proto: google.protobuf.FieldOptions.EditionDefault: invalid integer "
-	descriptorFieldOptionsFeatureSupportErrInvalidInteger                 = "proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer "
-	descriptorFieldOptionsFeatureSupportErrInvalidEdition                 = "proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: "
-	descriptorMethodOptionsErrInvalidInteger                              = "proto: google.protobuf.MethodOptions: invalid integer "
-	descriptorUninterpretedOptionErrInvalidNumber                         = "proto: google.protobuf.UninterpretedOption: invalid number "
-	descriptorUninterpretedOptionErrInvalidInteger                        = "proto: google.protobuf.UninterpretedOption: invalid integer "
-	descriptorUninterpretedOptionErrInvalidBytes                          = "proto: google.protobuf.UninterpretedOption: invalid bytes "
-	descriptorFeatureSetErrInvalidInteger                                 = "proto: google.protobuf.FeatureSet: invalid integer "
-	descriptorFeatureSetDefaultsErrInvalidInteger                         = "proto: google.protobuf.FeatureSetDefaults: invalid integer "
-	descriptorFeatureSetDefaultsErrInvalidEdition                         = "proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: "
-	descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger = "proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer "
-	descriptorSourceCodeInfoLocationErrInvalidInteger                     = "proto: google.protobuf.SourceCodeInfo.Location: invalid integer "
-	descriptorGeneratedCodeInfoAnnotationErrInvalidInteger                = "proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer "
+	descriptorErrParse          = "proto: cannot parse invalid wire-format data"
+	descriptorErrDepth          = "proto: exceeded maximum recursion depth"
+	descriptorErrInvalidInteger = "invalid integer "
+	descriptorErrInvalidNumber  = "invalid number "
 )
 
 // The verification state of the extension range.
@@ -1225,16 +1201,9 @@ func (m *FileDescriptorSet) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1245,7 +1214,6 @@ func (m *FileDescriptorSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -1256,16 +1224,8 @@ func (m *FileDescriptorSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -1300,12 +1260,10 @@ func (m *FileDescriptorSet) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &FileDescriptorProto{}
 			m.File = append(m.File, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -1314,77 +1272,9 @@ func (m *FileDescriptorSet) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1426,10 +1316,7 @@ func (m *FileDescriptorSet) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1473,26 +1360,15 @@ func (m *FileDescriptorSet) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FileDescriptorSet) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FileDescriptorSet")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FileDescriptorSet) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FileDescriptorSet{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -1505,16 +1381,9 @@ func (m *FileDescriptorSet) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FileDescriptorSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FileDescriptorSet", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON object")
 	}
 	var seen [1]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -1550,12 +1419,8 @@ func (m *FileDescriptorSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.FileDescriptorSet", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -1802,16 +1667,9 @@ func (m *FileDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -1822,7 +1680,6 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -1830,66 +1687,26 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	for _, v := range slices.Backward(m.OptionDependency) {
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 15<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len(v)))
+		i = descriptorPutVarint(b, i, 15<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Edition != nil {
-		u = uint64(int64((*m.Edition)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 14<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Edition))))
+		i = descriptorPutVarint(b, i, 14<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Syntax != nil {
 		i -= len((*m.Syntax))
 		copy(b[i:], (*m.Syntax))
-		u = uint64(len((*m.Syntax)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 12<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Syntax))))
+		i = descriptorPutVarint(b, i, 12<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.WeakDependency) {
-		u = uint64(int64(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 11<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64(v)))
+		i = descriptorPutVarint(b, i, 11<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	for _, v := range slices.Backward(m.PublicDependency) {
-		u = uint64(int64(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 10<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64(v)))
+		i = descriptorPutVarint(b, i, 10<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.SourceCodeInfo != nil {
 		n, err := m.SourceCodeInfo.ProtoMarshalToSizedBuffer(b[:i])
@@ -1897,16 +1714,8 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 9<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 9<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
@@ -1914,16 +1723,8 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 8<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Extension) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -1931,16 +1732,8 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Service) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -1948,16 +1741,8 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.EnumType) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -1965,16 +1750,8 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.MessageType) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -1982,58 +1759,26 @@ func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Dependency) {
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len(v)))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Package != nil {
 		i -= len((*m.Package))
 		copy(b[i:], (*m.Package))
-		u = uint64(len((*m.Package)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Package))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -2068,41 +1813,33 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Package = &v
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.Dependency = append(m.Dependency, string(x))
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &DescriptorProto{}
 			m.MessageType = append(m.MessageType, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -2110,12 +1847,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &EnumDescriptorProto{}
 			m.EnumType = append(m.EnumType, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -2123,12 +1858,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 6<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &ServiceDescriptorProto{}
 			m.Service = append(m.Service, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -2136,12 +1869,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 7<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &FieldDescriptorProto{}
 			m.Extension = append(m.Extension, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -2149,12 +1880,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &FileOptions{}
 			}
@@ -2164,12 +1893,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 9<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.SourceCodeInfo == nil {
 				m.SourceCodeInfo = &SourceCodeInfo{}
 			}
@@ -2179,12 +1906,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 10<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -2202,12 +1927,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.PublicDependency = append(m.PublicDependency, int32(x))
 		case 11<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -2225,12 +1948,10 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.WeakDependency = append(m.WeakDependency, int32(x))
 		case 12<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Syntax = &v
@@ -2248,87 +1969,17 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			v := e
 			m.Edition = &v
 		case 15<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.OptionDependency = append(m.OptionDependency, string(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -2388,10 +2039,7 @@ func (m *FileDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -2523,13 +2171,7 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Edition != nil {
 		b = append(b, "\"edition\":"...)
-		if s, ok := Edition_name[int32((*m.Edition))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Edition)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Edition)), Edition_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -2554,26 +2196,15 @@ func (m *FileDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FileDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FileDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FileDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -2586,16 +2217,9 @@ func (m *FileDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FileDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON object")
 	}
 	var seen [14]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -2657,12 +2281,8 @@ func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 2, 3, 4, 5, 6, 7, 8, 9:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.FileDescriptorProto", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -2693,52 +2313,21 @@ func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FileDescriptorProto")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.FileDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -2797,16 +2386,9 @@ func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			x := sv
 			m.Syntax = &x
 		case 13:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FileDescriptorProto: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FileDescriptorProto", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Edition = &x
@@ -2986,16 +2568,9 @@ func (m *DescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -3006,36 +2581,19 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Visibility != nil {
-		u = uint64(int64((*m.Visibility)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 11<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Visibility))))
+		i = descriptorPutVarint(b, i, 11<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	for _, v := range slices.Backward(m.ReservedName) {
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 10<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len(v)))
+		i = descriptorPutVarint(b, i, 10<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.ReservedRange) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3043,16 +2601,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 9<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 9<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.OneofDecl) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3060,16 +2610,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 8<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
@@ -3077,16 +2619,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Extension) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3094,16 +2628,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.ExtensionRange) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3111,16 +2637,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.EnumType) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3128,16 +2646,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.NestedType) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3145,16 +2655,8 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Field) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -3162,30 +2664,14 @@ func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -3220,22 +2706,18 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &FieldDescriptorProto{}
 			m.Field = append(m.Field, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3243,12 +2725,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &DescriptorProto{}
 			m.NestedType = append(m.NestedType, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3256,12 +2736,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &EnumDescriptorProto{}
 			m.EnumType = append(m.EnumType, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3269,12 +2747,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &DescriptorProto_ExtensionRange{}
 			m.ExtensionRange = append(m.ExtensionRange, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3282,12 +2758,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 6<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &FieldDescriptorProto{}
 			m.Extension = append(m.Extension, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3295,12 +2769,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 7<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &MessageOptions{}
 			}
@@ -3310,12 +2782,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &OneofDescriptorProto{}
 			m.OneofDecl = append(m.OneofDecl, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3323,12 +2793,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 9<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &DescriptorProto_ReservedRange{}
 			m.ReservedRange = append(m.ReservedRange, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -3336,12 +2804,10 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 10<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.ReservedName = append(m.ReservedName, string(x))
 		case 11<<descriptorTagTypeBits | descriptorWireVarint:
@@ -3359,77 +2825,9 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			m.Visibility = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -3499,10 +2897,7 @@ func (m *DescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -3617,13 +3012,7 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Visibility != nil {
 		b = append(b, "\"visibility\":"...)
-		if s, ok := SymbolVisibility_name[int32((*m.Visibility))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Visibility)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Visibility)), SymbolVisibility_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -3648,26 +3037,15 @@ func (m *DescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.DescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *DescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = DescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -3680,16 +3058,9 @@ func (m *DescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.DescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON object")
 	}
 	var seen [11]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -3745,12 +3116,8 @@ func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 1, 2, 3, 4, 5, 6, 8, 9:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.DescriptorProto", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -3779,52 +3146,21 @@ func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.DescriptorProto: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorDescriptorProtoErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorDescriptorProtoErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorDescriptorProtoErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.DescriptorProto")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.DescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.DescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -3882,16 +3218,9 @@ func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 9:
 			m.ReservedName = append(m.ReservedName, sv)
 		case 10:
-			var ev SymbolVisibility
-			switch class {
-			case descriptorClassString:
-				n, ok := SymbolVisibility_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.DescriptorProto: invalid value for enum google.protobuf.SymbolVisibility: " + strconv.Quote(sv))
-				}
-				ev = SymbolVisibility(n)
-			case descriptorClassSigned:
-				ev = SymbolVisibility(iv)
+			ev, err := descriptorParseEnum[SymbolVisibility](class, tok, iv, SymbolVisibility_value, "google.protobuf.DescriptorProto", "google.protobuf.SymbolVisibility")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Visibility = &x
@@ -3972,16 +3301,9 @@ func (m *DescriptorProto_ExtensionRange) AppendBinary(b []byte) ([]byte, error) 
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -3992,7 +3314,6 @@ func (m *DescriptorProto_ExtensionRange) ProtoMarshalToSizedBuffer(b []byte) (in
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -4003,40 +3324,16 @@ func (m *DescriptorProto_ExtensionRange) ProtoMarshalToSizedBuffer(b []byte) (in
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.End != nil {
-		u = uint64(int64((*m.End)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.End))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Start != nil {
-		u = uint64(int64((*m.Start)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Start))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -4087,12 +3384,10 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeDepth(b []byte, depth int) er
 			v := int32(x)
 			m.End = &v
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &ExtensionRangeOptions{}
 			}
@@ -4103,77 +3398,9 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeDepth(b []byte, depth int) er
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -4213,10 +3440,7 @@ func (m *DescriptorProto_ExtensionRange) MarshalJSONTo(e *jsontext.Encoder) erro
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -4266,26 +3490,15 @@ func (m *DescriptorProto_ExtensionRange) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.DescriptorProto.ExtensionRange")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *DescriptorProto_ExtensionRange) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = DescriptorProto_ExtensionRange{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -4298,16 +3511,9 @@ func (m *DescriptorProto_ExtensionRange) UnmarshalJSONFrom(d *jsontext.Decoder) 
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *DescriptorProto_ExtensionRange) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.DescriptorProto.ExtensionRange", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: expected a JSON object")
 	}
 	var seen [3]bool
 	var f int
@@ -4350,37 +3556,16 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSONFrom(d *jsontext.Decoder)
 		var iv int64
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.DescriptorProto.ExtensionRange")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -4461,16 +3646,9 @@ func (m *DescriptorProto_ReservedRange) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *DescriptorProto_ReservedRange) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -4481,34 +3659,17 @@ func (m *DescriptorProto_ReservedRange) ProtoMarshalToSizedBuffer(b []byte) (int
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.End != nil {
-		u = uint64(int64((*m.End)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.End))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Start != nil {
-		u = uint64(int64((*m.Start)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Start))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -4557,77 +3718,9 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeDepth(b []byte, depth int) err
 			m.End = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -4655,10 +3748,7 @@ func (m *DescriptorProto_ReservedRange) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *DescriptorProto_ReservedRange) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -4697,26 +3787,15 @@ func (m *DescriptorProto_ReservedRange) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.DescriptorProto.ReservedRange")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *DescriptorProto_ReservedRange) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = DescriptorProto_ReservedRange{}
 	return m.ProtoMergeJSONFrom(d)
@@ -4726,16 +3805,9 @@ func (m *DescriptorProto_ReservedRange) UnmarshalJSONFrom(d *jsontext.Decoder) e
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *DescriptorProto_ReservedRange) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.DescriptorProto.ReservedRange", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -4776,37 +3848,16 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSONFrom(d *jsontext.Decoder) 
 		var iv int64
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.DescriptorProto.ReservedRange")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -4918,16 +3969,9 @@ func (m *ExtensionRangeOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -4938,7 +3982,6 @@ func (m *ExtensionRangeOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -4949,16 +3992,8 @@ func (m *ExtensionRangeOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -4966,28 +4001,12 @@ func (m *ExtensionRangeOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 50<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 50<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Verification != nil {
-		u = uint64(int64((*m.Verification)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Verification))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	for _, v := range slices.Backward(m.Declaration) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -4995,16 +4014,8 @@ func (m *ExtensionRangeOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -5039,12 +4050,10 @@ func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &ExtensionRangeOptions_Declaration{}
 			m.Declaration = append(m.Declaration, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -5065,12 +4074,10 @@ func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := e
 			m.Verification = &v
 		case 50<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -5080,12 +4087,10 @@ func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -5094,77 +4099,9 @@ func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -5206,10 +4143,7 @@ func (m *ExtensionRangeOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -5251,13 +4185,7 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Verification != nil {
 		b = append(b, "\"verification\":"...)
-		if s, ok := ExtensionRangeOptions_VerificationState_name[int32((*m.Verification))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Verification)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Verification)), ExtensionRangeOptions_VerificationState_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -5282,26 +4210,15 @@ func (m *ExtensionRangeOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.ExtensionRangeOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ExtensionRangeOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ExtensionRangeOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -5314,16 +4231,9 @@ func (m *ExtensionRangeOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.ExtensionRangeOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON object")
 	}
 	var seen [4]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -5365,12 +4275,8 @@ func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0, 1:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.ExtensionRangeOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -5394,55 +4300,21 @@ func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			class = descriptorClassEnum
 		}
 		var iv int64
-		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
-		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.ExtensionRangeOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -5465,16 +4337,9 @@ func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return err
 			}
 		case 3:
-			var ev ExtensionRangeOptions_VerificationState
-			switch class {
-			case descriptorClassString:
-				n, ok := ExtensionRangeOptions_VerificationState_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid value for enum google.protobuf.ExtensionRangeOptions.VerificationState: " + strconv.Quote(sv))
-				}
-				ev = ExtensionRangeOptions_VerificationState(n)
-			case descriptorClassSigned:
-				ev = ExtensionRangeOptions_VerificationState(iv)
+			ev, err := descriptorParseEnum[ExtensionRangeOptions_VerificationState](class, tok, iv, ExtensionRangeOptions_VerificationState_value, "google.protobuf.ExtensionRangeOptions", "google.protobuf.ExtensionRangeOptions.VerificationState")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Verification = &x
@@ -5584,16 +4449,9 @@ func (m *ExtensionRangeOptions_Declaration) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ExtensionRangeOptions_Declaration) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -5604,7 +4462,6 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMarshalToSizedBuffer(b []byte) 
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -5616,8 +4473,7 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMarshalToSizedBuffer(b []byte) 
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Reserved != nil {
 		i--
@@ -5626,48 +4482,23 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMarshalToSizedBuffer(b []byte) 
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Type != nil {
 		i -= len((*m.Type))
 		copy(b[i:], (*m.Type))
-		u = uint64(len((*m.Type)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Type))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.FullName != nil {
 		i -= len((*m.FullName))
 		copy(b[i:], (*m.FullName))
-		u = uint64(len((*m.FullName)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.FullName))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Number != nil {
-		u = uint64(int64((*m.Number)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Number))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -5707,22 +4538,18 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeDepth(b []byte, depth int)
 			v := int32(x)
 			m.Number = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.FullName = &v
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Type = &v
@@ -5744,77 +4571,9 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeDepth(b []byte, depth int)
 			m.Repeated = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -5842,10 +4601,7 @@ func (m *ExtensionRangeOptions_Declaration) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *ExtensionRangeOptions_Declaration) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -5912,26 +4668,15 @@ func (m *ExtensionRangeOptions_Declaration) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.ExtensionRangeOptions.Declaration")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ExtensionRangeOptions_Declaration) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ExtensionRangeOptions_Declaration{}
 	return m.ProtoMergeJSONFrom(d)
@@ -5941,16 +4686,9 @@ func (m *ExtensionRangeOptions_Declaration) UnmarshalJSONFrom(d *jsontext.Decode
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.ExtensionRangeOptions.Declaration", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: expected a JSON object")
 	}
 	var seen [5]bool
 	var f int
@@ -6003,50 +4741,20 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSONFrom(d *jsontext.Decod
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.ExtensionRangeOptions.Declaration")
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.ExtensionRangeOptions.Declaration")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.ExtensionRangeOptions.Declaration")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -6270,16 +4978,9 @@ func (m *FieldDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -6290,7 +4991,6 @@ func (m *FieldDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -6302,34 +5002,17 @@ func (m *FieldDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 17<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JsonName != nil {
 		i -= len((*m.JsonName))
 		copy(b[i:], (*m.JsonName))
-		u = uint64(len((*m.JsonName)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 10<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.JsonName))))
+		i = descriptorPutVarint(b, i, 10<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.OneofIndex != nil {
-		u = uint64(int64((*m.OneofIndex)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 9<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.OneofIndex))))
+		i = descriptorPutVarint(b, i, 9<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
@@ -6337,108 +5020,44 @@ func (m *FieldDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 8<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.DefaultValue != nil {
 		i -= len((*m.DefaultValue))
 		copy(b[i:], (*m.DefaultValue))
-		u = uint64(len((*m.DefaultValue)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.DefaultValue))))
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.TypeName != nil {
 		i -= len((*m.TypeName))
 		copy(b[i:], (*m.TypeName))
-		u = uint64(len((*m.TypeName)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.TypeName))))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Type != nil {
-		u = uint64(int64((*m.Type)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Type))))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Label != nil {
-		u = uint64(int64((*m.Label)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Label))))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Number != nil {
-		u = uint64(int64((*m.Number)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Number))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Extendee != nil {
 		i -= len((*m.Extendee))
 		copy(b[i:], (*m.Extendee))
-		u = uint64(len((*m.Extendee)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Extendee))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -6473,22 +5092,18 @@ func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Extendee = &v
@@ -6527,32 +5142,26 @@ func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			v := e
 			m.Type = &v
 		case 6<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.TypeName = &v
 		case 7<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.DefaultValue = &v
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &FieldOptions{}
 			}
@@ -6570,12 +5179,10 @@ func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			v := int32(x)
 			m.OneofIndex = &v
 		case 10<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.JsonName = &v
@@ -6589,77 +5196,9 @@ func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			m.Proto3Optional = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -6699,10 +5238,7 @@ func (m *FieldDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -6727,24 +5263,12 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Label != nil {
 		b = append(b, "\"label\":"...)
-		if s, ok := FieldDescriptorProto_Label_name[int32((*m.Label))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Label)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Label)), FieldDescriptorProto_Label_name)
 		b = append(b, ',')
 	}
 	if m.Type != nil {
 		b = append(b, "\"type\":"...)
-		if s, ok := FieldDescriptorProto_Type_name[int32((*m.Type))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Type)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Type)), FieldDescriptorProto_Type_name)
 		b = append(b, ',')
 	}
 	if m.TypeName != nil {
@@ -6818,26 +5342,15 @@ func (m *FieldDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FieldDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FieldDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FieldDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -6850,16 +5363,9 @@ func (m *FieldDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FieldDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FieldDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FieldDescriptorProto: expected a JSON object")
 	}
 	var seen [11]bool
 	var f int
@@ -6926,60 +5432,23 @@ func (m *FieldDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FieldDescriptorProto")
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.FieldDescriptorProto")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.FieldDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -6989,30 +5458,16 @@ func (m *FieldDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			x := int32(iv)
 			m.Number = &x
 		case 2:
-			var ev FieldDescriptorProto_Label
-			switch class {
-			case descriptorClassString:
-				n, ok := FieldDescriptorProto_Label_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid value for enum google.protobuf.FieldDescriptorProto.Label: " + strconv.Quote(sv))
-				}
-				ev = FieldDescriptorProto_Label(n)
-			case descriptorClassSigned:
-				ev = FieldDescriptorProto_Label(iv)
+			ev, err := descriptorParseEnum[FieldDescriptorProto_Label](class, tok, iv, FieldDescriptorProto_Label_value, "google.protobuf.FieldDescriptorProto", "google.protobuf.FieldDescriptorProto.Label")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Label = &x
 		case 3:
-			var ev FieldDescriptorProto_Type
-			switch class {
-			case descriptorClassString:
-				n, ok := FieldDescriptorProto_Type_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid value for enum google.protobuf.FieldDescriptorProto.Type: " + strconv.Quote(sv))
-				}
-				ev = FieldDescriptorProto_Type(n)
-			case descriptorClassSigned:
-				ev = FieldDescriptorProto_Type(iv)
+			ev, err := descriptorParseEnum[FieldDescriptorProto_Type](class, tok, iv, FieldDescriptorProto_Type_value, "google.protobuf.FieldDescriptorProto", "google.protobuf.FieldDescriptorProto.Type")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Type = &x
@@ -7108,16 +5563,9 @@ func (m *OneofDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -7128,7 +5576,6 @@ func (m *OneofDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -7139,30 +5586,14 @@ func (m *OneofDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) 
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -7197,22 +5628,18 @@ func (m *OneofDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &OneofOptions{}
 			}
@@ -7223,77 +5650,9 @@ func (m *OneofDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -7333,10 +5692,7 @@ func (m *OneofDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -7383,26 +5739,15 @@ func (m *OneofDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.OneofDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *OneofDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = OneofDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -7415,16 +5760,9 @@ func (m *OneofDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *OneofDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.OneofDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.OneofDescriptorProto: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -7464,17 +5802,16 @@ func (m *OneofDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.OneofDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.OneofDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -7606,16 +5943,9 @@ func (m *EnumDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -7626,36 +5956,19 @@ func (m *EnumDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Visibility != nil {
-		u = uint64(int64((*m.Visibility)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Visibility))))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	for _, v := range slices.Backward(m.ReservedName) {
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len(v)))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.ReservedRange) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -7663,16 +5976,8 @@ func (m *EnumDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
@@ -7680,16 +5985,8 @@ func (m *EnumDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Value) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -7697,30 +5994,14 @@ func (m *EnumDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -7755,22 +6036,18 @@ func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &EnumValueDescriptorProto{}
 			m.Value = append(m.Value, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -7778,12 +6055,10 @@ func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &EnumOptions{}
 			}
@@ -7793,12 +6068,10 @@ func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &EnumDescriptorProto_EnumReservedRange{}
 			m.ReservedRange = append(m.ReservedRange, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -7806,12 +6079,10 @@ func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.ReservedName = append(m.ReservedName, string(x))
 		case 6<<descriptorTagTypeBits | descriptorWireVarint:
@@ -7829,77 +6100,9 @@ func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			m.Visibility = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -7944,10 +6147,7 @@ func (m *EnumDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -8007,13 +6207,7 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Visibility != nil {
 		b = append(b, "\"visibility\":"...)
-		if s, ok := SymbolVisibility_name[int32((*m.Visibility))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Visibility)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Visibility)), SymbolVisibility_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -8038,26 +6232,15 @@ func (m *EnumDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.EnumDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *EnumDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = EnumDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -8070,16 +6253,9 @@ func (m *EnumDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *EnumDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.EnumDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON object")
 	}
 	var seen [6]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -8125,12 +6301,8 @@ func (m *EnumDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 1, 3, 4:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.EnumDescriptorProto", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -8159,52 +6331,21 @@ func (m *EnumDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.EnumDescriptorProto")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.EnumDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -8232,16 +6373,9 @@ func (m *EnumDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 4:
 			m.ReservedName = append(m.ReservedName, sv)
 		case 5:
-			var ev SymbolVisibility
-			switch class {
-			case descriptorClassString:
-				n, ok := SymbolVisibility_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid value for enum google.protobuf.SymbolVisibility: " + strconv.Quote(sv))
-				}
-				ev = SymbolVisibility(n)
-			case descriptorClassSigned:
-				ev = SymbolVisibility(iv)
+			ev, err := descriptorParseEnum[SymbolVisibility](class, tok, iv, SymbolVisibility_value, "google.protobuf.EnumDescriptorProto", "google.protobuf.SymbolVisibility")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Visibility = &x
@@ -8313,16 +6447,9 @@ func (m *EnumDescriptorProto_EnumReservedRange) MarshalBinary() ([]byte, error) 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *EnumDescriptorProto_EnumReservedRange) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -8333,34 +6460,17 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMarshalToSizedBuffer(b []by
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.End != nil {
-		u = uint64(int64((*m.End)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.End))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Start != nil {
-		u = uint64(int64((*m.Start)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Start))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -8409,77 +6519,9 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeDepth(b []byte, depth 
 			m.End = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -8507,10 +6549,7 @@ func (m *EnumDescriptorProto_EnumReservedRange) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *EnumDescriptorProto_EnumReservedRange) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -8549,26 +6588,15 @@ func (m *EnumDescriptorProto_EnumReservedRange) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.EnumDescriptorProto.EnumReservedRange")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *EnumDescriptorProto_EnumReservedRange) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = EnumDescriptorProto_EnumReservedRange{}
 	return m.ProtoMergeJSONFrom(d)
@@ -8578,16 +6606,9 @@ func (m *EnumDescriptorProto_EnumReservedRange) UnmarshalJSONFrom(d *jsontext.De
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.EnumDescriptorProto.EnumReservedRange", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -8628,37 +6649,16 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSONFrom(d *jsontext.D
 		var iv int64
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.EnumDescriptorProto.EnumReservedRange")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -8745,16 +6745,9 @@ func (m *EnumValueDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -8765,7 +6758,6 @@ func (m *EnumValueDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, err
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -8776,42 +6768,18 @@ func (m *EnumValueDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, err
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Number != nil {
-		u = uint64(int64((*m.Number)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Number))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -8846,12 +6814,10 @@ func (m *EnumValueDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
@@ -8864,12 +6830,10 @@ func (m *EnumValueDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			v := int32(x)
 			m.Number = &v
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &EnumValueOptions{}
 			}
@@ -8880,77 +6844,9 @@ func (m *EnumValueDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -8990,10 +6886,7 @@ func (m *EnumValueDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -9045,26 +6938,15 @@ func (m *EnumValueDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.EnumValueDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *EnumValueDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = EnumValueDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -9077,16 +6959,9 @@ func (m *EnumValueDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error 
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *EnumValueDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.EnumValueDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: expected a JSON object")
 	}
 	var seen [3]bool
 	var f int
@@ -9132,42 +7007,18 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.EnumValueDescriptorProto")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.EnumValueDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -9262,16 +7113,9 @@ func (m *ServiceDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -9282,7 +7126,6 @@ func (m *ServiceDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -9293,16 +7136,8 @@ func (m *ServiceDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Method) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -9310,30 +7145,14 @@ func (m *ServiceDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -9368,22 +7187,18 @@ func (m *ServiceDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &MethodDescriptorProto{}
 			m.Method = append(m.Method, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -9391,12 +7206,10 @@ func (m *ServiceDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &ServiceOptions{}
 			}
@@ -9407,77 +7220,9 @@ func (m *ServiceDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -9522,10 +7267,7 @@ func (m *ServiceDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -9583,26 +7325,15 @@ func (m *ServiceDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ServiceDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.ServiceDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ServiceDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ServiceDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -9615,16 +7346,9 @@ func (m *ServiceDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ServiceDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.ServiceDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON object")
 	}
 	var seen [3]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -9664,12 +7388,8 @@ func (m *ServiceDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 1:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.ServiceDescriptorProto", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -9694,17 +7414,16 @@ func (m *ServiceDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.ServiceDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.ServiceDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -9844,16 +7563,9 @@ func (m *MethodDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -9864,7 +7576,6 @@ func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -9876,8 +7587,7 @@ func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.ClientStreaming != nil {
 		i--
@@ -9886,8 +7596,7 @@ func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
@@ -9895,58 +7604,26 @@ func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error)
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.OutputType != nil {
 		i -= len((*m.OutputType))
 		copy(b[i:], (*m.OutputType))
-		u = uint64(len((*m.OutputType)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.OutputType))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.InputType != nil {
 		i -= len((*m.InputType))
 		copy(b[i:], (*m.InputType))
-		u = uint64(len((*m.InputType)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.InputType))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Name != nil {
 		i -= len((*m.Name))
 		copy(b[i:], (*m.Name))
-		u = uint64(len((*m.Name)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Name))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -9981,42 +7658,34 @@ func (m *MethodDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Name = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.InputType = &v
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.OutputType = &v
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Options == nil {
 				m.Options = &MethodOptions{}
 			}
@@ -10043,77 +7712,9 @@ func (m *MethodDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			m.ServerStreaming = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -10153,10 +7754,7 @@ func (m *MethodDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -10235,26 +7833,15 @@ func (m *MethodDescriptorProto) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.MethodDescriptorProto")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *MethodDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = MethodDescriptorProto{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -10267,16 +7854,9 @@ func (m *MethodDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *MethodDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.MethodDescriptorProto", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.MethodDescriptorProto: expected a JSON object")
 	}
 	var seen [6]bool
 	var f int
@@ -10327,25 +7907,18 @@ func (m *MethodDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.MethodDescriptorProto")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.MethodDescriptorProto")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -10731,16 +8304,9 @@ func (m *FileOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -10751,7 +8317,6 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -10762,16 +8327,8 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -10779,114 +8336,50 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 50<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 50<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.RubyPackage != nil {
 		i -= len((*m.RubyPackage))
 		copy(b[i:], (*m.RubyPackage))
-		u = uint64(len((*m.RubyPackage)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 45<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.RubyPackage))))
+		i = descriptorPutVarint(b, i, 45<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.PhpMetadataNamespace != nil {
 		i -= len((*m.PhpMetadataNamespace))
 		copy(b[i:], (*m.PhpMetadataNamespace))
-		u = uint64(len((*m.PhpMetadataNamespace)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 44<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.PhpMetadataNamespace))))
+		i = descriptorPutVarint(b, i, 44<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.PhpNamespace != nil {
 		i -= len((*m.PhpNamespace))
 		copy(b[i:], (*m.PhpNamespace))
-		u = uint64(len((*m.PhpNamespace)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 41<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.PhpNamespace))))
+		i = descriptorPutVarint(b, i, 41<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.PhpClassPrefix != nil {
 		i -= len((*m.PhpClassPrefix))
 		copy(b[i:], (*m.PhpClassPrefix))
-		u = uint64(len((*m.PhpClassPrefix)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 40<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.PhpClassPrefix))))
+		i = descriptorPutVarint(b, i, 40<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.SwiftPrefix != nil {
 		i -= len((*m.SwiftPrefix))
 		copy(b[i:], (*m.SwiftPrefix))
-		u = uint64(len((*m.SwiftPrefix)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 39<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.SwiftPrefix))))
+		i = descriptorPutVarint(b, i, 39<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.CsharpNamespace != nil {
 		i -= len((*m.CsharpNamespace))
 		copy(b[i:], (*m.CsharpNamespace))
-		u = uint64(len((*m.CsharpNamespace)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 37<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.CsharpNamespace))))
+		i = descriptorPutVarint(b, i, 37<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.ObjcClassPrefix != nil {
 		i -= len((*m.ObjcClassPrefix))
 		copy(b[i:], (*m.ObjcClassPrefix))
-		u = uint64(len((*m.ObjcClassPrefix)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 36<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(len((*m.ObjcClassPrefix))))
+		i = descriptorPutVarint(b, i, 36<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.CcEnableArenas != nil {
 		i--
@@ -10895,8 +8388,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 31<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 31<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaStringCheckUtf8 != nil {
 		i--
@@ -10905,8 +8397,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 27<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 27<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -10915,8 +8406,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 23<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 23<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaGenerateEqualsAndHash != nil {
 		i--
@@ -10925,8 +8415,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 20<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 20<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.PyGenericServices != nil {
 		i--
@@ -10935,8 +8424,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 18<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 18<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaGenericServices != nil {
 		i--
@@ -10945,8 +8433,7 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 17<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.CcGenericServices != nil {
 		i--
@@ -10955,22 +8442,13 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 16<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 16<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.GoPackage != nil {
 		i -= len((*m.GoPackage))
 		copy(b[i:], (*m.GoPackage))
-		u = uint64(len((*m.GoPackage)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 11<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.GoPackage))))
+		i = descriptorPutVarint(b, i, 11<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.JavaMultipleFiles != nil {
 		i--
@@ -10979,48 +8457,23 @@ func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 10<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 10<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.OptimizeFor != nil {
-		u = uint64(int64((*m.OptimizeFor)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 9<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.OptimizeFor))))
+		i = descriptorPutVarint(b, i, 9<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JavaOuterClassname != nil {
 		i -= len((*m.JavaOuterClassname))
 		copy(b[i:], (*m.JavaOuterClassname))
-		u = uint64(len((*m.JavaOuterClassname)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.JavaOuterClassname))))
+		i = descriptorPutVarint(b, i, 8<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.JavaPackage != nil {
 		i -= len((*m.JavaPackage))
 		copy(b[i:], (*m.JavaPackage))
-		u = uint64(len((*m.JavaPackage)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.JavaPackage))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -11055,22 +8508,18 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.JavaPackage = &v
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.JavaOuterClassname = &v
@@ -11096,12 +8545,10 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.JavaMultipleFiles = &v
 		case 11<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.GoPackage = &v
@@ -11162,82 +8609,66 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.CcEnableArenas = &v
 		case 36<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.ObjcClassPrefix = &v
 		case 37<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.CsharpNamespace = &v
 		case 39<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.SwiftPrefix = &v
 		case 40<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.PhpClassPrefix = &v
 		case 41<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.PhpNamespace = &v
 		case 44<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.PhpMetadataNamespace = &v
 		case 45<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.RubyPackage = &v
 		case 50<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -11247,12 +8678,10 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -11261,77 +8690,9 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -11373,10 +8734,7 @@ func (m *FileOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -11430,13 +8788,7 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.OptimizeFor != nil {
 		b = append(b, "\"optimizeFor\":"...)
-		if s, ok := FileOptions_OptimizeMode_name[int32((*m.OptimizeFor))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.OptimizeFor)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.OptimizeFor)), FileOptions_OptimizeMode_name)
 		b = append(b, ',')
 	}
 	if m.GoPackage != nil {
@@ -11580,26 +8932,15 @@ func (m *FileOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FileOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FileOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FileOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FileOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -11612,16 +8953,9 @@ func (m *FileOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FileOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FileOptions: expected a JSON object")
 	}
 	var seen [21]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -11697,12 +9031,8 @@ func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 20:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.FileOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.FileOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -11734,60 +9064,23 @@ func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FileOptions: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFileOptionsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFileOptionsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFileOptionsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FileOptions")
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.FileOptions: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.FileOptions")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FileOptions: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.FileOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -11806,16 +9099,9 @@ func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			x := bv
 			m.JavaStringCheckUtf8 = &x
 		case 5:
-			var ev FileOptions_OptimizeMode
-			switch class {
-			case descriptorClassString:
-				n, ok := FileOptions_OptimizeMode_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FileOptions: invalid value for enum google.protobuf.FileOptions.OptimizeMode: " + strconv.Quote(sv))
-				}
-				ev = FileOptions_OptimizeMode(n)
-			case descriptorClassSigned:
-				ev = FileOptions_OptimizeMode(iv)
+			ev, err := descriptorParseEnum[FileOptions_OptimizeMode](class, tok, iv, FileOptions_OptimizeMode_value, "google.protobuf.FileOptions", "google.protobuf.FileOptions.OptimizeMode")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.OptimizeFor = &x
@@ -12063,16 +9349,9 @@ func (m *MessageOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -12083,7 +9362,6 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -12094,16 +9372,8 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -12111,16 +9381,8 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 12<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 12<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.DeprecatedLegacyJsonFieldConflicts != nil {
 		i--
@@ -12129,8 +9391,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 11<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 11<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.MapEntry != nil {
 		i--
@@ -12139,8 +9400,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -12149,8 +9409,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.NoStandardDescriptorAccessor != nil {
 		i--
@@ -12159,8 +9418,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.MessageSetWireFormat != nil {
 		i--
@@ -12169,8 +9427,7 @@ func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -12245,12 +9502,10 @@ func (m *MessageOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.DeprecatedLegacyJsonFieldConflicts = &v
 		case 12<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -12260,12 +9515,10 @@ func (m *MessageOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -12274,77 +9527,9 @@ func (m *MessageOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -12386,10 +9571,7 @@ func (m *MessageOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -12485,26 +9667,15 @@ func (m *MessageOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *MessageOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.MessageOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.MessageOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *MessageOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = MessageOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -12517,16 +9688,9 @@ func (m *MessageOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *MessageOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.MessageOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.MessageOptions: expected a JSON object")
 	}
 	var seen [7]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -12574,12 +9738,8 @@ func (m *MessageOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 6:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.MessageOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.MessageOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -12604,20 +9764,16 @@ func (m *MessageOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var bv bool
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.MessageOptions: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.MessageOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -12925,16 +10081,9 @@ func (m *FieldOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -12945,7 +10094,6 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -12956,16 +10104,8 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.FeatureSupport != nil {
 		n, err := m.FeatureSupport.ProtoMarshalToSizedBuffer(b[:i])
@@ -12973,16 +10113,8 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 22<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 22<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -12990,16 +10122,8 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 21<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 21<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.EditionDefaults) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -13007,40 +10131,16 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 20<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 20<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Targets) {
-		u = uint64(int64(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 19<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, uint64(int64(v)))
+		i = descriptorPutVarint(b, i, 19<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Retention != nil {
-		u = uint64(int64((*m.Retention)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 17<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Retention))))
+		i = descriptorPutVarint(b, i, 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.DebugRedact != nil {
 		i--
@@ -13049,8 +10149,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 16<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 16<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.UnverifiedLazy != nil {
 		i--
@@ -13059,8 +10158,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 15<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 15<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Weak != nil {
 		i--
@@ -13069,20 +10167,11 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 10<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 10<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Jstype != nil {
-		u = uint64(int64((*m.Jstype)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Jstype))))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Lazy != nil {
 		i--
@@ -13091,8 +10180,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -13101,8 +10189,7 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Packed != nil {
 		i--
@@ -13111,20 +10198,11 @@ func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Ctype != nil {
-		u = uint64(int64((*m.Ctype)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Ctype))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -13246,12 +10324,10 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := e
 			m.Retention = &v
 		case 19<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -13278,12 +10354,10 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			m.Targets = append(m.Targets, e)
 		case 20<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &FieldOptions_EditionDefault{}
 			m.EditionDefaults = append(m.EditionDefaults, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -13291,12 +10365,10 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 21<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -13306,12 +10378,10 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 22<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.FeatureSupport == nil {
 				m.FeatureSupport = &FieldOptions_FeatureSupport{}
 			}
@@ -13321,12 +10391,10 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -13335,77 +10403,9 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -13447,10 +10447,7 @@ func (m *FieldOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -13463,13 +10460,7 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if m.Ctype != nil {
 		b = append(b, "\"ctype\":"...)
-		if s, ok := FieldOptions_CType_name[int32((*m.Ctype))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Ctype)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Ctype)), FieldOptions_CType_name)
 		b = append(b, ',')
 	}
 	if m.Packed != nil {
@@ -13483,13 +10474,7 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Jstype != nil {
 		b = append(b, "\"jstype\":"...)
-		if s, ok := FieldOptions_JSType_name[int32((*m.Jstype))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Jstype)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Jstype)), FieldOptions_JSType_name)
 		b = append(b, ',')
 	}
 	if m.Lazy != nil {
@@ -13539,25 +10524,13 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Retention != nil {
 		b = append(b, "\"retention\":"...)
-		if s, ok := FieldOptions_OptionRetention_name[int32((*m.Retention))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Retention)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Retention)), FieldOptions_OptionRetention_name)
 		b = append(b, ',')
 	}
 	if len(m.Targets) > 0 {
 		b = append(b, "\"targets\":["...)
 		for j := range m.Targets {
-			if s, ok := FieldOptions_OptionTargetType_name[int32(m.Targets[j])]; ok {
-				b = append(b, '"')
-				b = append(b, s...)
-				b = append(b, '"')
-			} else {
-				b = strconv.AppendInt(b, int64(m.Targets[j]), 10)
-			}
+			b = descriptorAppendEnum(b, int32(m.Targets[j]), FieldOptions_OptionTargetType_name)
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -13621,26 +10594,15 @@ func (m *FieldOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FieldOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FieldOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FieldOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -13653,16 +10615,9 @@ func (m *FieldOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FieldOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FieldOptions: expected a JSON object")
 	}
 	var seen [14]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -13724,12 +10679,8 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 9, 10, 13:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.FieldOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.FieldOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -13756,76 +10707,29 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		var iv int64
 		var bv bool
-		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FieldOptions: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldOptionsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldOptionsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldOptionsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FieldOptions")
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.FieldOptions: invalid boolean " + tok.String())
-			}
-		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FieldOptions: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			bv, err = descriptorParseBool(tok, "google.protobuf.FieldOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
-			var ev FieldOptions_CType
-			switch class {
-			case descriptorClassString:
-				n, ok := FieldOptions_CType_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.CType: " + strconv.Quote(sv))
-				}
-				ev = FieldOptions_CType(n)
-			case descriptorClassSigned:
-				ev = FieldOptions_CType(iv)
+			ev, err := descriptorParseEnum[FieldOptions_CType](class, tok, iv, FieldOptions_CType_value, "google.protobuf.FieldOptions", "google.protobuf.FieldOptions.CType")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Ctype = &x
@@ -13833,16 +10737,9 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			x := bv
 			m.Packed = &x
 		case 2:
-			var ev FieldOptions_JSType
-			switch class {
-			case descriptorClassString:
-				n, ok := FieldOptions_JSType_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.JSType: " + strconv.Quote(sv))
-				}
-				ev = FieldOptions_JSType(n)
-			case descriptorClassSigned:
-				ev = FieldOptions_JSType(iv)
+			ev, err := descriptorParseEnum[FieldOptions_JSType](class, tok, iv, FieldOptions_JSType_value, "google.protobuf.FieldOptions", "google.protobuf.FieldOptions.JSType")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Jstype = &x
@@ -13862,30 +10759,16 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			x := bv
 			m.DebugRedact = &x
 		case 8:
-			var ev FieldOptions_OptionRetention
-			switch class {
-			case descriptorClassString:
-				n, ok := FieldOptions_OptionRetention_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.OptionRetention: " + strconv.Quote(sv))
-				}
-				ev = FieldOptions_OptionRetention(n)
-			case descriptorClassSigned:
-				ev = FieldOptions_OptionRetention(iv)
+			ev, err := descriptorParseEnum[FieldOptions_OptionRetention](class, tok, iv, FieldOptions_OptionRetention_value, "google.protobuf.FieldOptions", "google.protobuf.FieldOptions.OptionRetention")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Retention = &x
 		case 9:
-			var ev FieldOptions_OptionTargetType
-			switch class {
-			case descriptorClassString:
-				n, ok := FieldOptions_OptionTargetType_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions: invalid value for enum google.protobuf.FieldOptions.OptionTargetType: " + strconv.Quote(sv))
-				}
-				ev = FieldOptions_OptionTargetType(n)
-			case descriptorClassSigned:
-				ev = FieldOptions_OptionTargetType(iv)
+			ev, err := descriptorParseEnum[FieldOptions_OptionTargetType](class, tok, iv, FieldOptions_OptionTargetType_value, "google.protobuf.FieldOptions", "google.protobuf.FieldOptions.OptionTargetType")
+			if err != nil {
+				return err
 			}
 			m.Targets = append(m.Targets, ev)
 		case 10:
@@ -13976,16 +10859,9 @@ func (m *FieldOptions_EditionDefault) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FieldOptions_EditionDefault) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -13996,36 +10872,19 @@ func (m *FieldOptions_EditionDefault) ProtoMarshalToSizedBuffer(b []byte) (int, 
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Edition != nil {
-		u = uint64(int64((*m.Edition)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Edition))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Value != nil {
 		i -= len((*m.Value))
 		copy(b[i:], (*m.Value))
-		u = uint64(len((*m.Value)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.Value))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -14057,12 +10916,10 @@ func (m *FieldOptions_EditionDefault) ProtoMergeDepth(b []byte, depth int) error
 		b = b[n:]
 		switch t {
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.Value = &v
@@ -14081,77 +10938,9 @@ func (m *FieldOptions_EditionDefault) ProtoMergeDepth(b []byte, depth int) error
 			m.Edition = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -14179,10 +10968,7 @@ func (m *FieldOptions_EditionDefault) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FieldOptions_EditionDefault) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -14195,13 +10981,7 @@ func (m *FieldOptions_EditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) 
 	b = append(b, '{')
 	if m.Edition != nil {
 		b = append(b, "\"edition\":"...)
-		if s, ok := Edition_name[int32((*m.Edition))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Edition)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Edition)), Edition_name)
 		b = append(b, ',')
 	}
 	if m.Value != nil {
@@ -14230,26 +11010,15 @@ func (m *FieldOptions_EditionDefault) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FieldOptions.EditionDefault")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FieldOptions_EditionDefault) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FieldOptions_EditionDefault{}
 	return m.ProtoMergeJSONFrom(d)
@@ -14259,16 +11028,9 @@ func (m *FieldOptions_EditionDefault) UnmarshalJSONFrom(d *jsontext.Decoder) err
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FieldOptions_EditionDefault) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FieldOptions.EditionDefault", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -14312,65 +11074,27 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSONFrom(d *jsontext.Decoder) er
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FieldOptions.EditionDefault")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.FieldOptions.EditionDefault")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FieldOptions.EditionDefault", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Edition = &x
@@ -14485,16 +11209,9 @@ func (m *FieldOptions_FeatureSupport) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FieldOptions_FeatureSupport) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -14505,7 +11222,6 @@ func (m *FieldOptions_FeatureSupport) ProtoMarshalToSizedBuffer(b []byte) (int, 
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -14513,66 +11229,26 @@ func (m *FieldOptions_FeatureSupport) ProtoMarshalToSizedBuffer(b []byte) (int, 
 	if m.RemovalError != nil {
 		i -= len((*m.RemovalError))
 		copy(b[i:], (*m.RemovalError))
-		u = uint64(len((*m.RemovalError)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.RemovalError))))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.EditionRemoved != nil {
-		u = uint64(int64((*m.EditionRemoved)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.EditionRemoved))))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.DeprecationWarning != nil {
 		i -= len((*m.DeprecationWarning))
 		copy(b[i:], (*m.DeprecationWarning))
-		u = uint64(len((*m.DeprecationWarning)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.DeprecationWarning))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.EditionDeprecated != nil {
-		u = uint64(int64((*m.EditionDeprecated)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.EditionDeprecated))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.EditionIntroduced != nil {
-		u = uint64(int64((*m.EditionIntroduced)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.EditionIntroduced))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -14630,12 +11306,10 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeDepth(b []byte, depth int) error
 			v := e
 			m.EditionDeprecated = &v
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.DeprecationWarning = &v
@@ -14653,88 +11327,18 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeDepth(b []byte, depth int) error
 			v := e
 			m.EditionRemoved = &v
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.RemovalError = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -14762,10 +11366,7 @@ func (m *FieldOptions_FeatureSupport) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FieldOptions_FeatureSupport) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -14778,24 +11379,12 @@ func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) 
 	b = append(b, '{')
 	if m.EditionIntroduced != nil {
 		b = append(b, "\"editionIntroduced\":"...)
-		if s, ok := Edition_name[int32((*m.EditionIntroduced))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.EditionIntroduced)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.EditionIntroduced)), Edition_name)
 		b = append(b, ',')
 	}
 	if m.EditionDeprecated != nil {
 		b = append(b, "\"editionDeprecated\":"...)
-		if s, ok := Edition_name[int32((*m.EditionDeprecated))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.EditionDeprecated)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.EditionDeprecated)), Edition_name)
 		b = append(b, ',')
 	}
 	if m.DeprecationWarning != nil {
@@ -14807,13 +11396,7 @@ func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) 
 	}
 	if m.EditionRemoved != nil {
 		b = append(b, "\"editionRemoved\":"...)
-		if s, ok := Edition_name[int32((*m.EditionRemoved))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.EditionRemoved)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.EditionRemoved)), Edition_name)
 		b = append(b, ',')
 	}
 	if m.RemovalError != nil {
@@ -14842,26 +11425,15 @@ func (m *FieldOptions_FeatureSupport) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FieldOptions.FeatureSupport")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FieldOptions_FeatureSupport) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FieldOptions_FeatureSupport{}
 	return m.ProtoMergeJSONFrom(d)
@@ -14871,16 +11443,9 @@ func (m *FieldOptions_FeatureSupport) UnmarshalJSONFrom(d *jsontext.Decoder) err
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FieldOptions_FeatureSupport) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FieldOptions.FeatureSupport", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: expected a JSON object")
 	}
 	var seen [5]bool
 	var f int
@@ -14930,79 +11495,34 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSONFrom(d *jsontext.Decoder) er
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FieldOptions.FeatureSupport")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.FieldOptions.FeatureSupport")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidEdition + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FieldOptions.FeatureSupport", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.EditionIntroduced = &x
 		case 1:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidEdition + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FieldOptions.FeatureSupport", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.EditionDeprecated = &x
@@ -15010,16 +11530,9 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSONFrom(d *jsontext.Decoder) er
 			x := sv
 			m.DeprecationWarning = &x
 		case 3:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidEdition + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FieldOptions.FeatureSupport", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.EditionRemoved = &x
@@ -15098,16 +11611,9 @@ func (m *OneofOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -15118,7 +11624,6 @@ func (m *OneofOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -15129,16 +11634,8 @@ func (m *OneofOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -15146,16 +11643,8 @@ func (m *OneofOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -15190,12 +11679,10 @@ func (m *OneofOptions) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -15205,12 +11692,10 @@ func (m *OneofOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -15219,77 +11704,9 @@ func (m *OneofOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -15331,10 +11748,7 @@ func (m *OneofOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -15385,26 +11799,15 @@ func (m *OneofOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *OneofOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.OneofOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.OneofOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *OneofOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = OneofOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -15417,16 +11820,9 @@ func (m *OneofOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *OneofOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.OneofOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.OneofOptions: expected a JSON object")
 	}
 	var seen [2]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -15464,12 +11860,8 @@ func (m *OneofOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 1:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.OneofOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.OneofOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -15624,16 +12016,9 @@ func (m *EnumOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -15644,7 +12029,6 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -15655,16 +12039,8 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -15672,16 +12048,8 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.DeprecatedLegacyJsonFieldConflicts != nil {
 		i--
@@ -15690,8 +12058,7 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -15700,8 +12067,7 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.AllowAlias != nil {
 		i--
@@ -15710,8 +12076,7 @@ func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -15770,12 +12135,10 @@ func (m *EnumOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.DeprecatedLegacyJsonFieldConflicts = &v
 		case 7<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -15785,12 +12148,10 @@ func (m *EnumOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -15799,77 +12160,9 @@ func (m *EnumOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -15911,10 +12204,7 @@ func (m *EnumOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -15992,26 +12282,15 @@ func (m *EnumOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *EnumOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.EnumOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *EnumOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = EnumOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -16024,16 +12303,9 @@ func (m *EnumOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *EnumOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.EnumOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.EnumOptions: expected a JSON object")
 	}
 	var seen [5]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -16077,12 +12349,8 @@ func (m *EnumOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 4:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.EnumOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.EnumOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -16107,20 +12375,16 @@ func (m *EnumOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var bv bool
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.EnumOptions: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.EnumOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -16265,16 +12529,9 @@ func (m *EnumValueOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -16285,7 +12542,6 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -16296,16 +12552,8 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.FeatureSupport != nil {
 		n, err := m.FeatureSupport.ProtoMarshalToSizedBuffer(b[:i])
@@ -16313,16 +12561,8 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.DebugRedact != nil {
 		i--
@@ -16331,8 +12571,7 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -16340,16 +12579,8 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -16358,8 +12589,7 @@ func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -16402,12 +12632,10 @@ func (m *EnumValueOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.Deprecated = &v
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -16425,12 +12653,10 @@ func (m *EnumValueOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.DebugRedact = &v
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.FeatureSupport == nil {
 				m.FeatureSupport = &FieldOptions_FeatureSupport{}
 			}
@@ -16440,12 +12666,10 @@ func (m *EnumValueOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -16454,77 +12678,9 @@ func (m *EnumValueOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -16566,10 +12722,7 @@ func (m *EnumValueOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -16645,26 +12798,15 @@ func (m *EnumValueOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.EnumValueOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.EnumValueOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *EnumValueOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = EnumValueOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -16677,16 +12819,9 @@ func (m *EnumValueOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *EnumValueOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.EnumValueOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON object")
 	}
 	var seen [5]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -16730,12 +12865,8 @@ func (m *EnumValueOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 4:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.EnumValueOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -16760,20 +12891,16 @@ func (m *EnumValueOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var bv bool
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.EnumValueOptions: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.EnumValueOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -16894,16 +13021,9 @@ func (m *ServiceOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -16914,7 +13034,6 @@ func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -16925,16 +13044,8 @@ func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -16942,16 +13053,8 @@ func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 34<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 34<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -16960,8 +13063,7 @@ func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 33<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 33<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -17004,12 +13106,10 @@ func (m *ServiceOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := x != 0
 			m.Deprecated = &v
 		case 34<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -17019,12 +13119,10 @@ func (m *ServiceOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -17033,77 +13131,9 @@ func (m *ServiceOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -17145,10 +13175,7 @@ func (m *ServiceOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -17208,26 +13235,15 @@ func (m *ServiceOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *ServiceOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.ServiceOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.ServiceOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *ServiceOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = ServiceOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -17240,16 +13256,9 @@ func (m *ServiceOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *ServiceOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.ServiceOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON object")
 	}
 	var seen [3]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -17289,12 +13298,8 @@ func (m *ServiceOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 2:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.ServiceOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -17319,20 +13324,16 @@ func (m *ServiceOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var bv bool
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.ServiceOptions: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.ServiceOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -17455,16 +13456,9 @@ func (m *MethodOptions) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -17475,7 +13469,6 @@ func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -17486,16 +13479,8 @@ func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 999<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 999<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Features != nil {
 		n, err := m.Features.ProtoMarshalToSizedBuffer(b[:i])
@@ -17503,28 +13488,12 @@ func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 35<<descriptorTagTypeBits|descriptorWireBytes)
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 35<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.IdempotencyLevel != nil {
-		u = uint64(int64((*m.IdempotencyLevel)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 34<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, uint64(int64((*m.IdempotencyLevel))))
+		i = descriptorPutVarint(b, i, 34<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Deprecated != nil {
 		i--
@@ -17533,8 +13502,7 @@ func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		} else {
 			b[i] = 0
 		}
-		i -= 2
-		binary.PutUvarint(b[i:], 33<<descriptorTagTypeBits|descriptorWireVarint)
+		i = descriptorPutVarint(b, i, 33<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -17590,12 +13558,10 @@ func (m *MethodOptions) ProtoMergeDepth(b []byte, depth int) error {
 			v := e
 			m.IdempotencyLevel = &v
 		case 35<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
@@ -17605,12 +13571,10 @@ func (m *MethodOptions) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 999<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption{}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -17619,77 +13583,9 @@ func (m *MethodOptions) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -17731,10 +13627,7 @@ func (m *MethodOptions) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -17756,13 +13649,7 @@ func (m *MethodOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.IdempotencyLevel != nil {
 		b = append(b, "\"idempotencyLevel\":"...)
-		if s, ok := MethodOptions_IdempotencyLevel_name[int32((*m.IdempotencyLevel))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.IdempotencyLevel)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.IdempotencyLevel)), MethodOptions_IdempotencyLevel_name)
 		b = append(b, ',')
 	}
 	if m.Features != nil {
@@ -17805,26 +13692,15 @@ func (m *MethodOptions) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.MethodOptions: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.MethodOptions")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *MethodOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = MethodOptions{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -17837,16 +13713,9 @@ func (m *MethodOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *MethodOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.MethodOptions", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.MethodOptions: expected a JSON object")
 	}
 	var seen [4]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -17888,12 +13757,8 @@ func (m *MethodOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 3:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.MethodOptions", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.MethodOptions: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -17920,79 +13785,32 @@ func (m *MethodOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		var iv int64
 		var bv bool
-		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.MethodOptions: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorMethodOptionsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorMethodOptionsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorMethodOptionsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.MethodOptions")
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.MethodOptions: invalid boolean " + tok.String())
-			}
-		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.MethodOptions: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			bv, err = descriptorParseBool(tok, "google.protobuf.MethodOptions")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
 			x := bv
 			m.Deprecated = &x
 		case 1:
-			var ev MethodOptions_IdempotencyLevel
-			switch class {
-			case descriptorClassString:
-				n, ok := MethodOptions_IdempotencyLevel_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.MethodOptions: invalid value for enum google.protobuf.MethodOptions.IdempotencyLevel: " + strconv.Quote(sv))
-				}
-				ev = MethodOptions_IdempotencyLevel(n)
-			case descriptorClassSigned:
-				ev = MethodOptions_IdempotencyLevel(iv)
+			ev, err := descriptorParseEnum[MethodOptions_IdempotencyLevel](class, tok, iv, MethodOptions_IdempotencyLevel_value, "google.protobuf.MethodOptions", "google.protobuf.MethodOptions.IdempotencyLevel")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.IdempotencyLevel = &x
@@ -18138,16 +13956,9 @@ func (m *UninterpretedOption) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -18158,7 +13969,6 @@ func (m *UninterpretedOption) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -18166,74 +13976,33 @@ func (m *UninterpretedOption) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	if m.AggregateValue != nil {
 		i -= len((*m.AggregateValue))
 		copy(b[i:], (*m.AggregateValue))
-		u = uint64(len((*m.AggregateValue)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.AggregateValue))))
+		i = descriptorPutVarint(b, i, 8<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.StringValue != nil {
 		i -= len(m.StringValue)
 		copy(b[i:], m.StringValue)
-		u = uint64(len(m.StringValue))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len(m.StringValue)))
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.DoubleValue != nil {
 		i -= descriptorFixed64Size
 		binary.LittleEndian.PutUint64(b[i:], math.Float64bits((*m.DoubleValue)))
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireFixed64
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireFixed64)
 	}
 	if m.NegativeIntValue != nil {
-		u = uint64((*m.NegativeIntValue))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64((*m.NegativeIntValue)))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.PositiveIntValue != nil {
-		u = (*m.PositiveIntValue)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, (*m.PositiveIntValue))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.IdentifierValue != nil {
 		i -= len((*m.IdentifierValue))
 		copy(b[i:], (*m.IdentifierValue))
-		u = uint64(len((*m.IdentifierValue)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.IdentifierValue))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	for _, v := range slices.Backward(m.Name) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -18241,16 +14010,8 @@ func (m *UninterpretedOption) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -18285,12 +14046,10 @@ func (m *UninterpretedOption) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &UninterpretedOption_NamePart{}
 			m.Name = append(m.Name, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -18298,12 +14057,10 @@ func (m *UninterpretedOption) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.IdentifierValue = &v
@@ -18332,97 +14089,25 @@ func (m *UninterpretedOption) ProtoMergeDepth(b []byte, depth int) error {
 			v := math.Float64frombits(x)
 			m.DoubleValue = &v
 		case 7<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.StringValue = append([]byte{}, x...)
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.AggregateValue = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -18464,10 +14149,7 @@ func (m *UninterpretedOption) MarshalJSONTo(e *jsontext.Encoder) error {
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -18560,26 +14242,15 @@ func (m *UninterpretedOption) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.UninterpretedOption: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.UninterpretedOption")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *UninterpretedOption) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = UninterpretedOption{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -18592,16 +14263,9 @@ func (m *UninterpretedOption) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *UninterpretedOption) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.UninterpretedOption", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON object")
 	}
 	var seen [7]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -18649,12 +14313,8 @@ func (m *UninterpretedOption) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.UninterpretedOption", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -18692,92 +14352,24 @@ func (m *UninterpretedOption) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var by []byte
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
-		case descriptorClassSigned, descriptorClassUnsigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New(descriptorUninterpretedOptionErrInvalidNumber + s)
-			}
-			var err error
-			if class == descriptorClassSigned {
-				iv, err = strconv.ParseInt(s, 10, bits)
-			} else {
-				uv, err = strconv.ParseUint(s, 10, bits)
-			}
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if class == descriptorClassSigned {
-					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
-					}
-					iv = n.Int64()
-				} else {
-					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
-					}
-					uv = n.Uint64()
-				}
-			}
+		case descriptorClassSigned:
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.UninterpretedOption")
+		case descriptorClassUnsigned:
+			uv, err = descriptorParseUint(tok, bits, "google.protobuf.UninterpretedOption")
 		case descriptorClassFloat:
-			s := tok.String()
-			special := false
-			if tok.Kind() == jsontext.KindString {
-				switch s {
-				case "NaN":
-					fv, special = math.NaN(), true
-				case "Infinity":
-					fv, special = math.Inf(1), true
-				case "-Infinity":
-					fv, special = math.Inf(-1), true
-				}
-			}
-			if !special {
-				if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + s)
-				}
-				var err error
-				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + s)
-				}
-			}
+			fv, err = descriptorParseFloat(tok, bits, "google.protobuf.UninterpretedOption")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.UninterpretedOption: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.UninterpretedOption")
 		case descriptorClassBytes:
-			s := tok.String()
-			if tok.Kind() != jsontext.KindString {
-				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + s)
-			}
-			// Accept standard and URL-safe alphabets, with or without padding.
-			enc := base64.StdEncoding
-			if strings.ContainsAny(s, "-_") {
-				enc = base64.URLEncoding
-			}
-			if len(s)%descriptorBase64Quantum != 0 {
-				enc = enc.WithPadding(base64.NoPadding)
-			}
-			var err error
-			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + s)
-			}
+			by, err = descriptorParseBytes(tok, "google.protobuf.UninterpretedOption")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -18873,16 +14465,9 @@ func (m *UninterpretedOption_NamePart) AppendBinary(b []byte) ([]byte, error) {
 		return b, err
 	}
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -18893,7 +14478,6 @@ func (m *UninterpretedOption_NamePart) ProtoMarshalToSizedBuffer(b []byte) (int,
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -18905,22 +14489,13 @@ func (m *UninterpretedOption_NamePart) ProtoMarshalToSizedBuffer(b []byte) (int,
 		} else {
 			b[i] = 0
 		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.NamePart != nil {
 		i -= len((*m.NamePart))
 		copy(b[i:], (*m.NamePart))
-		u = uint64(len((*m.NamePart)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.NamePart))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -18955,12 +14530,10 @@ func (m *UninterpretedOption_NamePart) ProtoMergeDepth(b []byte, depth int) erro
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.NamePart = &v
@@ -18974,77 +14547,9 @@ func (m *UninterpretedOption_NamePart) ProtoMergeDepth(b []byte, depth int) erro
 			m.IsExtension = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -19087,10 +14592,7 @@ func (m *UninterpretedOption_NamePart) MarshalJSONTo(e *jsontext.Encoder) error 
 		return err
 	}
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -19139,26 +14641,15 @@ func (m *UninterpretedOption_NamePart) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.UninterpretedOption.NamePart")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *UninterpretedOption_NamePart) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = UninterpretedOption_NamePart{}
 	if err := m.ProtoMergeJSONFrom(d); err != nil {
@@ -19171,16 +14662,9 @@ func (m *UninterpretedOption_NamePart) UnmarshalJSONFrom(d *jsontext.Decoder) er
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *UninterpretedOption_NamePart) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.UninterpretedOption.NamePart", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: expected a JSON object")
 	}
 	var seen [2]bool
 	var f int
@@ -19223,25 +14707,18 @@ func (m *UninterpretedOption_NamePart) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassBool:
-			switch tok.Kind() {
-			case jsontext.KindTrue:
-				bv = true
-			case jsontext.KindFalse:
-			default:
-				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid boolean " + tok.String())
-			}
+			bv, err = descriptorParseBool(tok, "google.protobuf.UninterpretedOption.NamePart")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.UninterpretedOption.NamePart")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -19395,16 +14872,9 @@ func (m *FeatureSet) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FeatureSet) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -19415,118 +14885,45 @@ func (m *FeatureSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.EnforceProtoLimits != nil {
-		u = uint64(int64((*m.EnforceProtoLimits)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 9<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.EnforceProtoLimits))))
+		i = descriptorPutVarint(b, i, 9<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.DefaultSymbolVisibility != nil {
-		u = uint64(int64((*m.DefaultSymbolVisibility)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.DefaultSymbolVisibility))))
+		i = descriptorPutVarint(b, i, 8<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.EnforceNamingStyle != nil {
-		u = uint64(int64((*m.EnforceNamingStyle)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.EnforceNamingStyle))))
+		i = descriptorPutVarint(b, i, 7<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.JsonFormat != nil {
-		u = uint64(int64((*m.JsonFormat)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.JsonFormat))))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.MessageEncoding != nil {
-		u = uint64(int64((*m.MessageEncoding)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.MessageEncoding))))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Utf8Validation != nil {
-		u = uint64(int64((*m.Utf8Validation)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Utf8Validation))))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.RepeatedFieldEncoding != nil {
-		u = uint64(int64((*m.RepeatedFieldEncoding)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.RepeatedFieldEncoding))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.EnumType != nil {
-		u = uint64(int64((*m.EnumType)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.EnumType))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.FieldPresence != nil {
-		u = uint64(int64((*m.FieldPresence)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.FieldPresence))))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -19676,77 +15073,9 @@ func (m *FeatureSet) ProtoMergeDepth(b []byte, depth int) error {
 			m.EnforceProtoLimits = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -19774,10 +15103,7 @@ func (m *FeatureSet) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FeatureSet) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -19789,101 +15115,47 @@ func (m *FeatureSet) ProtoAppendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
 	if m.FieldPresence != nil {
 		b = append(b, "\"fieldPresence\":"...)
-		if s, ok := FeatureSet_FieldPresence_name[int32((*m.FieldPresence))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.FieldPresence)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.FieldPresence)), FeatureSet_FieldPresence_name)
 		b = append(b, ',')
 	}
 	if m.EnumType != nil {
 		b = append(b, "\"enumType\":"...)
-		if s, ok := FeatureSet_EnumType_name[int32((*m.EnumType))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.EnumType)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.EnumType)), FeatureSet_EnumType_name)
 		b = append(b, ',')
 	}
 	if m.RepeatedFieldEncoding != nil {
 		b = append(b, "\"repeatedFieldEncoding\":"...)
-		if s, ok := FeatureSet_RepeatedFieldEncoding_name[int32((*m.RepeatedFieldEncoding))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.RepeatedFieldEncoding)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.RepeatedFieldEncoding)), FeatureSet_RepeatedFieldEncoding_name)
 		b = append(b, ',')
 	}
 	if m.Utf8Validation != nil {
 		b = append(b, "\"utf8Validation\":"...)
-		if s, ok := FeatureSet_Utf8Validation_name[int32((*m.Utf8Validation))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Utf8Validation)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Utf8Validation)), FeatureSet_Utf8Validation_name)
 		b = append(b, ',')
 	}
 	if m.MessageEncoding != nil {
 		b = append(b, "\"messageEncoding\":"...)
-		if s, ok := FeatureSet_MessageEncoding_name[int32((*m.MessageEncoding))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.MessageEncoding)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.MessageEncoding)), FeatureSet_MessageEncoding_name)
 		b = append(b, ',')
 	}
 	if m.JsonFormat != nil {
 		b = append(b, "\"jsonFormat\":"...)
-		if s, ok := FeatureSet_JsonFormat_name[int32((*m.JsonFormat))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.JsonFormat)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.JsonFormat)), FeatureSet_JsonFormat_name)
 		b = append(b, ',')
 	}
 	if m.EnforceNamingStyle != nil {
 		b = append(b, "\"enforceNamingStyle\":"...)
-		if s, ok := FeatureSet_EnforceNamingStyle_name[int32((*m.EnforceNamingStyle))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.EnforceNamingStyle)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.EnforceNamingStyle)), FeatureSet_EnforceNamingStyle_name)
 		b = append(b, ',')
 	}
 	if m.DefaultSymbolVisibility != nil {
 		b = append(b, "\"defaultSymbolVisibility\":"...)
-		if s, ok := FeatureSet_VisibilityFeature_DefaultSymbolVisibility_name[int32((*m.DefaultSymbolVisibility))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.DefaultSymbolVisibility)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.DefaultSymbolVisibility)), FeatureSet_VisibilityFeature_DefaultSymbolVisibility_name)
 		b = append(b, ',')
 	}
 	if m.EnforceProtoLimits != nil {
 		b = append(b, "\"enforceProtoLimits\":"...)
-		if s, ok := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_name[int32((*m.EnforceProtoLimits))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.EnforceProtoLimits)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.EnforceProtoLimits)), FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -19905,26 +15177,15 @@ func (m *FeatureSet) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSet: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FeatureSet")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FeatureSet) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FeatureSet{}
 	return m.ProtoMergeJSONFrom(d)
@@ -19934,16 +15195,9 @@ func (m *FeatureSet) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FeatureSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FeatureSet", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FeatureSet: expected a JSON object")
 	}
 	var seen [9]bool
 	var f int
@@ -19996,180 +15250,83 @@ func (m *FeatureSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			class = descriptorClassEnum
 		}
 		var iv int64
-		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FeatureSet: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFeatureSetErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFeatureSetErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFeatureSetErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
-		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FeatureSet: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FeatureSet")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
-			var ev FeatureSet_FieldPresence
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_FieldPresence_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.FieldPresence: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_FieldPresence(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_FieldPresence(iv)
+			ev, err := descriptorParseEnum[FeatureSet_FieldPresence](class, tok, iv, FeatureSet_FieldPresence_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.FieldPresence")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.FieldPresence = &x
 		case 1:
-			var ev FeatureSet_EnumType
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_EnumType_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.EnumType: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_EnumType(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_EnumType(iv)
+			ev, err := descriptorParseEnum[FeatureSet_EnumType](class, tok, iv, FeatureSet_EnumType_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.EnumType")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.EnumType = &x
 		case 2:
-			var ev FeatureSet_RepeatedFieldEncoding
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_RepeatedFieldEncoding_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.RepeatedFieldEncoding: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_RepeatedFieldEncoding(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_RepeatedFieldEncoding(iv)
+			ev, err := descriptorParseEnum[FeatureSet_RepeatedFieldEncoding](class, tok, iv, FeatureSet_RepeatedFieldEncoding_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.RepeatedFieldEncoding")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.RepeatedFieldEncoding = &x
 		case 3:
-			var ev FeatureSet_Utf8Validation
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_Utf8Validation_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.Utf8Validation: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_Utf8Validation(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_Utf8Validation(iv)
+			ev, err := descriptorParseEnum[FeatureSet_Utf8Validation](class, tok, iv, FeatureSet_Utf8Validation_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.Utf8Validation")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Utf8Validation = &x
 		case 4:
-			var ev FeatureSet_MessageEncoding
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_MessageEncoding_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.MessageEncoding: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_MessageEncoding(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_MessageEncoding(iv)
+			ev, err := descriptorParseEnum[FeatureSet_MessageEncoding](class, tok, iv, FeatureSet_MessageEncoding_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.MessageEncoding")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.MessageEncoding = &x
 		case 5:
-			var ev FeatureSet_JsonFormat
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_JsonFormat_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.JsonFormat: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_JsonFormat(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_JsonFormat(iv)
+			ev, err := descriptorParseEnum[FeatureSet_JsonFormat](class, tok, iv, FeatureSet_JsonFormat_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.JsonFormat")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.JsonFormat = &x
 		case 6:
-			var ev FeatureSet_EnforceNamingStyle
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_EnforceNamingStyle_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.EnforceNamingStyle: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_EnforceNamingStyle(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_EnforceNamingStyle(iv)
+			ev, err := descriptorParseEnum[FeatureSet_EnforceNamingStyle](class, tok, iv, FeatureSet_EnforceNamingStyle_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.EnforceNamingStyle")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.EnforceNamingStyle = &x
 		case 7:
-			var ev FeatureSet_VisibilityFeature_DefaultSymbolVisibility
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_VisibilityFeature_DefaultSymbolVisibility_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_VisibilityFeature_DefaultSymbolVisibility(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_VisibilityFeature_DefaultSymbolVisibility(iv)
+			ev, err := descriptorParseEnum[FeatureSet_VisibilityFeature_DefaultSymbolVisibility](class, tok, iv, FeatureSet_VisibilityFeature_DefaultSymbolVisibility_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.DefaultSymbolVisibility = &x
 		case 8:
-			var ev FeatureSet_ProtoLimitsFeature_EnforceProtoLimits
-			switch class {
-			case descriptorClassString:
-				n, ok := FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSet: invalid value for enum google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits: " + strconv.Quote(sv))
-				}
-				ev = FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(n)
-			case descriptorClassSigned:
-				ev = FeatureSet_ProtoLimitsFeature_EnforceProtoLimits(iv)
+			ev, err := descriptorParseEnum[FeatureSet_ProtoLimitsFeature_EnforceProtoLimits](class, tok, iv, FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_value, "google.protobuf.FeatureSet", "google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.EnforceProtoLimits = &x
@@ -20212,16 +15369,9 @@ func (m *FeatureSet_VisibilityFeature) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FeatureSet_VisibilityFeature) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -20265,77 +15415,9 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeDepth(b []byte, depth int) erro
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
-		num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-		switch typ {
-		case descriptorWireVarint:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-		case descriptorWireFixed64:
-			if len(b) < descriptorFixed64Size {
-				goto errParse
-			}
-			n = descriptorFixed64Size
-		case descriptorWireBytes:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case descriptorWireStartGroup:
-			var stk [descriptorSkipStackSize]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > descriptorMaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & descriptorTagTypeMask {
-				case descriptorWireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case descriptorWireFixed64:
-					k = descriptorFixed64Size
-				case descriptorWireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case descriptorWireStartGroup:
-					open = append(open, int32(t>>descriptorTagTypeBits))
-					k = 0
-				case descriptorWireEndGroup:
-					if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case descriptorWireFixed32:
-					k = descriptorFixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case descriptorWireFixed32:
-			if len(b) < descriptorFixed32Size {
-				goto errParse
-			}
-			n = descriptorFixed32Size
-		default:
-			goto errParse
+		n, err := descriptorSkipField(b, t, depth)
+		if err != nil {
+			return err
 		}
 		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 		b = b[n:]
@@ -20362,10 +15444,7 @@ func (m *FeatureSet_VisibilityFeature) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FeatureSet_VisibilityFeature) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -20394,26 +15473,15 @@ func (m *FeatureSet_VisibilityFeature) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FeatureSet_VisibilityFeature) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FeatureSet.VisibilityFeature")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FeatureSet_VisibilityFeature) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FeatureSet_VisibilityFeature{}
 	return m.ProtoMergeJSONFrom(d)
@@ -20423,16 +15491,9 @@ func (m *FeatureSet_VisibilityFeature) UnmarshalJSONFrom(d *jsontext.Decoder) er
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FeatureSet_VisibilityFeature) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FeatureSet.VisibilityFeature", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: expected a JSON object")
 	}
 	if d.PeekKind() != jsontext.KindEndObject {
 		kt, err := d.ReadToken()
@@ -20478,16 +15539,9 @@ func (m *FeatureSet_ProtoLimitsFeature) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FeatureSet_ProtoLimitsFeature) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -20531,77 +15585,9 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeDepth(b []byte, depth int) err
 		start := b
 		b = b[n:]
 		// Unknown field, or a known field with an unexpected wire type.
-		num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-		switch typ {
-		case descriptorWireVarint:
-			_, n = binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-		case descriptorWireFixed64:
-			if len(b) < descriptorFixed64Size {
-				goto errParse
-			}
-			n = descriptorFixed64Size
-		case descriptorWireBytes:
-			ln, k := binary.Uvarint(b)
-			if k <= 0 || ln > uint64(len(b)-k) {
-				goto errParse
-			}
-			n = k + int(ln)
-		case descriptorWireStartGroup:
-			var stk [descriptorSkipStackSize]int32
-			open := append(stk[:0], num)
-			n = 0
-			for len(open) > 0 {
-				if depth+len(open) > descriptorMaxDepth {
-					goto errDepth
-				}
-				t, k := binary.Uvarint(b[n:])
-				if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-					goto errParse
-				}
-				n += k
-				switch t & descriptorTagTypeMask {
-				case descriptorWireVarint:
-					_, k = binary.Uvarint(b[n:])
-					if k <= 0 {
-						goto errParse
-					}
-				case descriptorWireFixed64:
-					k = descriptorFixed64Size
-				case descriptorWireBytes:
-					ln, k2 := binary.Uvarint(b[n:])
-					if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-						goto errParse
-					}
-					k = k2 + int(ln)
-				case descriptorWireStartGroup:
-					open = append(open, int32(t>>descriptorTagTypeBits))
-					k = 0
-				case descriptorWireEndGroup:
-					if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-						goto errParse
-					}
-					open = open[:len(open)-1]
-					k = 0
-				case descriptorWireFixed32:
-					k = descriptorFixed32Size
-				default:
-					goto errParse
-				}
-				if k > len(b)-n {
-					goto errParse
-				}
-				n += k
-			}
-		case descriptorWireFixed32:
-			if len(b) < descriptorFixed32Size {
-				goto errParse
-			}
-			n = descriptorFixed32Size
-		default:
-			goto errParse
+		n, err := descriptorSkipField(b, t, depth)
+		if err != nil {
+			return err
 		}
 		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 		b = b[n:]
@@ -20628,10 +15614,7 @@ func (m *FeatureSet_ProtoLimitsFeature) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FeatureSet_ProtoLimitsFeature) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -20660,26 +15643,15 @@ func (m *FeatureSet_ProtoLimitsFeature) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FeatureSet.ProtoLimitsFeature")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FeatureSet_ProtoLimitsFeature) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FeatureSet_ProtoLimitsFeature{}
 	return m.ProtoMergeJSONFrom(d)
@@ -20689,16 +15661,9 @@ func (m *FeatureSet_ProtoLimitsFeature) UnmarshalJSONFrom(d *jsontext.Decoder) e
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FeatureSet.ProtoLimitsFeature", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: expected a JSON object")
 	}
 	if d.PeekKind() != jsontext.KindEndObject {
 		kt, err := d.ReadToken()
@@ -20787,16 +15752,9 @@ func (m *FeatureSetDefaults) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FeatureSetDefaults) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -20807,34 +15765,17 @@ func (m *FeatureSetDefaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.MaximumEdition != nil {
-		u = uint64(int64((*m.MaximumEdition)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.MaximumEdition))))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.MinimumEdition != nil {
-		u = uint64(int64((*m.MinimumEdition)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.MinimumEdition))))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	for _, v := range slices.Backward(m.Defaults) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -20842,16 +15783,8 @@ func (m *FeatureSetDefaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -20883,12 +15816,10 @@ func (m *FeatureSetDefaults) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &FeatureSetDefaults_FeatureSetEditionDefault{}
 			m.Defaults = append(m.Defaults, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -20923,77 +15854,9 @@ func (m *FeatureSetDefaults) ProtoMergeDepth(b []byte, depth int) error {
 			m.MaximumEdition = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -21021,10 +15884,7 @@ func (m *FeatureSetDefaults) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FeatureSetDefaults) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -21048,24 +15908,12 @@ func (m *FeatureSetDefaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.MinimumEdition != nil {
 		b = append(b, "\"minimumEdition\":"...)
-		if s, ok := Edition_name[int32((*m.MinimumEdition))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.MinimumEdition)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.MinimumEdition)), Edition_name)
 		b = append(b, ',')
 	}
 	if m.MaximumEdition != nil {
 		b = append(b, "\"maximumEdition\":"...)
-		if s, ok := Edition_name[int32((*m.MaximumEdition))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.MaximumEdition)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.MaximumEdition)), Edition_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -21087,26 +15935,15 @@ func (m *FeatureSetDefaults) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FeatureSetDefaults")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FeatureSetDefaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FeatureSetDefaults{}
 	return m.ProtoMergeJSONFrom(d)
@@ -21116,16 +15953,9 @@ func (m *FeatureSetDefaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FeatureSetDefaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FeatureSetDefaults", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON object")
 	}
 	var seen [3]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -21165,12 +15995,8 @@ func (m *FeatureSetDefaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.FeatureSetDefaults", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -21194,55 +16020,21 @@ func (m *FeatureSetDefaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			class = descriptorClassEnum
 		}
 		var iv int64
-		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
-		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FeatureSetDefaults")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -21252,30 +16044,16 @@ func (m *FeatureSetDefaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.Defaults = append(m.Defaults, mv)
 		case 1:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New(descriptorFeatureSetDefaultsErrInvalidEdition + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FeatureSetDefaults", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.MinimumEdition = &x
 		case 2:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New(descriptorFeatureSetDefaultsErrInvalidEdition + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FeatureSetDefaults", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.MaximumEdition = &x
@@ -21362,16 +16140,9 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) MarshalBinary() ([]byte, e
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -21382,7 +16153,6 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMarshalToSizedBuffer(
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -21393,16 +16163,8 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMarshalToSizedBuffer(
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.OverridableFeatures != nil {
 		n, err := m.OverridableFeatures.ProtoMarshalToSizedBuffer(b[:i])
@@ -21410,28 +16172,12 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMarshalToSizedBuffer(
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.Edition != nil {
-		u = uint64(int64((*m.Edition)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Edition))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -21476,12 +16222,10 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeDepth(b []byte, 
 			v := e
 			m.Edition = &v
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.OverridableFeatures == nil {
 				m.OverridableFeatures = &FeatureSet{}
 			}
@@ -21491,12 +16235,10 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeDepth(b []byte, 
 			}
 			b = b[n:]
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.FixedFeatures == nil {
 				m.FixedFeatures = &FeatureSet{}
 			}
@@ -21507,77 +16249,9 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeDepth(b []byte, 
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -21605,10 +16279,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) MarshalJSON() ([]byte, err
 // json.MarshalerTo from encoding/json/v2.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -21621,13 +16292,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoAppendJSON(b []byte) 
 	b = append(b, '{')
 	if m.Edition != nil {
 		b = append(b, "\"edition\":"...)
-		if s, ok := Edition_name[int32((*m.Edition))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Edition)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Edition)), Edition_name)
 		b = append(b, ',')
 	}
 	if m.OverridableFeatures != nil {
@@ -21663,26 +16328,15 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) UnmarshalJSON(b []byte) er
 // It does not check required fields.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FeatureSetDefaults_FeatureSetEditionDefault{}
 	return m.ProtoMergeJSONFrom(d)
@@ -21692,16 +16346,9 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) UnmarshalJSONFrom(d *jsont
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: expected a JSON object")
 	}
 	var seen [3]bool
 	var f int
@@ -21742,68 +16389,27 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSONFrom(d *json
 			class = descriptorClassEnum
 		}
 		var iv int64
-		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
-		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
-			var ev Edition
-			switch class {
-			case descriptorClassString:
-				n, ok := Edition_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid value for enum google.protobuf.Edition: " + strconv.Quote(sv))
-				}
-				ev = Edition(n)
-			case descriptorClassSigned:
-				ev = Edition(iv)
+			ev, err := descriptorParseEnum[Edition](class, tok, iv, Edition_value, "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault", "google.protobuf.Edition")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Edition = &x
@@ -21918,16 +16524,9 @@ func (m *SourceCodeInfo) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *SourceCodeInfo) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -21938,7 +16537,6 @@ func (m *SourceCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -21949,16 +16547,8 @@ func (m *SourceCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -21990,12 +16580,10 @@ func (m *SourceCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &SourceCodeInfo_Location{}
 			m.Location = append(m.Location, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -22004,77 +16592,9 @@ func (m *SourceCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -22102,10 +16622,7 @@ func (m *SourceCodeInfo) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *SourceCodeInfo) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -22146,26 +16663,15 @@ func (m *SourceCodeInfo) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *SourceCodeInfo) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.SourceCodeInfo")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *SourceCodeInfo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = SourceCodeInfo{}
 	return m.ProtoMergeJSONFrom(d)
@@ -22175,16 +16681,9 @@ func (m *SourceCodeInfo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *SourceCodeInfo) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.SourceCodeInfo", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON object")
 	}
 	var seen [1]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -22220,12 +16719,8 @@ func (m *SourceCodeInfo) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.SourceCodeInfo", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -22441,16 +16936,9 @@ func (m *SourceCodeInfo_Location) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *SourceCodeInfo_Location) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -22461,7 +16949,6 @@ func (m *SourceCodeInfo_Location) ProtoMarshalToSizedBuffer(b []byte) (int, erro
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -22469,90 +16956,36 @@ func (m *SourceCodeInfo_Location) ProtoMarshalToSizedBuffer(b []byte) (int, erro
 	for _, v := range slices.Backward(m.LeadingDetachedComments) {
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len(v)))
+		i = descriptorPutVarint(b, i, 6<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.TrailingComments != nil {
 		i -= len((*m.TrailingComments))
 		copy(b[i:], (*m.TrailingComments))
-		u = uint64(len((*m.TrailingComments)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.TrailingComments))))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if m.LeadingComments != nil {
 		i -= len((*m.LeadingComments))
 		copy(b[i:], (*m.LeadingComments))
-		u = uint64(len((*m.LeadingComments)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.LeadingComments))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if len(m.Span) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.Span) {
-			u = uint64(int64(v))
-			if u < descriptorVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
+			i = descriptorPutVarint(b, i, uint64(int64(v)))
 		}
-		u = uint64(start - i)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(start-i))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if len(m.Path) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.Path) {
-			u = uint64(int64(v))
-			if u < descriptorVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
+			i = descriptorPutVarint(b, i, uint64(int64(v)))
 		}
-		u = uint64(start - i)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(start-i))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -22584,12 +17017,10 @@ func (m *SourceCodeInfo_Location) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -22607,12 +17038,10 @@ func (m *SourceCodeInfo_Location) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.Path = append(m.Path, int32(x))
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -22630,107 +17059,33 @@ func (m *SourceCodeInfo_Location) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.Span = append(m.Span, int32(x))
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.LeadingComments = &v
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.TrailingComments = &v
 		case 6<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			m.LeadingDetachedComments = append(m.LeadingDetachedComments, string(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -22758,10 +17113,7 @@ func (m *SourceCodeInfo_Location) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *SourceCodeInfo_Location) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -22834,26 +17186,15 @@ func (m *SourceCodeInfo_Location) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.SourceCodeInfo.Location")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *SourceCodeInfo_Location) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = SourceCodeInfo_Location{}
 	return m.ProtoMergeJSONFrom(d)
@@ -22863,16 +17204,9 @@ func (m *SourceCodeInfo_Location) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *SourceCodeInfo_Location) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.SourceCodeInfo.Location", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON object")
 	}
 	var seen [5]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -22916,12 +17250,8 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSONFrom(d *jsontext.Decoder) error 
 			}
 			switch f {
 			case 0, 1, 4:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.SourceCodeInfo.Location", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -22950,42 +17280,18 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSONFrom(d *jsontext.Decoder) error 
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.SourceCodeInfo.Location")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.SourceCodeInfo.Location")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -23057,16 +17363,9 @@ func (m *GeneratedCodeInfo) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *GeneratedCodeInfo) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -23077,7 +17376,6 @@ func (m *GeneratedCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -23088,16 +17386,8 @@ func (m *GeneratedCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(n))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -23129,12 +17419,10 @@ func (m *GeneratedCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &GeneratedCodeInfo_Annotation{}
 			m.Annotation = append(m.Annotation, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -23143,77 +17431,9 @@ func (m *GeneratedCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -23241,10 +17461,7 @@ func (m *GeneratedCodeInfo) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *GeneratedCodeInfo) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -23285,26 +17502,15 @@ func (m *GeneratedCodeInfo) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *GeneratedCodeInfo) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.GeneratedCodeInfo")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *GeneratedCodeInfo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = GeneratedCodeInfo{}
 	return m.ProtoMergeJSONFrom(d)
@@ -23314,16 +17520,9 @@ func (m *GeneratedCodeInfo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *GeneratedCodeInfo) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.GeneratedCodeInfo", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON object")
 	}
 	var seen [1]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -23359,12 +17558,8 @@ func (m *GeneratedCodeInfo) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 0:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.GeneratedCodeInfo", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -23492,16 +17687,9 @@ func (m *GeneratedCodeInfo_Annotation) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *GeneratedCodeInfo_Annotation) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(descriptorErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return descriptorAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -23512,83 +17700,35 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMarshalToSizedBuffer(b []byte) (int,
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if m.Semantic != nil {
-		u = uint64(int64((*m.Semantic)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Semantic))))
+		i = descriptorPutVarint(b, i, 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.End != nil {
-		u = uint64(int64((*m.End)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.End))))
+		i = descriptorPutVarint(b, i, 4<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.Begin != nil {
-		u = uint64(int64((*m.Begin)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<descriptorTagTypeBits | descriptorWireVarint
+		i = descriptorPutVarint(b, i, uint64(int64((*m.Begin))))
+		i = descriptorPutVarint(b, i, 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
 	if m.SourceFile != nil {
 		i -= len((*m.SourceFile))
 		copy(b[i:], (*m.SourceFile))
-		u = uint64(len((*m.SourceFile)))
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(len((*m.SourceFile))))
+		i = descriptorPutVarint(b, i, 2<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	if len(m.Path) > 0 {
 		start := i
 		for _, v := range slices.Backward(m.Path) {
-			u = uint64(int64(v))
-			if u < descriptorVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
+			i = descriptorPutVarint(b, i, uint64(int64(v)))
 		}
-		u = uint64(start - i)
-		if u < descriptorVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<descriptorTagTypeBits | descriptorWireBytes
+		i = descriptorPutVarint(b, i, uint64(start-i))
+		i = descriptorPutVarint(b, i, 1<<descriptorTagTypeBits|descriptorWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -23620,12 +17760,10 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeDepth(b []byte, depth int) erro
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			for len(v) > 0 {
 				x, n := binary.Uvarint(v)
@@ -23643,12 +17781,10 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeDepth(b []byte, depth int) erro
 			b = b[n:]
 			m.Path = append(m.Path, int32(x))
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := descriptorReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			b = b[n:]
 			v := string(x)
 			m.SourceFile = &v
@@ -23683,77 +17819,9 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeDepth(b []byte, depth int) erro
 			m.Semantic = &v
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>descriptorTagTypeBits), t&descriptorTagTypeMask
-			switch typ {
-			case descriptorWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case descriptorWireFixed64:
-				if len(b) < descriptorFixed64Size {
-					goto errParse
-				}
-				n = descriptorFixed64Size
-			case descriptorWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case descriptorWireStartGroup:
-				var stk [descriptorSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > descriptorMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & descriptorTagTypeMask {
-					case descriptorWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case descriptorWireFixed64:
-						k = descriptorFixed64Size
-					case descriptorWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case descriptorWireStartGroup:
-						open = append(open, int32(t>>descriptorTagTypeBits))
-						k = 0
-					case descriptorWireEndGroup:
-						if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case descriptorWireFixed32:
-						k = descriptorFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case descriptorWireFixed32:
-				if len(b) < descriptorFixed32Size {
-					goto errParse
-				}
-				n = descriptorFixed32Size
-			default:
-				goto errParse
+			n, err := descriptorSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -23781,10 +17849,7 @@ func (m *GeneratedCodeInfo_Annotation) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *GeneratedCodeInfo_Annotation) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return descriptorWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -23823,13 +17888,7 @@ func (m *GeneratedCodeInfo_Annotation) ProtoAppendJSON(b []byte) ([]byte, error)
 	}
 	if m.Semantic != nil {
 		b = append(b, "\"semantic\":"...)
-		if s, ok := GeneratedCodeInfo_Annotation_Semantic_name[int32((*m.Semantic))]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64((*m.Semantic)), 10)
-		}
+		b = descriptorAppendEnum(b, int32((*m.Semantic)), GeneratedCodeInfo_Annotation_Semantic_name)
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -23851,26 +17910,15 @@ func (m *GeneratedCodeInfo_Annotation) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value")
-	}
-	return nil
+	return descriptorEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.GeneratedCodeInfo.Annotation")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *GeneratedCodeInfo_Annotation) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := descriptorStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = GeneratedCodeInfo_Annotation{}
 	return m.ProtoMergeJSONFrom(d)
@@ -23880,16 +17928,9 @@ func (m *GeneratedCodeInfo_Annotation) UnmarshalJSONFrom(d *jsontext.Decoder) er
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := descriptorOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.GeneratedCodeInfo.Annotation", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON object")
 	}
 	var seen [5]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -23933,12 +17974,8 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 			}
 			switch f {
 			case 0:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := descriptorExpectJSON(d, jsontext.KindBeginArray, "google.protobuf.GeneratedCodeInfo.Annotation", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
@@ -23969,52 +18006,21 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 		var sv string
 		var tok jsontext.Token
 		if class != descriptorClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == descriptorClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = descriptorClassNone
-				case jsontext.KindString:
-					class = descriptorClassString
-				default:
-					class, bits = descriptorClassSigned, 32
-				}
+				class, bits = descriptorEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = descriptorParseInt(tok, bits, "google.protobuf.GeneratedCodeInfo.Annotation")
 		case descriptorClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = descriptorParseString(tok, "google.protobuf.GeneratedCodeInfo.Annotation")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -24029,16 +18035,9 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 			x := int32(iv)
 			m.End = &x
 		case 4:
-			var ev GeneratedCodeInfo_Annotation_Semantic
-			switch class {
-			case descriptorClassString:
-				n, ok := GeneratedCodeInfo_Annotation_Semantic_value[sv]
-				if !ok {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid value for enum google.protobuf.GeneratedCodeInfo.Annotation.Semantic: " + strconv.Quote(sv))
-				}
-				ev = GeneratedCodeInfo_Annotation_Semantic(n)
-			case descriptorClassSigned:
-				ev = GeneratedCodeInfo_Annotation_Semantic(iv)
+			ev, err := descriptorParseEnum[GeneratedCodeInfo_Annotation_Semantic](class, tok, iv, GeneratedCodeInfo_Annotation_Semantic_value, "google.protobuf.GeneratedCodeInfo.Annotation", "google.protobuf.GeneratedCodeInfo.Annotation.Semantic")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.Semantic = &x
@@ -24046,4 +18045,326 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 	}
 	_, err = d.ReadToken()
 	return err
+}
+
+// descriptorPutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func descriptorPutVarint(b []byte, i int, u uint64) int {
+	if u < descriptorVarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + descriptorVarintPayloadBits - 1) / descriptorVarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// descriptorReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func descriptorReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// descriptorSkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func descriptorSkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & descriptorTagTypeMask {
+	case descriptorWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case descriptorWireFixed64:
+		if len(b) >= descriptorFixed64Size {
+			return descriptorFixed64Size, nil
+		}
+	case descriptorWireBytes:
+		if _, n := descriptorReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case descriptorWireStartGroup:
+		return descriptorSkipGroup(b, int32(t>>descriptorTagTypeBits), depth)
+	case descriptorWireFixed32:
+		if len(b) >= descriptorFixed32Size {
+			return descriptorFixed32Size, nil
+		}
+	}
+	return 0, errors.New(descriptorErrParse)
+}
+
+// descriptorSkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func descriptorSkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [descriptorSkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > descriptorMaxDepth {
+			return 0, errors.New(descriptorErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>descriptorTagTypeBits == 0 || t>>descriptorTagTypeBits > descriptorMaxFieldNumber {
+			return 0, errors.New(descriptorErrParse)
+		}
+		n += k
+		switch t & descriptorTagTypeMask {
+		case descriptorWireStartGroup:
+			open = append(open, int32(t>>descriptorTagTypeBits))
+		case descriptorWireEndGroup:
+			if open[len(open)-1] != int32(t>>descriptorTagTypeBits) {
+				return 0, errors.New(descriptorErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := descriptorSkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// descriptorAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func descriptorAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// descriptorWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func descriptorWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// descriptorAppendEnum appends enum value v as its name in names, or as a number
+// if it has none.
+func descriptorAppendEnum(b []byte, v int32, names map[int32]string) []byte {
+	if s, ok := names[v]; ok {
+		b = append(b, '"')
+		b = append(b, s...)
+		return append(b, '"')
+	}
+	return strconv.AppendInt(b, int64(v), 10)
+}
+
+// descriptorEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func descriptorEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return descriptorJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// descriptorStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func descriptorStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// descriptorOpenJSON reads the first token of the value of message name, which
+// must be of the given kind. It reports false if the value is null, which
+// leaves the message unchanged, or on error.
+func descriptorOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return false, d.SkipValue()
+	}
+	err := descriptorExpectJSON(d, kind, name, what)
+	return err == nil, err
+}
+
+// descriptorExpectJSON reads a token of the given kind, a JSON what, in message name.
+func descriptorExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != kind {
+		return descriptorJSONError(name, "expected a JSON "+what)
+	}
+	return nil
+}
+
+// descriptorEnumClass returns the parse class and bit size for an enum value of
+// the given token kind: nothing to parse for null, a number, or a name,
+// which stays in the token until it is looked up.
+func descriptorEnumClass(k jsontext.Kind) (int, int) {
+	switch k {
+	case jsontext.KindNull:
+		return descriptorClassNone, 0
+	case jsontext.KindString:
+		return descriptorClassEnum, 0
+	}
+	return descriptorClassSigned, 32
+}
+
+// descriptorParseInt parses tok, a number or a quoted number, as a signed integer
+// of the given bit size, for a field of message name.
+func descriptorParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
+	s, err := descriptorJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseInt(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := descriptorExactInt(s)
+	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+		return 0, descriptorJSONError(name, descriptorErrInvalidInteger+s)
+	}
+	return n.Int64(), nil
+}
+
+// descriptorParseUint parses tok, a number or a quoted number, as an unsigned
+// integer of the given bit size, for a field of message name.
+func descriptorParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
+	s, err := descriptorJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseUint(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := descriptorExactInt(s)
+	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+		return 0, descriptorJSONError(name, descriptorErrInvalidInteger+s)
+	}
+	return n.Uint64(), nil
+}
+
+// descriptorExactInt returns the integer that JSON number s denotes exactly, in an
+// exponent or fraction form, or nil. The exponent is bounded so that exact
+// arithmetic stays cheap.
+func descriptorExactInt(s string) *big.Int {
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
+			return nil
+		}
+	}
+	r, ok := new(big.Rat).SetString(s)
+	if !ok || !r.IsInt() {
+		return nil
+	}
+	return r.Num()
+}
+
+// descriptorParseFloat parses tok, a number, a quoted number, or "NaN", "Infinity"
+// or "-Infinity", as a float of the given bit size, for a field of
+// message name.
+func descriptorParseFloat(tok jsontext.Token, bits int, name string) (float64, error) {
+	if tok.Kind() == jsontext.KindString {
+		switch tok.String() {
+		case "NaN":
+			return math.NaN(), nil
+		case "Infinity":
+			return math.Inf(1), nil
+		case "-Infinity":
+			return math.Inf(-1), nil
+		}
+	}
+	s, err := descriptorJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	v, err := strconv.ParseFloat(s, bits)
+	if err != nil {
+		return 0, descriptorJSONError(name, descriptorErrInvalidNumber+s)
+	}
+	return v, nil
+}
+
+// descriptorJSONNumber returns the text of tok, which must be a number or a string
+// holding a JSON number, for a field of message name.
+func descriptorJSONNumber(tok jsontext.Token, name string) (string, error) {
+	s := tok.String()
+	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+		return "", descriptorJSONError(name, descriptorErrInvalidNumber+s)
+	}
+	return s, nil
+}
+
+// descriptorParseBool parses tok as a boolean for a field of message name.
+func descriptorParseBool(tok jsontext.Token, name string) (bool, error) {
+	switch tok.Kind() {
+	case jsontext.KindTrue:
+		return true, nil
+	case jsontext.KindFalse:
+		return false, nil
+	}
+	return false, descriptorJSONError(name, "invalid boolean "+tok.String())
+}
+
+// descriptorParseString parses tok as a string for a field of message name.
+func descriptorParseString(tok jsontext.Token, name string) (string, error) {
+	if tok.Kind() != jsontext.KindString {
+		return "", descriptorJSONError(name, "invalid string "+tok.String())
+	}
+	return tok.String(), nil
+}
+
+// descriptorParseBytes parses tok as base64 bytes for a field of message name,
+// accepting standard and URL-safe alphabets, with or without padding.
+func descriptorParseBytes(tok jsontext.Token, name string) ([]byte, error) {
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
+		enc := base64.StdEncoding
+		if strings.ContainsAny(s, "-_") {
+			enc = base64.URLEncoding
+		}
+		if len(s)%descriptorBase64Quantum != 0 {
+			enc = enc.WithPadding(base64.NoPadding)
+		}
+		if by, err := enc.DecodeString(s); err == nil {
+			return by, nil
+		}
+	}
+	return nil, descriptorJSONError(name, "invalid bytes "+s)
+}
+
+// descriptorParseEnum converts an enum value read with the given class, a name in
+// tok or a number in iv, to E. values maps names to numbers.
+func descriptorParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
+	switch class {
+	case descriptorClassEnum:
+		s := tok.String()
+		n, ok := values[s]
+		if !ok {
+			return 0, descriptorJSONError(name, "invalid value for enum "+enum+": "+strconv.Quote(s))
+		}
+		return E(n), nil
+	case descriptorClassSigned:
+		return E(iv), nil
+	}
+	return 0, nil
+}
+
+// descriptorJSONError returns an error about the ProtoJSON value of message name.
+func descriptorJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

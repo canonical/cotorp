@@ -5,6 +5,7 @@ package jsontestpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json/jsontext"
@@ -77,18 +78,11 @@ const (
 
 // Error messages used more than once.
 const (
-	jsonErrSizeChanged                 = "proto: message size changed during marshal"
 	jsonWellKnownOStrErrUTF8           = "proto: field cotorp.test.json.WellKnown.o_str contains invalid UTF-8"
 	jsonWellKnownValMapEntryKeyErrUTF8 = "proto: field cotorp.test.json.WellKnown.ValMapEntry.key contains invalid UTF-8"
 	jsonErrParse                       = "proto: cannot parse invalid wire-format data"
 	jsonErrDepth                       = "proto: exceeded maximum recursion depth"
-	jsonWellKnownErrNotObject          = "proto: cotorp.test.json.WellKnown: expected a JSON object"
-	jsonWellKnownErrInvalidInteger     = "proto: cotorp.test.json.WellKnown: invalid integer "
-	jsonWellKnownErrInvalidNullValue   = "proto: cotorp.test.json.WellKnown: invalid value for enum google.protobuf.NullValue: "
 	jsonNamesByBoolEntryValueErrUTF8   = "proto: field cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8"
-	jsonNamesErrNotObject              = "proto: cotorp.test.json.Names: expected a JSON object"
-	jsonNamesErrInvalidInteger         = "proto: cotorp.test.json.Names: invalid integer "
-	jsonNamesErrInvalidBytes           = "proto: cotorp.test.json.Names: invalid bytes "
 )
 
 type WellKnown struct {
@@ -468,16 +462,9 @@ func (m *WellKnown) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *WellKnown) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(jsonErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return jsonAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -488,18 +475,12 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if len(m.Durs) > 0 {
-		keys := make([]int32, 0, len(m.Durs))
-		for k := range m.Durs {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(jsonSortedKeys(m.Durs, make([]int32, 0, len(m.Durs)))) {
 			v := m.Durs[k]
 			start := i
 			n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -507,36 +488,12 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 				return 0, err
 			}
 			i -= n
-			u = uint64(n)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapValueField<<jsonTagTypeBits | jsonWireBytes
-			u = uint64(int64(k))
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapKeyField<<jsonTagTypeBits | jsonWireVarint
-			u = uint64(start - i)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			binary.PutUvarint(b[i:], 26<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, i, uint64(n))
+			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, i, uint64(int64(k)))
+			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, i, uint64(start-i))
+			i = jsonPutVarint(b, i, 26<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	for _, v := range slices.Backward(m.Tss) {
@@ -545,16 +502,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 25<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 25<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Any != nil {
 		n, err := m.Any.ProtoMarshalToSizedBuffer(b[:i])
@@ -562,16 +511,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 24<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 24<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if o, ok := m.O.(*WellKnown_OStr); ok {
 		if !utf8.ValidString(o.OStr) {
@@ -579,28 +520,12 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(o.OStr)
 		copy(b[i:], o.OStr)
-		u = uint64(len(o.OStr))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 23<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, i, uint64(len(o.OStr)))
+		i = jsonPutVarint(b, i, 23<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if o, ok := m.O.(*WellKnown_ONull); ok {
-		u = uint64(int64(o.ONull))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 22<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, i, uint64(int64(o.ONull)))
+		i = jsonPutVarint(b, i, 22<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if o, ok := m.O.(*WellKnown_OVal); ok {
 		n, err := o.OVal.ProtoMarshalToSizedBuffer(b[:i])
@@ -608,36 +533,15 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 21<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 21<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.OptNull != nil {
-		u = uint64(int64((*m.OptNull)))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 20<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, i, uint64(int64((*m.OptNull))))
+		i = jsonPutVarint(b, i, 20<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if len(m.ValMap) > 0 {
-		keys := make([]string, 0, len(m.ValMap))
-		for k := range m.ValMap {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(jsonSortedKeys(m.ValMap, make([]string, 0, len(m.ValMap)))) {
 			v := m.ValMap[k]
 			start := i
 			n, err := v.ProtoMarshalToSizedBuffer(b[:i])
@@ -645,41 +549,17 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 				return 0, err
 			}
 			i -= n
-			u = uint64(n)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapValueField<<jsonTagTypeBits | jsonWireBytes
+			i = jsonPutVarint(b, i, uint64(n))
+			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			if !utf8.ValidString(k) {
 				return 0, errors.New(jsonWellKnownValMapEntryKeyErrUTF8)
 			}
 			i -= len(k)
 			copy(b[i:], k)
-			u = uint64(len(k))
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapKeyField<<jsonTagTypeBits | jsonWireBytes
-			u = uint64(start - i)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i -= 2
-			binary.PutUvarint(b[i:], 19<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, i, uint64(len(k)))
+			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, i, uint64(start-i))
+			i = jsonPutVarint(b, i, 19<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	for _, v := range slices.Backward(m.Vals) {
@@ -688,28 +568,12 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 18<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 18<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.NullValue != 0 {
-		u = uint64(int64(m.NullValue))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 17<<jsonTagTypeBits|jsonWireVarint)
+		i = jsonPutVarint(b, i, uint64(int64(m.NullValue)))
+		i = jsonPutVarint(b, i, 17<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.Empty != nil {
 		n, err := m.Empty.ProtoMarshalToSizedBuffer(b[:i])
@@ -717,16 +581,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i -= 2
-		binary.PutUvarint(b[i:], 16<<jsonTagTypeBits|jsonWireBytes)
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 16<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Mask != nil {
 		n, err := m.Mask.ProtoMarshalToSizedBuffer(b[:i])
@@ -734,16 +590,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 15<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 15<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Lst != nil {
 		n, err := m.Lst.ProtoMarshalToSizedBuffer(b[:i])
@@ -751,16 +599,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 14<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 14<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Val != nil {
 		n, err := m.Val.ProtoMarshalToSizedBuffer(b[:i])
@@ -768,16 +608,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 13<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 13<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.St != nil {
 		n, err := m.St.ProtoMarshalToSizedBuffer(b[:i])
@@ -785,16 +617,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 12<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 12<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Bytes != nil {
 		n, err := m.Bytes.ProtoMarshalToSizedBuffer(b[:i])
@@ -802,16 +626,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 11<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 11<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Str != nil {
 		n, err := m.Str.ProtoMarshalToSizedBuffer(b[:i])
@@ -819,16 +635,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 10<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 10<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Bool != nil {
 		n, err := m.Bool.ProtoMarshalToSizedBuffer(b[:i])
@@ -836,16 +644,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 9<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 9<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.U32 != nil {
 		n, err := m.U32.ProtoMarshalToSizedBuffer(b[:i])
@@ -853,16 +653,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 8<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 8<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.I32 != nil {
 		n, err := m.I32.ProtoMarshalToSizedBuffer(b[:i])
@@ -870,16 +662,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 7<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 7<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.U64 != nil {
 		n, err := m.U64.ProtoMarshalToSizedBuffer(b[:i])
@@ -887,16 +671,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 6<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 6<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.I64 != nil {
 		n, err := m.I64.ProtoMarshalToSizedBuffer(b[:i])
@@ -904,16 +680,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 5<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Flt != nil {
 		n, err := m.Flt.ProtoMarshalToSizedBuffer(b[:i])
@@ -921,16 +689,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 4<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Dbl != nil {
 		n, err := m.Dbl.ProtoMarshalToSizedBuffer(b[:i])
@@ -938,16 +698,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 3<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Dur != nil {
 		n, err := m.Dur.ProtoMarshalToSizedBuffer(b[:i])
@@ -955,16 +707,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 2<<jsonTagTypeBits|jsonWireBytes)
 	}
 	if m.Ts != nil {
 		n, err := m.Ts.ProtoMarshalToSizedBuffer(b[:i])
@@ -972,16 +716,8 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			return 0, err
 		}
 		i -= n
-		u = uint64(n)
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<jsonTagTypeBits | jsonWireBytes
+		i = jsonPutVarint(b, i, uint64(n))
+		i = jsonPutVarint(b, i, 1<<jsonTagTypeBits|jsonWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -1013,12 +749,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Ts == nil {
 				m.Ts = &wktpb.Timestamp{}
 			}
@@ -1028,12 +762,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 2<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Dur == nil {
 				m.Dur = &wktpb.Duration{}
 			}
@@ -1043,12 +775,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 3<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Dbl == nil {
 				m.Dbl = &wktpb.DoubleValue{}
 			}
@@ -1058,12 +788,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 4<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Flt == nil {
 				m.Flt = &wktpb.FloatValue{}
 			}
@@ -1073,12 +801,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 5<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.I64 == nil {
 				m.I64 = &wktpb.Int64Value{}
 			}
@@ -1088,12 +814,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 6<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.U64 == nil {
 				m.U64 = &wktpb.UInt64Value{}
 			}
@@ -1103,12 +827,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 7<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.I32 == nil {
 				m.I32 = &wktpb.Int32Value{}
 			}
@@ -1118,12 +840,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 8<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.U32 == nil {
 				m.U32 = &wktpb.UInt32Value{}
 			}
@@ -1133,12 +853,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 9<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Bool == nil {
 				m.Bool = &wktpb.BoolValue{}
 			}
@@ -1148,12 +866,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 10<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Str == nil {
 				m.Str = &wktpb.StringValue{}
 			}
@@ -1163,12 +879,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 11<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Bytes == nil {
 				m.Bytes = &wktpb.BytesValue{}
 			}
@@ -1178,12 +892,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 12<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.St == nil {
 				m.St = &wktpb.Struct{}
 			}
@@ -1193,12 +905,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 13<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Val == nil {
 				m.Val = &wktpb.Value{}
 			}
@@ -1208,12 +918,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 14<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Lst == nil {
 				m.Lst = &wktpb.ListValue{}
 			}
@@ -1223,12 +931,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 15<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Mask == nil {
 				m.Mask = &wktpb.FieldMask{}
 			}
@@ -1238,12 +944,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 16<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Empty == nil {
 				m.Empty = &wktpb.Empty{}
 			}
@@ -1260,12 +964,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.NullValue = wktpb.NullValue(int32(x))
 		case 18<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &wktpb.Value{}
 			m.Vals = append(m.Vals, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -1273,12 +975,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 19<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk string
 			var mv *wktpb.Value
 			for len(v) > 0 {
@@ -1289,24 +989,20 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 				v = v[n:]
 				switch t {
 				case jsonMapKeyField<<jsonTagTypeBits | jsonWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := jsonReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if !utf8.Valid(x) {
 						return errors.New(jsonWellKnownValMapEntryKeyErrUTF8)
 					}
 					mk = string(x)
 					v = v[n:]
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := jsonReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if mv == nil {
 						mv = &wktpb.Value{}
 					}
@@ -1315,77 +1011,9 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					}
 					v = v[n:]
 				default:
-					num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-					switch typ {
-					case jsonWireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						if len(v) < jsonFixed64Size {
-							goto errParse
-						}
-						n = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case jsonWireStartGroup:
-						var stk [jsonSkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > jsonMaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & jsonTagTypeMask {
-							case jsonWireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case jsonWireFixed64:
-								k = jsonFixed64Size
-							case jsonWireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case jsonWireStartGroup:
-								open = append(open, int32(t>>jsonTagTypeBits))
-								k = 0
-							case jsonWireEndGroup:
-								if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case jsonWireFixed32:
-								k = jsonFixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case jsonWireFixed32:
-						if len(v) < jsonFixed32Size {
-							goto errParse
-						}
-						n = jsonFixed32Size
-					default:
-						goto errParse
+					n, err := jsonSkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -1407,12 +1035,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			v := wktpb.NullValue(int32(x))
 			m.OptNull = &v
 		case 21<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mv *wktpb.Value
 			if o, ok := m.O.(*WellKnown_OVal); ok && o.OVal != nil {
 				mv = o.OVal
@@ -1432,24 +1058,20 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.O = &WellKnown_ONull{ONull: wktpb.NullValue(int32(x))}
 		case 23<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			if !utf8.Valid(x) {
 				return errors.New(jsonWellKnownOStrErrUTF8)
 			}
 			b = b[n:]
 			m.O = &WellKnown_OStr{OStr: string(x)}
 		case 24<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			if m.Any == nil {
 				m.Any = &wktpb.Any{}
 			}
@@ -1459,12 +1081,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 25<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			mv := &wktpb.Timestamp{}
 			m.Tss = append(m.Tss, mv)
 			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
@@ -1472,12 +1092,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			b = b[n:]
 		case 26<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk int32
 			var mv *wktpb.Duration
 			for len(v) > 0 {
@@ -1495,12 +1113,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					mk = int32(x)
 					v = v[n:]
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := jsonReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if mv == nil {
 						mv = &wktpb.Duration{}
 					}
@@ -1509,77 +1125,9 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					}
 					v = v[n:]
 				default:
-					num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-					switch typ {
-					case jsonWireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						if len(v) < jsonFixed64Size {
-							goto errParse
-						}
-						n = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case jsonWireStartGroup:
-						var stk [jsonSkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > jsonMaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & jsonTagTypeMask {
-							case jsonWireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case jsonWireFixed64:
-								k = jsonFixed64Size
-							case jsonWireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case jsonWireStartGroup:
-								open = append(open, int32(t>>jsonTagTypeBits))
-								k = 0
-							case jsonWireEndGroup:
-								if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case jsonWireFixed32:
-								k = jsonFixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case jsonWireFixed32:
-						if len(v) < jsonFixed32Size {
-							goto errParse
-						}
-						n = jsonFixed32Size
-					default:
-						goto errParse
+					n, err := jsonSkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -1594,77 +1142,9 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-			switch typ {
-			case jsonWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case jsonWireFixed64:
-				if len(b) < jsonFixed64Size {
-					goto errParse
-				}
-				n = jsonFixed64Size
-			case jsonWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case jsonWireStartGroup:
-				var stk [jsonSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > jsonMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & jsonTagTypeMask {
-					case jsonWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						k = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case jsonWireStartGroup:
-						open = append(open, int32(t>>jsonTagTypeBits))
-						k = 0
-					case jsonWireEndGroup:
-						if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case jsonWireFixed32:
-						k = jsonFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case jsonWireFixed32:
-				if len(b) < jsonFixed32Size {
-					goto errParse
-				}
-				n = jsonFixed32Size
-			default:
-				goto errParse
+			n, err := jsonSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -1692,10 +1172,7 @@ func (m *WellKnown) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *WellKnown) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return jsonWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -1836,12 +1313,7 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.ValMap) > 0 {
 		b = append(b, "\"valMap\":{"...)
-		keys := make([]string, 0, len(m.ValMap))
-		for k := range m.ValMap {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range jsonSortedKeys(m.ValMap, make([]string, 0, len(m.ValMap))) {
 			v := m.ValMap[k]
 			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.json.WellKnown.val_map contains invalid UTF-8")
@@ -1899,12 +1371,7 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.Durs) > 0 {
 		b = append(b, "\"durs\":{"...)
-		keys := make([]int32, 0, len(m.Durs))
-		for k := range m.Durs {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range jsonSortedKeys(m.Durs, make([]int32, 0, len(m.Durs))) {
 			v := m.Durs[k]
 			b = append(b, '"')
 			b = strconv.AppendInt(b, int64(k), 10)
@@ -1937,26 +1404,15 @@ func (m *WellKnown) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *WellKnown) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.json.WellKnown: unexpected data after JSON value")
-	}
-	return nil
+	return jsonEndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.json.WellKnown")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *WellKnown) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := jsonStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = WellKnown{}
 	return m.ProtoMergeJSONFrom(d)
@@ -1966,16 +1422,9 @@ func (m *WellKnown) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := jsonOpenJSON(d, jsontext.KindBeginObject, "cotorp.test.json.WellKnown", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New(jsonWellKnownErrNotObject)
 	}
 	var seen [26]bool
 	var oneofs [1]bool
@@ -2068,22 +1517,14 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				}
 				oneofs[0] = true
 			case 24, 17:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := jsonExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.json.WellKnown", "array"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginArray {
-					return errors.New("proto: cotorp.test.json.WellKnown: expected a JSON array")
 				}
 				in = jsontext.KindBeginArray
 				continue
 			case 25, 18:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := jsonExpectJSON(d, jsontext.KindBeginObject, "cotorp.test.json.WellKnown", "object"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginObject {
-					return errors.New(jsonWellKnownErrNotObject)
 				}
 				in = jsontext.KindBeginObject
 				continue
@@ -2119,52 +1560,21 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var sv string
 		var tok jsontext.Token
 		if class != jsonClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == jsonClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = jsonClassNone
-				case jsontext.KindString:
-					class = jsonClassString
-				default:
-					class, bits = jsonClassSigned, 32
-				}
+				class, bits = jsonEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case jsonClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.json.WellKnown: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > jsonMaxJSONExponent || e < -jsonMaxJSONExponent {
-						return errors.New(jsonWellKnownErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(jsonWellKnownErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(jsonWellKnownErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = jsonParseInt(tok, bits, "cotorp.test.json.WellKnown")
 		case jsonClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.json.WellKnown: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = jsonParseString(tok, "cotorp.test.json.WellKnown")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -2280,16 +1690,9 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 				return err
 			}
 		case 16:
-			var ev wktpb.NullValue
-			switch class {
-			case jsonClassString:
-				n, ok := wktpb.NullValue_value[sv]
-				if !ok {
-					return errors.New(jsonWellKnownErrInvalidNullValue + strconv.Quote(sv))
-				}
-				ev = wktpb.NullValue(n)
-			case jsonClassSigned:
-				ev = wktpb.NullValue(iv)
+			ev, err := jsonParseEnum[wktpb.NullValue](class, tok, iv, wktpb.NullValue_value, "cotorp.test.json.WellKnown", "google.protobuf.NullValue")
+			if err != nil {
+				return err
 			}
 			m.NullValue = ev
 		case 17:
@@ -2309,16 +1712,9 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.ValMap[k] = mv
 		case 19:
-			var ev wktpb.NullValue
-			switch class {
-			case jsonClassString:
-				n, ok := wktpb.NullValue_value[sv]
-				if !ok {
-					return errors.New(jsonWellKnownErrInvalidNullValue + strconv.Quote(sv))
-				}
-				ev = wktpb.NullValue(n)
-			case jsonClassSigned:
-				ev = wktpb.NullValue(iv)
+			ev, err := jsonParseEnum[wktpb.NullValue](class, tok, iv, wktpb.NullValue_value, "cotorp.test.json.WellKnown", "google.protobuf.NullValue")
+			if err != nil {
+				return err
 			}
 			x := ev
 			m.OptNull = &x
@@ -2329,16 +1725,9 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			m.O = &WellKnown_OVal{OVal: mv}
 		case 21:
-			var ev wktpb.NullValue
-			switch class {
-			case jsonClassString:
-				n, ok := wktpb.NullValue_value[sv]
-				if !ok {
-					return errors.New(jsonWellKnownErrInvalidNullValue + strconv.Quote(sv))
-				}
-				ev = wktpb.NullValue(n)
-			case jsonClassSigned:
-				ev = wktpb.NullValue(iv)
+			ev, err := jsonParseEnum[wktpb.NullValue](class, tok, iv, wktpb.NullValue_value, "cotorp.test.json.WellKnown", "google.protobuf.NullValue")
+			if err != nil {
+				return err
 			}
 			m.O = &WellKnown_ONull{ONull: ev}
 		case 22:
@@ -2504,16 +1893,9 @@ func (m *Names) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Names) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New(jsonErrSizeChanged)
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return jsonAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -2524,93 +1906,34 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
 	}
 	if len(m.ByS32) > 0 {
-		keys := make([]int32, 0, len(m.ByS32))
-		for k := range m.ByS32 {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(jsonSortedKeys(m.ByS32, make([]int32, 0, len(m.ByS32)))) {
 			v := m.ByS32[k]
 			start := i
 			i -= len(v)
 			copy(b[i:], v)
-			u = uint64(len(v))
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapValueField<<jsonTagTypeBits | jsonWireBytes
-			u = uint64(uint32((k)<<1) ^ uint32((k)>>31))
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapKeyField<<jsonTagTypeBits | jsonWireVarint
-			u = uint64(start - i)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 8<<jsonTagTypeBits | jsonWireBytes
+			i = jsonPutVarint(b, i, uint64(len(v)))
+			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
+			i = jsonPutVarint(b, i, uint64(uint32((k)<<1)^uint32((k)>>31)))
+			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, i, uint64(start-i))
+			i = jsonPutVarint(b, i, 8<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	if len(m.ByU64) > 0 {
-		keys := make([]uint64, 0, len(m.ByU64))
-		for k := range m.ByU64 {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range slices.Backward(keys) {
+		for _, k := range slices.Backward(jsonSortedKeys(m.ByU64, make([]uint64, 0, len(m.ByU64)))) {
 			v := m.ByU64[k]
 			start := i
-			u = uint64(int64(v))
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapValueField<<jsonTagTypeBits | jsonWireVarint
-			u = k
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapKeyField<<jsonTagTypeBits | jsonWireVarint
-			u = uint64(start - i)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 7<<jsonTagTypeBits | jsonWireBytes
+			i = jsonPutVarint(b, i, uint64(int64(v)))
+			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, i, k)
+			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, i, uint64(start-i))
+			i = jsonPutVarint(b, i, 7<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	if len(m.ByBool) > 0 {
@@ -2625,95 +1948,38 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			i -= len(v)
 			copy(b[i:], v)
-			u = uint64(len(v))
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = jsonMapValueField<<jsonTagTypeBits | jsonWireBytes
+			i = jsonPutVarint(b, i, uint64(len(v)))
+			i = jsonPutVarint(b, i, jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			i--
 			if k {
 				b[i] = 1
 			} else {
 				b[i] = 0
 			}
-			i--
-			b[i] = jsonMapKeyField<<jsonTagTypeBits | jsonWireVarint
-			u = uint64(start - i)
-			if u < jsonVarintContBit {
-				i--
-				b[i] = byte(u)
-			} else {
-				i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-				binary.PutUvarint(b[i:], u)
-			}
-			i--
-			b[i] = 6<<jsonTagTypeBits | jsonWireBytes
+			i = jsonPutVarint(b, i, jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
+			i = jsonPutVarint(b, i, uint64(start-i))
+			i = jsonPutVarint(b, i, 6<<jsonTagTypeBits|jsonWireBytes)
 		}
 	}
 	if m.Color != 0 {
-		u = uint64(int64(m.Color))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 5<<jsonTagTypeBits | jsonWireVarint
+		i = jsonPutVarint(b, i, uint64(int64(m.Color)))
+		i = jsonPutVarint(b, i, 5<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.With_2Digits != 0 {
-		u = uint64(int64(m.With_2Digits))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 4<<jsonTagTypeBits | jsonWireVarint
+		i = jsonPutVarint(b, i, uint64(int64(m.With_2Digits)))
+		i = jsonPutVarint(b, i, 4<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.XLeading != 0 {
-		u = uint64(int64(m.XLeading))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 3<<jsonTagTypeBits | jsonWireVarint
+		i = jsonPutVarint(b, i, uint64(int64(m.XLeading)))
+		i = jsonPutVarint(b, i, 3<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.SnakeCaseField != 0 {
-		u = uint64(int64(m.SnakeCaseField))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 2<<jsonTagTypeBits | jsonWireVarint
+		i = jsonPutVarint(b, i, uint64(int64(m.SnakeCaseField)))
+		i = jsonPutVarint(b, i, 2<<jsonTagTypeBits|jsonWireVarint)
 	}
 	if m.Custom != 0 {
-		u = uint64(int64(m.Custom))
-		if u < jsonVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<jsonTagTypeBits | jsonWireVarint
+		i = jsonPutVarint(b, i, uint64(int64(m.Custom)))
+		i = jsonPutVarint(b, i, 1<<jsonTagTypeBits|jsonWireVarint)
 	}
 	return len(b) - i, nil
 }
@@ -2780,12 +2046,10 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 			m.Color = commonpb.Color(int32(x))
 		case 6<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk bool
 			var mv string
 			for len(v) > 0 {
@@ -2803,89 +2067,19 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					mk = x != 0
 					v = v[n:]
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := jsonReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					if !utf8.Valid(x) {
 						return errors.New(jsonNamesByBoolEntryValueErrUTF8)
 					}
 					mv = string(x)
 					v = v[n:]
 				default:
-					num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-					switch typ {
-					case jsonWireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						if len(v) < jsonFixed64Size {
-							goto errParse
-						}
-						n = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case jsonWireStartGroup:
-						var stk [jsonSkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > jsonMaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & jsonTagTypeMask {
-							case jsonWireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case jsonWireFixed64:
-								k = jsonFixed64Size
-							case jsonWireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case jsonWireStartGroup:
-								open = append(open, int32(t>>jsonTagTypeBits))
-								k = 0
-							case jsonWireEndGroup:
-								if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case jsonWireFixed32:
-								k = jsonFixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case jsonWireFixed32:
-						if len(v) < jsonFixed32Size {
-							goto errParse
-						}
-						n = jsonFixed32Size
-					default:
-						goto errParse
+					n, err := jsonSkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -2896,12 +2090,10 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			m.ByBool[mk] = mv
 			b = b[n:]
 		case 7<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk uint64
 			var mv int32
 			for len(v) > 0 {
@@ -2926,77 +2118,9 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					mv = int32(x)
 					v = v[n:]
 				default:
-					num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-					switch typ {
-					case jsonWireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						if len(v) < jsonFixed64Size {
-							goto errParse
-						}
-						n = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case jsonWireStartGroup:
-						var stk [jsonSkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > jsonMaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & jsonTagTypeMask {
-							case jsonWireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case jsonWireFixed64:
-								k = jsonFixed64Size
-							case jsonWireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case jsonWireStartGroup:
-								open = append(open, int32(t>>jsonTagTypeBits))
-								k = 0
-							case jsonWireEndGroup:
-								if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case jsonWireFixed32:
-								k = jsonFixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case jsonWireFixed32:
-						if len(v) < jsonFixed32Size {
-							goto errParse
-						}
-						n = jsonFixed32Size
-					default:
-						goto errParse
+					n, err := jsonSkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -3007,12 +2131,10 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			m.ByU64[mk] = mv
 			b = b[n:]
 		case 8<<jsonTagTypeBits | jsonWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			v, n := jsonReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			v := b[n : n+int(ln)]
-			n += int(ln)
 			var mk int32
 			var mv []byte
 			for len(v) > 0 {
@@ -3030,86 +2152,16 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					mk = int32(uint32(x)>>1) ^ -int32(x&1)
 					v = v[n:]
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
-					ln, n := binary.Uvarint(v)
-					if n <= 0 || ln > uint64(len(v)-n) {
+					x, n := jsonReadBytes(v)
+					if n < 0 {
 						goto errParse
 					}
-					x := v[n : n+int(ln)]
-					n += int(ln)
 					mv = append([]byte{}, x...)
 					v = v[n:]
 				default:
-					num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-					switch typ {
-					case jsonWireVarint:
-						_, n = binary.Uvarint(v)
-						if n <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						if len(v) < jsonFixed64Size {
-							goto errParse
-						}
-						n = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k := binary.Uvarint(v)
-						if k <= 0 || ln > uint64(len(v)-k) {
-							goto errParse
-						}
-						n = k + int(ln)
-					case jsonWireStartGroup:
-						var stk [jsonSkipStackSize]int32
-						open := append(stk[:0], num)
-						n = 0
-						for len(open) > 0 {
-							if depth+len(open) > jsonMaxDepth {
-								goto errDepth
-							}
-							t, k := binary.Uvarint(v[n:])
-							if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-								goto errParse
-							}
-							n += k
-							switch t & jsonTagTypeMask {
-							case jsonWireVarint:
-								_, k = binary.Uvarint(v[n:])
-								if k <= 0 {
-									goto errParse
-								}
-							case jsonWireFixed64:
-								k = jsonFixed64Size
-							case jsonWireBytes:
-								ln, k2 := binary.Uvarint(v[n:])
-								if k2 <= 0 || ln > uint64(len(v)-n-k2) {
-									goto errParse
-								}
-								k = k2 + int(ln)
-							case jsonWireStartGroup:
-								open = append(open, int32(t>>jsonTagTypeBits))
-								k = 0
-							case jsonWireEndGroup:
-								if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-									goto errParse
-								}
-								open = open[:len(open)-1]
-								k = 0
-							case jsonWireFixed32:
-								k = jsonFixed32Size
-							default:
-								goto errParse
-							}
-							if k > len(v)-n {
-								goto errParse
-							}
-							n += k
-						}
-					case jsonWireFixed32:
-						if len(v) < jsonFixed32Size {
-							goto errParse
-						}
-						n = jsonFixed32Size
-					default:
-						goto errParse
+					n, err := jsonSkipField(v, t, depth)
+					if err != nil {
+						return err
 					}
 					v = v[n:]
 				}
@@ -3121,77 +2173,9 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 			b = b[n:]
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>jsonTagTypeBits), t&jsonTagTypeMask
-			switch typ {
-			case jsonWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case jsonWireFixed64:
-				if len(b) < jsonFixed64Size {
-					goto errParse
-				}
-				n = jsonFixed64Size
-			case jsonWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case jsonWireStartGroup:
-				var stk [jsonSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > jsonMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & jsonTagTypeMask {
-					case jsonWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case jsonWireFixed64:
-						k = jsonFixed64Size
-					case jsonWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case jsonWireStartGroup:
-						open = append(open, int32(t>>jsonTagTypeBits))
-						k = 0
-					case jsonWireEndGroup:
-						if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case jsonWireFixed32:
-						k = jsonFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case jsonWireFixed32:
-				if len(b) < jsonFixed32Size {
-					goto errParse
-				}
-				n = jsonFixed32Size
-			default:
-				goto errParse
+			n, err := jsonSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -3219,10 +2203,7 @@ func (m *Names) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *Names) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return jsonWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -3255,13 +2236,7 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Color != 0 {
 		b = append(b, "\"color\":"...)
-		if s, ok := commonpb.Color_name[int32(m.Color)]; ok {
-			b = append(b, '"')
-			b = append(b, s...)
-			b = append(b, '"')
-		} else {
-			b = strconv.AppendInt(b, int64(m.Color), 10)
-		}
+		b = jsonAppendEnum(b, int32(m.Color), commonpb.Color_name)
 		b = append(b, ',')
 	}
 	if len(m.ByBool) > 0 {
@@ -3287,12 +2262,7 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.ByU64) > 0 {
 		b = append(b, "\"byU64\":{"...)
-		keys := make([]uint64, 0, len(m.ByU64))
-		for k := range m.ByU64 {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range jsonSortedKeys(m.ByU64, make([]uint64, 0, len(m.ByU64))) {
 			v := m.ByU64[k]
 			b = append(b, '"')
 			b = strconv.AppendUint(b, uint64(k), 10)
@@ -3306,12 +2276,7 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.ByS32) > 0 {
 		b = append(b, "\"byS32\":{"...)
-		keys := make([]int32, 0, len(m.ByS32))
-		for k := range m.ByS32 {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
+		for _, k := range jsonSortedKeys(m.ByS32, make([]int32, 0, len(m.ByS32))) {
 			v := m.ByS32[k]
 			b = append(b, '"')
 			b = strconv.AppendInt(b, int64(k), 10)
@@ -3344,26 +2309,15 @@ func (m *Names) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *Names) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: cotorp.test.json.Names: unexpected data after JSON value")
-	}
-	return nil
+	return jsonEndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.json.Names")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *Names) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := jsonStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = Names{}
 	return m.ProtoMergeJSONFrom(d)
@@ -3373,16 +2327,9 @@ func (m *Names) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 // into m. It does not check required fields. d should reject invalid
 // UTF-8, as jsontext decoders do by default.
 func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	tok, err := d.ReadToken()
-	if err != nil {
+	ok, err := jsonOpenJSON(d, jsontext.KindBeginObject, "cotorp.test.json.Names", "object")
+	if !ok {
 		return err
-	}
-	if tok.Kind() == jsontext.KindNull {
-		// JSON null leaves the message unchanged.
-		return nil
-	}
-	if tok.Kind() != jsontext.KindBeginObject {
-		return errors.New(jsonNamesErrNotObject)
 	}
 	var seen [8]bool
 	// in is the kind of the array or object of repeated or map field f
@@ -3433,12 +2380,8 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			}
 			switch f {
 			case 5, 6, 7:
-				tok, err := d.ReadToken()
-				if err != nil {
+				if err := jsonExpectJSON(d, jsontext.KindBeginObject, "cotorp.test.json.Names", "object"); err != nil {
 					return err
-				}
-				if tok.Kind() != jsontext.KindBeginObject {
-					return errors.New(jsonNamesErrNotObject)
 				}
 				in = jsontext.KindBeginObject
 				continue
@@ -3479,69 +2422,23 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		var by []byte
 		var tok jsontext.Token
 		if class != jsonClassNone {
-			var err error
 			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 			if class == jsonClassEnum {
-				switch tok.Kind() {
-				case jsontext.KindNull:
-					class = jsonClassNone
-				case jsontext.KindString:
-					class = jsonClassString
-				default:
-					class, bits = jsonClassSigned, 32
-				}
+				class, bits = jsonEnumClass(tok.Kind())
 			}
 		}
 		switch class {
 		case jsonClassSigned:
-			s := tok.String()
-			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-				return errors.New("proto: cotorp.test.json.Names: invalid number " + s)
-			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > jsonMaxJSONExponent || e < -jsonMaxJSONExponent {
-						return errors.New(jsonNamesErrInvalidInteger + s)
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(jsonNamesErrInvalidInteger + s)
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(jsonNamesErrInvalidInteger + s)
-				}
-				iv = n.Int64()
-			}
+			iv, err = jsonParseInt(tok, bits, "cotorp.test.json.Names")
 		case jsonClassString:
-			if tok.Kind() != jsontext.KindString {
-				return errors.New("proto: cotorp.test.json.Names: invalid string " + tok.String())
-			}
-			sv = tok.String()
+			sv, err = jsonParseString(tok, "cotorp.test.json.Names")
 		case jsonClassBytes:
-			s := tok.String()
-			if tok.Kind() != jsontext.KindString {
-				return errors.New(jsonNamesErrInvalidBytes + s)
-			}
-			// Accept standard and URL-safe alphabets, with or without padding.
-			enc := base64.StdEncoding
-			if strings.ContainsAny(s, "-_") {
-				enc = base64.URLEncoding
-			}
-			if len(s)%jsonBase64Quantum != 0 {
-				enc = enc.WithPadding(base64.NoPadding)
-			}
-			var err error
-			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(jsonNamesErrInvalidBytes + s)
-			}
+			by, err = jsonParseBytes(tok, "cotorp.test.json.Names")
+		}
+		if err != nil {
+			return err
 		}
 		switch f {
 		case 0:
@@ -3553,16 +2450,9 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case 3:
 			m.With_2Digits = int32(iv)
 		case 4:
-			var ev commonpb.Color
-			switch class {
-			case jsonClassString:
-				n, ok := commonpb.Color_value[sv]
-				if !ok {
-					return errors.New("proto: cotorp.test.json.Names: invalid value for enum cotorp.test.common.Color: " + strconv.Quote(sv))
-				}
-				ev = commonpb.Color(n)
-			case jsonClassSigned:
-				ev = commonpb.Color(iv)
+			ev, err := jsonParseEnum[commonpb.Color](class, tok, iv, commonpb.Color_value, "cotorp.test.json.Names", "cotorp.test.common.Color")
+			if err != nil {
+				return err
 			}
 			m.Color = ev
 		case 5:
@@ -3602,4 +2492,283 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	_, err = d.ReadToken()
 	return err
+}
+
+// jsonPutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func jsonPutVarint(b []byte, i int, u uint64) int {
+	if u < jsonVarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// jsonReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func jsonReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// jsonSkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func jsonSkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & jsonTagTypeMask {
+	case jsonWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case jsonWireFixed64:
+		if len(b) >= jsonFixed64Size {
+			return jsonFixed64Size, nil
+		}
+	case jsonWireBytes:
+		if _, n := jsonReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case jsonWireStartGroup:
+		return jsonSkipGroup(b, int32(t>>jsonTagTypeBits), depth)
+	case jsonWireFixed32:
+		if len(b) >= jsonFixed32Size {
+			return jsonFixed32Size, nil
+		}
+	}
+	return 0, errors.New(jsonErrParse)
+}
+
+// jsonSkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func jsonSkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [jsonSkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > jsonMaxDepth {
+			return 0, errors.New(jsonErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>jsonTagTypeBits == 0 || t>>jsonTagTypeBits > jsonMaxFieldNumber {
+			return 0, errors.New(jsonErrParse)
+		}
+		n += k
+		switch t & jsonTagTypeMask {
+		case jsonWireStartGroup:
+			open = append(open, int32(t>>jsonTagTypeBits))
+		case jsonWireEndGroup:
+			if open[len(open)-1] != int32(t>>jsonTagTypeBits) {
+				return 0, errors.New(jsonErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := jsonSkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// jsonAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func jsonAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// jsonSortedKeys appends the keys of m to keys, which should be empty, and
+// sorts them. The caller allocates keys, so that it can stay on the stack.
+func jsonSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// jsonWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func jsonWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// jsonAppendEnum appends enum value v as its name in names, or as a number
+// if it has none.
+func jsonAppendEnum(b []byte, v int32, names map[int32]string) []byte {
+	if s, ok := names[v]; ok {
+		b = append(b, '"')
+		b = append(b, s...)
+		return append(b, '"')
+	}
+	return strconv.AppendInt(b, int64(v), 10)
+}
+
+// jsonEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func jsonEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return jsonJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// jsonStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func jsonStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// jsonOpenJSON reads the first token of the value of message name, which
+// must be of the given kind. It reports false if the value is null, which
+// leaves the message unchanged, or on error.
+func jsonOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return false, d.SkipValue()
+	}
+	err := jsonExpectJSON(d, kind, name, what)
+	return err == nil, err
+}
+
+// jsonExpectJSON reads a token of the given kind, a JSON what, in message name.
+func jsonExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != kind {
+		return jsonJSONError(name, "expected a JSON "+what)
+	}
+	return nil
+}
+
+// jsonEnumClass returns the parse class and bit size for an enum value of
+// the given token kind: nothing to parse for null, a number, or a name,
+// which stays in the token until it is looked up.
+func jsonEnumClass(k jsontext.Kind) (int, int) {
+	switch k {
+	case jsontext.KindNull:
+		return jsonClassNone, 0
+	case jsontext.KindString:
+		return jsonClassEnum, 0
+	}
+	return jsonClassSigned, 32
+}
+
+// jsonParseInt parses tok, a number or a quoted number, as a signed integer
+// of the given bit size, for a field of message name.
+func jsonParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
+	s, err := jsonJSONNumber(tok, name)
+	if err != nil {
+		return 0, err
+	}
+	if v, err := strconv.ParseInt(s, 10, bits); err == nil {
+		return v, nil
+	}
+	n := jsonExactInt(s)
+	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+		return 0, jsonJSONError(name, "invalid integer "+s)
+	}
+	return n.Int64(), nil
+}
+
+// jsonExactInt returns the integer that JSON number s denotes exactly, in an
+// exponent or fraction form, or nil. The exponent is bounded so that exact
+// arithmetic stays cheap.
+func jsonExactInt(s string) *big.Int {
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > jsonMaxJSONExponent || e < -jsonMaxJSONExponent {
+			return nil
+		}
+	}
+	r, ok := new(big.Rat).SetString(s)
+	if !ok || !r.IsInt() {
+		return nil
+	}
+	return r.Num()
+}
+
+// jsonJSONNumber returns the text of tok, which must be a number or a string
+// holding a JSON number, for a field of message name.
+func jsonJSONNumber(tok jsontext.Token, name string) (string, error) {
+	s := tok.String()
+	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+		return "", jsonJSONError(name, "invalid number "+s)
+	}
+	return s, nil
+}
+
+// jsonParseString parses tok as a string for a field of message name.
+func jsonParseString(tok jsontext.Token, name string) (string, error) {
+	if tok.Kind() != jsontext.KindString {
+		return "", jsonJSONError(name, "invalid string "+tok.String())
+	}
+	return tok.String(), nil
+}
+
+// jsonParseBytes parses tok as base64 bytes for a field of message name,
+// accepting standard and URL-safe alphabets, with or without padding.
+func jsonParseBytes(tok jsontext.Token, name string) ([]byte, error) {
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
+		enc := base64.StdEncoding
+		if strings.ContainsAny(s, "-_") {
+			enc = base64.URLEncoding
+		}
+		if len(s)%jsonBase64Quantum != 0 {
+			enc = enc.WithPadding(base64.NoPadding)
+		}
+		if by, err := enc.DecodeString(s); err == nil {
+			return by, nil
+		}
+	}
+	return nil, jsonJSONError(name, "invalid bytes "+s)
+}
+
+// jsonParseEnum converts an enum value read with the given class, a name in
+// tok or a number in iv, to E. values maps names to numbers.
+func jsonParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
+	switch class {
+	case jsonClassEnum:
+		s := tok.String()
+		n, ok := values[s]
+		if !ok {
+			return 0, jsonJSONError(name, "invalid value for enum "+enum+": "+strconv.Quote(s))
+		}
+		return E(n), nil
+	case jsonClassSigned:
+		return E(iv), nil
+	}
+	return 0, nil
+}
+
+// jsonJSONError returns an error about the ProtoJSON value of message name.
+func jsonJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }

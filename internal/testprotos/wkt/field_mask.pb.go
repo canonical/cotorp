@@ -51,6 +51,8 @@ const (
 // Error messages used more than once.
 const (
 	fieldMaskFieldMaskPathsErrUTF8           = "proto: field google.protobuf.FieldMask.paths contains invalid UTF-8"
+	fieldMaskErrParse                        = "proto: cannot parse invalid wire-format data"
+	fieldMaskErrDepth                        = "proto: exceeded maximum recursion depth"
 	fieldMaskFieldMaskErrUnrepresentablePath = "proto: google.protobuf.FieldMask: path cannot be represented in JSON: "
 )
 
@@ -296,16 +298,9 @@ func (m *FieldMask) MarshalBinary() ([]byte, error) {
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FieldMask) AppendBinary(b []byte) ([]byte, error) {
 	size := m.ProtoSize()
-	l := len(b)
-	b = slices.Grow(b, size)[:l+size]
-	n, err := m.ProtoMarshalToSizedBuffer(b[l:])
-	if err != nil {
-		return b[:l], err
-	}
-	if n != size {
-		return b[:l], errors.New("proto: message size changed during marshal")
-	}
-	return b, nil
+	b = slices.Grow(b, size)
+	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
+	return fieldMaskAppended(b, size, n, err)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
@@ -316,7 +311,6 @@ func (m *FieldMask) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		return 0, nil
 	}
 	i := len(b)
-	var u uint64
 	if len(m.unknownFields) > 0 {
 		i -= len(m.unknownFields)
 		copy(b[i:], m.unknownFields)
@@ -327,16 +321,8 @@ func (m *FieldMask) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		}
 		i -= len(v)
 		copy(b[i:], v)
-		u = uint64(len(v))
-		if u < fieldMaskVarintContBit {
-			i--
-			b[i] = byte(u)
-		} else {
-			i -= (bits.Len64(u|1) + fieldMaskVarintPayloadBits - 1) / fieldMaskVarintPayloadBits
-			binary.PutUvarint(b[i:], u)
-		}
-		i--
-		b[i] = 1<<fieldMaskTagTypeBits | fieldMaskWireBytes
+		i = fieldMaskPutVarint(b, i, uint64(len(v)))
+		i = fieldMaskPutVarint(b, i, 1<<fieldMaskTagTypeBits|fieldMaskWireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -368,12 +354,10 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<fieldMaskTagTypeBits | fieldMaskWireBytes:
-			ln, n := binary.Uvarint(b)
-			if n <= 0 || ln > uint64(len(b)-n) {
+			x, n := fieldMaskReadBytes(b)
+			if n < 0 {
 				goto errParse
 			}
-			x := b[n : n+int(ln)]
-			n += int(ln)
 			if !utf8.Valid(x) {
 				return errors.New(fieldMaskFieldMaskPathsErrUTF8)
 			}
@@ -381,77 +365,9 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 			m.Paths = append(m.Paths, string(x))
 		default:
 			// Unknown field, or a known field with an unexpected wire type.
-			num, typ := int32(t>>fieldMaskTagTypeBits), t&fieldMaskTagTypeMask
-			switch typ {
-			case fieldMaskWireVarint:
-				_, n = binary.Uvarint(b)
-				if n <= 0 {
-					goto errParse
-				}
-			case fieldMaskWireFixed64:
-				if len(b) < fieldMaskFixed64Size {
-					goto errParse
-				}
-				n = fieldMaskFixed64Size
-			case fieldMaskWireBytes:
-				ln, k := binary.Uvarint(b)
-				if k <= 0 || ln > uint64(len(b)-k) {
-					goto errParse
-				}
-				n = k + int(ln)
-			case fieldMaskWireStartGroup:
-				var stk [fieldMaskSkipStackSize]int32
-				open := append(stk[:0], num)
-				n = 0
-				for len(open) > 0 {
-					if depth+len(open) > fieldMaskMaxDepth {
-						goto errDepth
-					}
-					t, k := binary.Uvarint(b[n:])
-					if k <= 0 || t>>fieldMaskTagTypeBits == 0 || t>>fieldMaskTagTypeBits > fieldMaskMaxFieldNumber {
-						goto errParse
-					}
-					n += k
-					switch t & fieldMaskTagTypeMask {
-					case fieldMaskWireVarint:
-						_, k = binary.Uvarint(b[n:])
-						if k <= 0 {
-							goto errParse
-						}
-					case fieldMaskWireFixed64:
-						k = fieldMaskFixed64Size
-					case fieldMaskWireBytes:
-						ln, k2 := binary.Uvarint(b[n:])
-						if k2 <= 0 || ln > uint64(len(b)-n-k2) {
-							goto errParse
-						}
-						k = k2 + int(ln)
-					case fieldMaskWireStartGroup:
-						open = append(open, int32(t>>fieldMaskTagTypeBits))
-						k = 0
-					case fieldMaskWireEndGroup:
-						if open[len(open)-1] != int32(t>>fieldMaskTagTypeBits) {
-							goto errParse
-						}
-						open = open[:len(open)-1]
-						k = 0
-					case fieldMaskWireFixed32:
-						k = fieldMaskFixed32Size
-					default:
-						goto errParse
-					}
-					if k > len(b)-n {
-						goto errParse
-					}
-					n += k
-				}
-			case fieldMaskWireFixed32:
-				if len(b) < fieldMaskFixed32Size {
-					goto errParse
-				}
-				n = fieldMaskFixed32Size
-			default:
-				goto errParse
+			n, err := fieldMaskSkipField(b, t, depth)
+			if err != nil {
+				return err
 			}
 			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 			b = b[n:]
@@ -459,9 +375,9 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 	}
 	return nil
 errParse:
-	return errors.New("proto: cannot parse invalid wire-format data")
+	return errors.New(fieldMaskErrParse)
 errDepth:
-	return errors.New("proto: exceeded maximum recursion depth")
+	return errors.New(fieldMaskErrDepth)
 }
 
 // ProtoCheckInitialized returns an error if any required field in m
@@ -479,10 +395,7 @@ func (m *FieldMask) MarshalJSON() ([]byte, error) {
 // json.MarshalerTo from encoding/json/v2.
 func (m *FieldMask) MarshalJSONTo(e *jsontext.Encoder) error {
 	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
+	return fieldMaskWriteJSON(e, b, err)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
@@ -526,26 +439,15 @@ func (m *FieldMask) UnmarshalJSON(b []byte) error {
 // It does not check required fields.
 func (m *FieldMask) ProtoMergeJSON(b []byte) error {
 	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := m.ProtoMergeJSONFrom(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return errors.New("proto: google.protobuf.FieldMask: unexpected data after JSON value")
-	}
-	return nil
+	return fieldMaskEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FieldMask")
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
 // read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
 func (m *FieldMask) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
-		// ProtoJSON rejects invalid UTF-8, which d would replace (as
-		// encoding/json does), so decode the value with a strict decoder.
-		v, err := d.ReadValue()
-		if err != nil {
-			return err
-		}
-		return m.UnmarshalJSON(v)
+	d, err := fieldMaskStrictDecoder(d)
+	if err != nil {
+		return err
 	}
 	*m = FieldMask{}
 	return m.ProtoMergeJSONFrom(d)
@@ -586,4 +488,139 @@ func (m *FieldMask) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		m.Paths = append(m.Paths, string(sb))
 	}
 	return nil
+}
+
+// fieldMaskPutVarint writes u as a varint ending at b[i] and returns the index of
+// its first byte.
+func fieldMaskPutVarint(b []byte, i int, u uint64) int {
+	if u < fieldMaskVarintContBit {
+		b[i-1] = byte(u)
+		return i - 1
+	}
+	i -= (bits.Len64(u|1) + fieldMaskVarintPayloadBits - 1) / fieldMaskVarintPayloadBits
+	binary.PutUvarint(b[i:], u)
+	return i
+}
+
+// fieldMaskReadBytes returns the length-delimited value at the start of b and the
+// number of bytes it occupies, or n < 0 if it is malformed.
+func fieldMaskReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+
+// fieldMaskSkipField returns the length of the value at the start of b of a field
+// with tag t, in a message nested depth levels deep.
+func fieldMaskSkipField(b []byte, t uint64, depth int) (int, error) {
+	switch t & fieldMaskTagTypeMask {
+	case fieldMaskWireVarint:
+		if _, n := binary.Uvarint(b); n > 0 {
+			return n, nil
+		}
+	case fieldMaskWireFixed64:
+		if len(b) >= fieldMaskFixed64Size {
+			return fieldMaskFixed64Size, nil
+		}
+	case fieldMaskWireBytes:
+		if _, n := fieldMaskReadBytes(b); n >= 0 {
+			return n, nil
+		}
+	case fieldMaskWireStartGroup:
+		return fieldMaskSkipGroup(b, int32(t>>fieldMaskTagTypeBits), depth)
+	case fieldMaskWireFixed32:
+		if len(b) >= fieldMaskFixed32Size {
+			return fieldMaskFixed32Size, nil
+		}
+	}
+	return 0, errors.New(fieldMaskErrParse)
+}
+
+// fieldMaskSkipGroup returns the length of the body of group num at the start of
+// b, including its end-group tag, in a message nested depth levels deep.
+// Nested groups are tracked with a small stack.
+func fieldMaskSkipGroup(b []byte, num int32, depth int) (int, error) {
+	var stk [fieldMaskSkipStackSize]int32
+	open := append(stk[:0], num)
+	n := 0
+	for len(open) > 0 {
+		if depth+len(open) > fieldMaskMaxDepth {
+			return 0, errors.New(fieldMaskErrDepth)
+		}
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 || t>>fieldMaskTagTypeBits == 0 || t>>fieldMaskTagTypeBits > fieldMaskMaxFieldNumber {
+			return 0, errors.New(fieldMaskErrParse)
+		}
+		n += k
+		switch t & fieldMaskTagTypeMask {
+		case fieldMaskWireStartGroup:
+			open = append(open, int32(t>>fieldMaskTagTypeBits))
+		case fieldMaskWireEndGroup:
+			if open[len(open)-1] != int32(t>>fieldMaskTagTypeBits) {
+				return 0, errors.New(fieldMaskErrParse)
+			}
+			open = open[:len(open)-1]
+		default:
+			k, err := fieldMaskSkipField(b[n:], t, depth)
+			if err != nil {
+				return 0, err
+			}
+			n += k
+		}
+	}
+	return n, nil
+}
+
+// fieldMaskAppended finishes AppendBinary: b has capacity for size more bytes,
+// of which ProtoMarshalToSizedBuffer wrote n or failed with err.
+func fieldMaskAppended(b []byte, size, n int, err error) ([]byte, error) {
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
+
+// fieldMaskWriteJSON finishes MarshalJSONTo: it writes the JSON value b to e,
+// unless producing b failed with err.
+func fieldMaskWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
+// fieldMaskEndJSON finishes ProtoMergeJSON for message name: decoding one value
+// from d failed with err, or d must have no more data.
+func fieldMaskEndJSON(d *jsontext.Decoder, err error, name string) error {
+	if err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return fieldMaskJSONError(name, "unexpected data after JSON value")
+	}
+	return nil
+}
+
+// fieldMaskStrictDecoder returns d, or a strict decoder for the next value of d if d
+// replaces invalid UTF-8 (as encoding/json's decoder does), which
+// ProtoJSON rejects.
+func fieldMaskStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
+		return d, nil
+	}
+	v, err := d.ReadValue()
+	if err != nil {
+		return nil, err
+	}
+	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
+}
+
+// fieldMaskJSONError returns an error about the ProtoJSON value of message name.
+func fieldMaskJSONError(name, msg string) error {
+	return errors.New("proto: " + name + ": " + msg)
 }
