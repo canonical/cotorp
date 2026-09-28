@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+// Every bytes field here is written as hex, so the generated file must not
+// import encoding/base64. It compiles only if unused imports are dropped.
+package cotorp.test.otlp;
+
+option go_package = "github.com/canonical/cotorp/internal/testprotos/otlp;otlppb";
+
+message Ids {
+  bytes trace_id = 1;
+  repeated bytes span_ids = 2;
+}

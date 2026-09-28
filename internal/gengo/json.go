@@ -137,9 +137,12 @@ func (fg *fileGen) jsonOutExpr(f *desc.Field, v, dst, lit string) (string, bool)
 	case desc.KindDouble:
 		return fg.fn("AppendFloat") + "(" + d + ", " + v + ", 64)", true
 	case desc.KindBytes:
-		enc := fg.std("encoding/base64") + ".StdEncoding"
+		// Record only the import that is used.
+		var enc string
 		if fg.g.jsonHex[f.FullName] {
 			enc = fg.std("encoding/hex")
+		} else {
+			enc = fg.std("encoding/base64") + ".StdEncoding"
 		}
 		return quoted(enc + ".AppendEncode(" + appendLit(dst, lit+`"`) + ", " + v + ")"), true
 	case desc.KindEnum:

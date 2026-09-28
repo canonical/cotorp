@@ -72,7 +72,11 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **Stdlib imports are tracked.** Reference a stdlib package only through
   `fg.std("import/path")`, which records the import and returns the package
   name. Writing `binary.` or `math.` directly into generated code leads to a
-  missing-import or unused-import compile error.
+  missing-import compile error. An expression built but not emitted still
+  records its import; `dropUnusedImports` removes imports the finished file
+  does not reference, so never name a local after a package and use it with
+  a selector. `otlp/ids.proto` (hex bytes fields only, so no base64) guards
+  this.
 - **No magic numbers or repeated error strings in generated code.**
   - Numbers with a fixed meaning (wire types, sizes, limits, parse classes)
     are written as `fg.c("Name")`, which declares the constant from
