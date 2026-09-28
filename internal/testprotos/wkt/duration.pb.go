@@ -6,13 +6,14 @@ package wktpb
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
+	"io"
 	"math/bits"
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // Wire types.
@@ -375,6 +376,16 @@ func (m *Duration) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Duration) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Duration) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -418,20 +429,48 @@ func (m *Duration) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Duration) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.Duration: invalid JSON")
-	}
-	if string(raw) == "null" {
-		return nil
-	}
-	var s string
-	if raw[0] != '"' || !utf8.Valid(raw) {
-		return errors.New("proto: google.protobuf.Duration: expected a JSON string")
-	}
-	if err := json.Unmarshal(raw, &s); err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.Duration: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Duration) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = Duration{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindString {
+		return errors.New("proto: google.protobuf.Duration: expected a JSON string")
+	}
+	s := tok.String()
 	in := s
 	neg := false
 	if strings.HasPrefix(s, "-") {

@@ -8,7 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"math"
@@ -67,6 +68,7 @@ const (
 	traceClassString   = 5
 	traceClassBytes    = 6
 	traceClassHex      = 7
+	traceClassEnum     = 8
 )
 
 // ProtoJSON limits.
@@ -74,9 +76,6 @@ const (
 	traceMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
 	traceBase64Quantum   = 4   // base64 characters per padded block
 )
-
-// Hexadecimal digits for \u escapes in JSON strings.
-const traceHexDigits = "0123456789abcdef"
 
 // Error messages used more than once.
 const (
@@ -86,21 +85,15 @@ const (
 	traceSpanTraceStateErrUTF8      = "proto: field cotorp.test.otlp.Span.trace_state contains invalid UTF-8"
 	traceErrParse                   = "proto: cannot parse invalid wire-format data"
 	traceErrDepth                   = "proto: exceeded maximum recursion depth"
-	traceSpanErrTrailingData        = "proto: cotorp.test.otlp.Span: unexpected data after JSON value"
 	traceSpanErrNotObject           = "proto: cotorp.test.otlp.Span: expected a JSON object"
-	traceSpanErrNullElement         = "proto: cotorp.test.otlp.Span: null is not allowed in repeated fields or map values"
 	traceSpanErrInvalidInteger      = "proto: cotorp.test.otlp.Span: invalid integer "
 	traceSpanErrInvalidBytes        = "proto: cotorp.test.otlp.Span: invalid bytes "
 	traceSpanErrInvalidHex          = "proto: cotorp.test.otlp.Span: invalid hex bytes "
-	traceSpanLinkErrTrailingData    = "proto: cotorp.test.otlp.Span.Link: unexpected data after JSON value"
 	traceSpanLinkErrInvalidHex      = "proto: cotorp.test.otlp.Span.Link: invalid hex bytes "
 	traceStatusMessageErrUTF8       = "proto: field cotorp.test.otlp.Status.message contains invalid UTF-8"
-	traceStatusErrTrailingData      = "proto: cotorp.test.otlp.Status: unexpected data after JSON value"
 	traceStatusErrInvalidInteger    = "proto: cotorp.test.otlp.Status: invalid integer "
 	traceAnyValueStringValueErrUTF8 = "proto: field cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8"
-	traceAnyValueErrTrailingData    = "proto: cotorp.test.otlp.AnyValue: unexpected data after JSON value"
 	traceAnyValueErrInvalidBytes    = "proto: cotorp.test.otlp.AnyValue: invalid bytes "
-	traceNothingErrTrailingData     = "proto: cotorp.test.otlp.Nothing: unexpected data after JSON value"
 )
 
 type Span_SpanKind int32
@@ -972,9 +965,20 @@ func (m *Span) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Span) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -982,66 +986,36 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.TraceId) > 0 {
 		b = append(b, "\"traceId\":"...)
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, hex.EncodedLen(len(m.TraceId)))[:l+hex.EncodedLen(len(m.TraceId))]
-		hex.Encode(b[l:], m.TraceId)
+		b = hex.AppendEncode(b, m.TraceId)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.SpanId) > 0 {
 		b = append(b, "\"spanId\":"...)
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, hex.EncodedLen(len(m.SpanId)))[:l+hex.EncodedLen(len(m.SpanId))]
-		hex.Encode(b[l:], m.SpanId)
+		b = hex.AppendEncode(b, m.SpanId)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.TraceState) > 0 {
 		b = append(b, "\"traceState\":"...)
-		if !utf8.ValidString(m.TraceState) {
+		if b, err = jsontext.AppendQuote(b, m.TraceState); err != nil {
 			return nil, errors.New("proto: cotorp.test.otlp.Span.trace_state contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len(m.TraceState); ci++ {
-			switch c := m.TraceState[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.ParentSpanId) > 0 {
 		b = append(b, "\"parentSpanId\":"...)
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, hex.EncodedLen(len(m.ParentSpanId)))[:l+hex.EncodedLen(len(m.ParentSpanId))]
-		hex.Encode(b[l:], m.ParentSpanId)
+		b = hex.AppendEncode(b, m.ParentSpanId)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Name) > 0 {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString(m.Name) {
+		if b, err = jsontext.AppendQuote(b, m.Name); err != nil {
 			return nil, errors.New("proto: cotorp.test.otlp.Span.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len(m.Name); ci++ {
-			switch c := m.Name[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Kind != 0 {
@@ -1059,7 +1033,6 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Links) > 0 {
 		b = append(b, "\"links\":["...)
 		for j := range m.Links {
-			var err error
 			if b, err = m.Links[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -1070,7 +1043,6 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Status != nil {
 		b = append(b, "\"status\":"...)
-		var err error
 		if b, err = m.Status.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1080,9 +1052,7 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 		b = append(b, "\"hexList\":["...)
 		for j := range m.HexList {
 			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, hex.EncodedLen(len(m.HexList[j])))[:l+hex.EncodedLen(len(m.HexList[j]))]
-			hex.Encode(b[l:], m.HexList[j])
+			b = hex.AppendEncode(b, m.HexList[j])
 			b = append(b, '"')
 			b = append(b, ',')
 		}
@@ -1091,11 +1061,8 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if len(m.Plain) > 0 {
 		b = append(b, "\"plain\":"...)
-		n := base64.StdEncoding.EncodedLen(len(m.Plain))
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, n)[:l+n]
-		base64.StdEncoding.Encode(b[l:], m.Plain)
+		b = base64.StdEncoding.AppendEncode(b, m.Plain)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
@@ -1113,21 +1080,9 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 		slices.Sort(keys)
 		for _, k := range keys {
 			v := m.Codes[k]
-			if !utf8.ValidString(k) {
+			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.otlp.Span.codes contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(k); ci++ {
-				switch c := k[ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ':')
 			b = strconv.AppendInt(b, int64(v), 10)
 			b = append(b, ',')
@@ -1153,142 +1108,152 @@ func (m *Span) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Span) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(traceSpanErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.otlp.Span: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New(traceSpanErrNotObject)
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [13]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Span) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "traceId", "trace_id":
-			f = 0
-		case "spanId", "span_id":
-			f = 1
-		case "traceState", "trace_state":
-			f = 2
-		case "parentSpanId", "parent_span_id":
-			f = 3
-		case "name":
-			f = 4
-		case "kind":
-			f = 5
-		case "startTimeUnixNano", "start_time_unix_nano":
-			f = 6
-		case "links":
-			f = 7
-		case "status":
-			f = 8
-		case "hexList", "hex_list":
-			f = 9
-		case "plain":
-			f = 10
-		case "nullValue", "null_value":
-			f = 11
-		case "codes":
-			f = 12
-		default:
-			continue // unknown keys are ignored (-json_discard_unknown)
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.otlp.Span: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 8, 10:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		return m.UnmarshalJSON(v)
+	}
+	*m = Span{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Span) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New(traceSpanErrNotObject)
+	}
+	var seen [13]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var mk string
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
 			}
-		case 11:
-			jobs = append(jobs, job{f: f, raw: raw})
-		case 7, 9:
-			if null {
-				continue
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: cotorp.test.otlp.Span: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+			key := kt.String()
+			switch key {
+			case "traceId", "trace_id":
+				f = 0
+			case "spanId", "span_id":
+				f = 1
+			case "traceState", "trace_state":
+				f = 2
+			case "parentSpanId", "parent_span_id":
+				f = 3
+			case "name":
+				f = 4
+			case "kind":
+				f = 5
+			case "startTimeUnixNano", "start_time_unix_nano":
+				f = 6
+			case "links":
+				f = 7
+			case "status":
+				f = 8
+			case "hexList", "hex_list":
+				f = 9
+			case "plain":
+				f = 10
+			case "nullValue", "null_value":
+				f = 11
+			case "codes":
+				f = 12
+			default:
+				// Unknown keys are ignored (-json_discard_unknown).
+				if err := d.SkipValue(); err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New(traceSpanErrNullElement)
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		case 12:
-			if null {
 				continue
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New(traceSpanErrNotObject)
+			if seen[f] {
+				return errors.New("proto: cotorp.test.otlp.Span: duplicate field " + strconv.Quote(key))
 			}
-			for ad.More() {
-				kt, err := ad.Token()
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull && f != 11 {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 7, 9:
+				tok, err := d.ReadToken()
 				if err != nil {
 					return err
 				}
-				ks, _ := kt.(string)
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.otlp.Span: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			case 12:
+				tok, err := d.ReadToken()
+				if err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New(traceSpanErrNullElement)
+				if tok.Kind() != jsontext.KindBeginObject {
+					return errors.New(traceSpanErrNotObject)
 				}
-				jobs = append(jobs, job{f: f, key: ks, raw: e})
+				in = jsontext.KindBeginObject
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if in == jsontext.KindBeginObject {
+				kt, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				mk = kt.String()
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.otlp.Span: null is not allowed in repeated fields or map values")
 			}
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(traceSpanErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := traceClassNone
 		bits := 64
-		var iv int64
-		var uv uint64
-		var sv string
-		var by []byte
-		switch jb.f {
+		switch f {
 		case 6:
 			class, bits = traceClassUnsigned, 64
 		case 2, 4:
@@ -1298,25 +1263,34 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 		case 0, 1, 3, 9:
 			class = traceClassHex
 		case 5, 11, 12:
-			switch {
-			case string(raw) == "null":
-				class = traceClassNone
-			case raw[0] == '"':
-				class = traceClassString
-			default:
-				class, bits = traceClassSigned, 32
+			class = traceClassEnum
+		}
+		var iv int64
+		var uv uint64
+		var sv string
+		var by []byte
+		var tok jsontext.Token
+		if class != traceClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == traceClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = traceClassNone
+				case jsontext.KindString:
+					class = traceClassString
+				default:
+					class, bits = traceClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case traceClassSigned, traceClassUnsigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.otlp.Span: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.otlp.Span: invalid number " + s)
 			}
 			var err error
 			if class == traceClassSigned {
@@ -1329,40 +1303,35 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > traceMaxJSONExponent || e < -traceMaxJSONExponent {
-						return errors.New(traceSpanErrInvalidInteger + string(raw))
+						return errors.New(traceSpanErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(traceSpanErrInvalidInteger + string(raw))
+					return errors.New(traceSpanErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if class == traceClassSigned {
 					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(traceSpanErrInvalidInteger + string(raw))
+						return errors.New(traceSpanErrInvalidInteger + s)
 					}
 					iv = n.Int64()
 				} else {
 					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(traceSpanErrInvalidInteger + string(raw))
+						return errors.New(traceSpanErrInvalidInteger + s)
 					}
 					uv = n.Uint64()
 				}
 			}
 		case traceClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.otlp.Span: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.otlp.Span: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		case traceClassBytes:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(traceSpanErrInvalidBytes + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(traceSpanErrInvalidBytes + s)
 			}
 			// Accept standard and URL-safe alphabets, with or without padding.
 			enc := base64.StdEncoding
@@ -1374,23 +1343,20 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(traceSpanErrInvalidBytes + string(raw))
+				return errors.New(traceSpanErrInvalidBytes + s)
 			}
 		case traceClassHex:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(traceSpanErrInvalidHex + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(traceSpanErrInvalidHex + s)
 			}
 			// Either case is accepted.
 			var err error
 			if by, err = hex.DecodeString(s); err != nil {
-				return errors.New(traceSpanErrInvalidHex + string(raw))
+				return errors.New(traceSpanErrInvalidHex + s)
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.TraceId = by
 		case 1:
@@ -1418,7 +1384,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			m.StartTimeUnixNano = uv
 		case 7:
 			mv := &Span_Link{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Links = append(m.Links, mv)
@@ -1426,7 +1392,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			if m.Status == nil {
 				m.Status = &Status{}
 			}
-			if err := m.Status.ProtoMergeJSON(raw); err != nil {
+			if err := m.Status.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 9:
@@ -1448,7 +1414,7 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			x := ev
 			m.NullValue = &x
 		case 12:
-			k := jb.key
+			k := mk
 			var ev Status_StatusCode
 			switch class {
 			case traceClassString:
@@ -1466,7 +1432,8 @@ func (m *Span) ProtoMergeJSON(b []byte) error {
 			m.Codes[k] = ev
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Span_Link struct {
@@ -1721,6 +1688,16 @@ func (m *Span_Link) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Span_Link) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Span_Link) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -1731,18 +1708,14 @@ func (m *Span_Link) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.TraceId) > 0 {
 		b = append(b, "\"traceId\":"...)
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, hex.EncodedLen(len(m.TraceId)))[:l+hex.EncodedLen(len(m.TraceId))]
-		hex.Encode(b[l:], m.TraceId)
+		b = hex.AppendEncode(b, m.TraceId)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.SpanId) > 0 {
 		b = append(b, "\"spanId\":"...)
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, hex.EncodedLen(len(m.SpanId)))[:l+hex.EncodedLen(len(m.SpanId))]
-		hex.Encode(b[l:], m.SpanId)
+		b = hex.AppendEncode(b, m.SpanId)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
@@ -1764,97 +1737,115 @@ func (m *Span_Link) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Span_Link) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(traceSpanLinkErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.otlp.Span.Link: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.otlp.Span.Link: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Span_Link) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Span_Link{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Span_Link) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.otlp.Span.Link: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "traceId", "trace_id":
 			f = 0
 		case "spanId", "span_id":
 			f = 1
 		default:
-			continue // unknown keys are ignored (-json_discard_unknown)
+			// Unknown keys are ignored (-json_discard_unknown).
+			if err := d.SkipValue(); err != nil {
+				return err
+			}
+			continue
 		}
 		if seen[f] {
 			return errors.New("proto: cotorp.test.otlp.Span.Link: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(traceSpanLinkErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := traceClassNone
-		var by []byte
-		switch jb.f {
+		switch f {
 		case 0, 1:
 			class = traceClassHex
 		}
+		var by []byte
+		var tok jsontext.Token
+		if class != traceClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case traceClassHex:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(traceSpanLinkErrInvalidHex + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(traceSpanLinkErrInvalidHex + s)
 			}
 			// Either case is accepted.
 			var err error
 			if by, err = hex.DecodeString(s); err != nil {
-				return errors.New(traceSpanLinkErrInvalidHex + string(raw))
+				return errors.New(traceSpanLinkErrInvalidHex + s)
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.TraceId = by
 		case 1:
 			m.SpanId = by
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Status struct {
@@ -2111,30 +2102,29 @@ func (m *Status) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Status) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Status) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if len(m.Message) > 0 {
 		b = append(b, "\"message\":"...)
-		if !utf8.ValidString(m.Message) {
+		if b, err = jsontext.AppendQuote(b, m.Message); err != nil {
 			return nil, errors.New("proto: cotorp.test.otlp.Status.message contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len(m.Message); ci++ {
-			switch c := m.Message[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Code != 0 {
@@ -2160,95 +2150,113 @@ func (m *Status) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Status) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(traceStatusErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.otlp.Status: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.otlp.Status: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Status) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Status{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Status) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.otlp.Status: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "message":
 			f = 0
 		case "code":
 			f = 1
 		default:
-			continue // unknown keys are ignored (-json_discard_unknown)
+			// Unknown keys are ignored (-json_discard_unknown).
+			if err := d.SkipValue(); err != nil {
+				return err
+			}
+			continue
 		}
 		if seen[f] {
 			return errors.New("proto: cotorp.test.otlp.Status: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(traceStatusErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := traceClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class = traceClassString
 		case 1:
-			switch {
-			case string(raw) == "null":
-				class = traceClassNone
-			case raw[0] == '"':
-				class = traceClassString
-			default:
-				class, bits = traceClassSigned, 32
+			class = traceClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != traceClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == traceClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = traceClassNone
+				case jsontext.KindString:
+					class = traceClassString
+				default:
+					class, bits = traceClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case traceClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.otlp.Status: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.otlp.Status: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -2257,28 +2265,26 @@ func (m *Status) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > traceMaxJSONExponent || e < -traceMaxJSONExponent {
-						return errors.New(traceStatusErrInvalidInteger + string(raw))
+						return errors.New(traceStatusErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(traceStatusErrInvalidInteger + string(raw))
+					return errors.New(traceStatusErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(traceStatusErrInvalidInteger + string(raw))
+					return errors.New(traceStatusErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case traceClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.otlp.Status: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.otlp.Status: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.Message = sv
 		case 1:
@@ -2296,7 +2302,8 @@ func (m *Status) ProtoMergeJSON(b []byte) error {
 			m.Code = ev
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type AnyValue struct {
@@ -2583,39 +2590,35 @@ func (m *AnyValue) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *AnyValue) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *AnyValue) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if o, ok := m.Value.(*AnyValue_StringValue); ok {
 		b = append(b, "\"stringValue\":"...)
-		if !utf8.ValidString(o.StringValue) {
+		if b, err = jsontext.AppendQuote(b, o.StringValue); err != nil {
 			return nil, errors.New("proto: cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len(o.StringValue); ci++ {
-			switch c := o.StringValue[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', traceHexDigits[c>>4], traceHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if o, ok := m.Value.(*AnyValue_BytesValue); ok {
 		b = append(b, "\"bytesValue\":"...)
-		n := base64.StdEncoding.EncodedLen(len(o.BytesValue))
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, n)[:l+n]
-		base64.StdEncoding.Encode(b[l:], o.BytesValue)
+		b = base64.StdEncoding.AppendEncode(b, o.BytesValue)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
@@ -2637,98 +2640,115 @@ func (m *AnyValue) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *AnyValue) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(traceAnyValueErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.otlp.AnyValue: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.otlp.AnyValue: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	var oneofs [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *AnyValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = AnyValue{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *AnyValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.otlp.AnyValue: expected a JSON object")
+	}
+	var seen [2]bool
+	var oneofs [1]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "stringValue", "string_value":
 			f = 0
 		case "bytesValue", "bytes_value":
 			f = 1
 		default:
-			continue // unknown keys are ignored (-json_discard_unknown)
+			// Unknown keys are ignored (-json_discard_unknown).
+			if err := d.SkipValue(); err != nil {
+				return err
+			}
+			continue
 		}
 		if seen[f] {
 			return errors.New("proto: cotorp.test.otlp.AnyValue: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
+			}
+			continue
+		}
 		switch f {
 		case 0, 1:
-			if null {
-				continue
-			}
 			if oneofs[0] {
 				return errors.New("proto: cotorp.test.otlp.AnyValue: multiple fields set for oneof value")
 			}
 			oneofs[0] = true
-			jobs = append(jobs, job{f: f, raw: raw})
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(traceAnyValueErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := traceClassNone
-		var sv string
-		var by []byte
-		switch jb.f {
+		switch f {
 		case 0:
 			class = traceClassString
 		case 1:
 			class = traceClassBytes
 		}
+		var sv string
+		var by []byte
+		var tok jsontext.Token
+		if class != traceClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case traceClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.otlp.AnyValue: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.otlp.AnyValue: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		case traceClassBytes:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(traceAnyValueErrInvalidBytes + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(traceAnyValueErrInvalidBytes + s)
 			}
 			// Accept standard and URL-safe alphabets, with or without padding.
 			enc := base64.StdEncoding
@@ -2740,17 +2760,18 @@ func (m *AnyValue) ProtoMergeJSON(b []byte) error {
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(traceAnyValueErrInvalidBytes + string(raw))
+				return errors.New(traceAnyValueErrInvalidBytes + s)
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.Value = &AnyValue_StringValue{StringValue: sv}
 		case 1:
 			m.Value = &AnyValue_BytesValue{BytesValue: by}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Nothing struct {
@@ -2932,6 +2953,16 @@ func (m *Nothing) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Nothing) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Nothing) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -2957,36 +2988,56 @@ func (m *Nothing) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Nothing) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.otlp.Nothing: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Nothing) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = Nothing{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Nothing) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok == nil {
+	if tok.Kind() == jsontext.KindNull {
 		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(traceNothingErrTrailingData)
-		}
 		return nil
 	}
-	if tok != json.Delim('{') {
+	if tok.Kind() != jsontext.KindBeginObject {
 		return errors.New("proto: cotorp.test.otlp.Nothing: expected a JSON object")
 	}
-	for d.More() {
-		if _, err := d.Token(); err != nil {
+	for d.PeekKind() != jsontext.KindEndObject {
+		if _, err := d.ReadToken(); err != nil {
 			return err
 		}
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		// Unknown keys are ignored (-json_discard_unknown).
+		if err := d.SkipValue(); err != nil {
 			return err
 		}
 	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(traceNothingErrTrailingData)
-	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }

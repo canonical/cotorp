@@ -6,7 +6,8 @@ package wktpb
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"slices"
@@ -41,9 +42,6 @@ const (
 	emptyMaxDepth      = 10000 // maximum message and group nesting
 	emptySkipStackSize = 16    // group nesting tracked without allocating
 )
-
-// Error message used more than once.
-const emptyEmptyErrTrailingData = "proto: google.protobuf.Empty: unexpected data after JSON value"
 
 // A generic empty message that you can re-use to avoid defining duplicated
 // empty messages in your APIs. A typical example is to use it as the request
@@ -231,6 +229,16 @@ func (m *Empty) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Empty) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Empty) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -256,32 +264,54 @@ func (m *Empty) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Empty) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.Empty: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Empty) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = Empty{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Empty) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok == nil {
+	if tok.Kind() == jsontext.KindNull {
 		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(emptyEmptyErrTrailingData)
-		}
 		return nil
 	}
-	if tok != json.Delim('{') {
+	if tok.Kind() != jsontext.KindBeginObject {
 		return errors.New("proto: google.protobuf.Empty: expected a JSON object")
 	}
-	if d.More() {
-		tok, _ := d.Token()
-		key, _ := tok.(string)
-		return errors.New("proto: google.protobuf.Empty: unknown field " + strconv.Quote(key))
+	if d.PeekKind() != jsontext.KindEndObject {
+		kt, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		return errors.New("proto: google.protobuf.Empty: unknown field " + strconv.Quote(kt.String()))
 	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(emptyEmptyErrTrailingData)
-	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }

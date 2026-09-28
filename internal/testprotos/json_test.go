@@ -6,6 +6,7 @@ package testprotos_test
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"math"
 	"os"
 	"os/exec"
@@ -368,6 +369,7 @@ func TestJSONUnmarshal(t *testing.T) {
 		{"map bool key", m3, `{"mBoolBytes": {"true": "AQ=="}}`, &proto3pb.Maps{MBoolBytes: map[bool][]byte{true: {1}}}},
 		{"map bad bool key", m3, `{"mBoolBytes": {"True": ""}}`, nil},
 		{"map null value", m3, `{"mStringString": {"a": null}}`, nil},
+		{"map duplicate key", m3, `{"mStringString": {"a": "1", "a": "2"}}`, nil},
 
 		// Oneofs.
 		{"oneof", o3, `{"cString": "x"}`, &proto3pb.Oneofs{Choice: &proto3pb.Oneofs_CString{CString: "x"}}},
@@ -514,7 +516,36 @@ func TestJSONMarshalErrors(t *testing.T) {
 	}
 }
 
-// TestJSONStdlib checks the generated methods integrate with encoding/json.
+// TestJSONMarshalExact checks formatting that sameJSON ignores. The expected
+// output is what protojson produces byte for byte: floats are formatted as
+// in encoding/json, and strings use short escapes and no HTML escaping.
+func TestJSONMarshalExact(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  jsonMessage
+		want string
+	}{
+		{"floats", &proto3pb.Repeateds{
+			RDouble: []float64{1e6, 123456789, 1e20, 1e21, 1.5e300, 1e-6, 1e-7, 0.1},
+			RFloat:  []float32{1e6, 0.1, 1e-7},
+		}, `{"rDouble":[1000000,123456789,100000000000000000000,1e+21,1.5e+300,0.000001,1e-7,0.1],"rFloat":[1000000,0.1,1e-7]}`},
+		{"value number", &jsontestpb.WellKnown{Val: &wktpb.Value{Kind: &wktpb.Value_NumberValue{NumberValue: 1e6}}},
+			`{"val":1000000}`},
+		{"string escapes", &proto3pb.Scalars{FString: "\"\\\n\t\x01\x1f<>&\u2028\x7f"},
+			`{"fString":"\"\\\n\t\u0001\u001f<>&` + "\u2028\x7f" + `"}`},
+	}
+	for _, tc := range cases {
+		got, err := tc.msg.MarshalJSON()
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+		} else if string(got) != tc.want {
+			t.Errorf("%s:\n got: %s\nwant: %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestJSONStdlib checks the generated methods integrate with encoding/json
+// and encoding/json/v2, which call MarshalJSONTo and UnmarshalJSONFrom.
 func TestJSONStdlib(t *testing.T) {
 	type wrapper struct {
 		M *proto3pb.Scalars  `json:"m"`
@@ -522,18 +553,42 @@ func TestJSONStdlib(t *testing.T) {
 		N *wktpb.Timestamp   `json:"n"`
 	}
 	in := wrapper{M: &proto3pb.Scalars{FInt64: 1}, L: []*commonpb.Shared{{Label: "a"}}, N: &wktpb.Timestamp{}}
-	b, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
+	const want = `{"m":{"fInt64":"1"},"l":[{"label":"a"}],"n":"1970-01-01T00:00:00Z"}`
+	apis := []struct {
+		name      string
+		marshal   func(any) ([]byte, error)
+		unmarshal func([]byte, any) error
+	}{
+		{"encoding/json", json.Marshal, json.Unmarshal},
+		{"encoding/json/v2", func(v any) ([]byte, error) { return jsonv2.Marshal(v) },
+			func(b []byte, v any) error { return jsonv2.Unmarshal(b, v) }},
 	}
-	if want := `{"m":{"fInt64":"1"},"l":[{"label":"a"}],"n":"1970-01-01T00:00:00Z"}`; string(b) != want {
-		t.Errorf("json.Marshal = %s, want %s", b, want)
-	}
-	var out wrapper
-	if err := json.Unmarshal(b, &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.M.FInt64 != 1 || out.L[0].Label != "a" || out.N == nil {
-		t.Errorf("json.Unmarshal = %+v", out)
+	for _, api := range apis {
+		b, err := api.marshal(in)
+		if err != nil {
+			t.Fatalf("%s: %v", api.name, err)
+		}
+		if string(b) != want {
+			t.Errorf("%s: Marshal = %s, want %s", api.name, b, want)
+		}
+		var out wrapper
+		if err := api.unmarshal(b, &out); err != nil {
+			t.Fatalf("%s: %v", api.name, err)
+		}
+		if out.M.FInt64 != 1 || out.L[0].Label != "a" || out.N == nil {
+			t.Errorf("%s: Unmarshal = %+v", api.name, out)
+		}
+		// ProtoJSON rules still apply, including strict UTF-8, which
+		// encoding/json would otherwise relax.
+		for _, bad := range []string{
+			`{"m":{"nope":1}}`,
+			`{"m":{"fInt32":1,"f_int32":2}}`,
+			"{\"m\":{\"fString\":\"\xff\"}}",
+			`{"l":[{"label":1}]}`,
+		} {
+			if err := api.unmarshal([]byte(bad), &out); err == nil {
+				t.Errorf("%s: Unmarshal(%q) succeeded", api.name, bad)
+			}
+		}
 	}
 }

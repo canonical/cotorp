@@ -270,6 +270,9 @@ var reservedMethodNames = []string{
 	"UnmarshalJSON",
 	"ProtoAppendJSON",
 	"ProtoMergeJSON",
+	"MarshalJSONTo",
+	"UnmarshalJSONFrom",
+	"ProtoMergeJSONFrom",
 }
 
 type messageInfo struct {
@@ -359,6 +362,9 @@ type fileGen struct {
 	// usesU records use of the marshal scratch variable u in the function
 	// body currently being generated.
 	usesU bool
+	// usesErr records use of the variable err in the ProtoAppendJSON body
+	// currently being generated.
+	usesErr bool
 
 	// File-level constants (see consts.go).
 	prefix string            // name prefix for this file's constants
@@ -479,13 +485,12 @@ var localNames = map[string]bool{
 	"open": true, "e": true, "lv": true, "s": true,
 	// JSON methods.
 	"c": true, "ci": true, "fl": true, "d": true, "tok": true, "key": true,
-	"raw": true, "job": true, "jobs": true, "jb": true, "seen": true,
-	"oneofs": true, "f": true, "null": true, "ad": true, "kt": true,
-	"ks": true, "class": true, "bits": true, "iv": true, "uv": true,
+	"seen": true, "oneofs": true, "f": true, "kt": true, "class": true,
+	"bits": true, "iv": true, "uv": true,
 	"fv": true, "bv": true, "sv": true, "by": true, "r": true, "ev": true,
 	"k64": true, "enc": true, "special": true, "ns": true, "secs": true,
 	"nanos": true, "neg": true, "in": true, "whole": true, "frac": true,
-	"dot": true, "p": true, "sb": true,
+	"dot": true, "p": true, "sb": true, "lax": true,
 }
 
 // qualify returns name as referenced from this file, adding an import if it

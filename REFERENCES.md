@@ -84,9 +84,30 @@ between binary and ProtoJSON. Every case in `internal/testprotos/json_test.go`
 was checked against it in both directions. Behaviours taken from it:
 
 - a top-level `null` is rejected (cotorp deliberately differs; see README);
+- duplicate map keys are rejected (`encoding/protojson/decode.go`, read in
+  the cached v1.36.8 source);
+- strings are escaped as `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t` and
+  lowercase `\u00xx` for other control characters, with no HTML escaping, and
+  floats use `encoding/json`'s format (`appendString` and `appendFloat` in
+  `internal/encoding/json/encode.go`, v1.36.8). `jsontext.AppendQuote` and
+  `jsontext.AppendFloat` produce the same bytes (`TestJSONMarshalExact`);
 - unknown numbers for closed enums are accepted from JSON;
 - an implicit `NullValue` field holding an undeclared number encodes as
   `null`.
+
+### Go `encoding/json/v2` and `jsontext` (Go 1.27, found by experiment)
+
+- The `jsonv2` experiment is on by default in Go 1.27
+  (`internal/buildcfg/exp.go`), so generated code may import
+  `encoding/json/jsontext` and `encoding/json/v2` without `GOEXPERIMENT`.
+- `Decoder` rejects invalid UTF-8 and duplicate object names by default.
+  `Token` and `Value` results are invalidated by the next read or peek.
+- `NewDecoder` reads a `*bytes.Buffer` in place, without copying, and does
+  not modify it.
+- `encoding/json` (v1) calls `UnmarshalJSONFrom` in preference to
+  `UnmarshalJSON`, with `AllowInvalidUTF8(true)`, which replaces invalid
+  UTF-8 in strings; `json.GetOption` reports the setting
+  (`encoding/json/v2_decode.go`, `v2/arshal_methods.go`).
 
 ### protoc JSON-name validation (found by experiment)
 

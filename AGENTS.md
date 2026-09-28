@@ -53,7 +53,7 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   `TestSelfContained` enforces this. All wire logic is inlined into methods;
   methods may call the standard library and the methods of other generated
   messages (`ProtoSize`, `ProtoMarshalToSizedBuffer`, `ProtoMergeDepth`,
-  `ProtoCheckInitialized`, `ProtoAppendJSON`, `ProtoMergeJSON`) and the
+  `ProtoCheckInitialized`, `ProtoAppendJSON`, `ProtoMergeJSONFrom`) and the
   exported enum tables (`IsValid`, `E_name`, `E_value`).
 - **Stdlib imports are tracked.** Reference a stdlib package only through
   `fg.std("import/path")`, which records the import and returns the package
@@ -99,10 +99,17 @@ proves little. CI installs protoc 36.1 and fails if it is missing
 - **Naming follows protoc-gen-go** (`camelCase` in `names.go`, `_` suffixes
   for conflicts, `Msg_Field` oneof wrappers). Changing a name is a breaking
   change for users.
-- **JSON unmarshal runs in two phases** (see the comment at the top of
-  `json.go`):
-  - Phase one splits the object into `job`s; phase two parses each job with
-    one shared block per scalar class, then assigns the result.
+- **JSON uses `encoding/json/jsontext`** (see the comment at the top of
+  `json.go`). Marshal appends with `jsontext.AppendQuote` and
+  `jsontext.AppendFloat`; `ProtoAppendJSON` declares `err` only when
+  `fg.usesErr` is set.
+- **JSON unmarshal streams from one decoder.** `ProtoMergeJSONFrom` reads
+  one value per loop iteration (a field's value, or an element of the
+  repeated or map field named by `in`), parses scalars with one shared block
+  per class, then assigns. Nested messages call `ProtoMergeJSONFrom` on the
+  same decoder.
+  - A `jsontext.Token` is invalid after the next read or peek, so convert it
+    (for example with `tok.String()`) before using the decoder again.
   - Declare scratch variables such as `iv`, `sv` and `bits` only when a class
     that reads them is in use, or the unused-variable check fails.
   - Build error messages with dynamic parts using `fg.errConcat`.

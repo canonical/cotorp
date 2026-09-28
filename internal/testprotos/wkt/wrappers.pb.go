@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
+	"io"
 	"math"
 	"math/big"
 	"math/bits"
@@ -51,7 +53,6 @@ const (
 
 // ProtoJSON scalar parse classes.
 const (
-	wrappersClassNone     = 0
 	wrappersClassSigned   = 1
 	wrappersClassUnsigned = 2
 	wrappersClassFloat    = 3
@@ -65,9 +66,6 @@ const (
 	wrappersMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
 	wrappersBase64Quantum   = 4   // base64 characters per padded block
 )
-
-// Hexadecimal digits for \u escapes in JSON strings.
-const wrappersHexDigits = "0123456789abcdef"
 
 // Error messages used more than once.
 const (
@@ -298,6 +296,16 @@ func (m *DoubleValue) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *DoubleValue) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *DoubleValue) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -312,7 +320,7 @@ func (m *DoubleValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	case math.IsInf(fl, -1):
 		b = append(b, `"-Infinity"`...)
 	default:
-		b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+		b = jsontext.AppendFloat(b, fl, 64)
 	}
 	return b, nil
 }
@@ -327,60 +335,72 @@ func (m *DoubleValue) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *DoubleValue) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.DoubleValue: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DoubleValue: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		bits := 64
-		var fv float64
-		switch jb.f {
-		case 0:
-			class, bits = wrappersClassFloat, 64
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *DoubleValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassFloat:
-			s := string(raw)
-			special := false
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-				switch s {
-				case "NaN":
-					fv, special = math.NaN(), true
-				case "Infinity":
-					fv, special = math.Inf(1), true
-				case "-Infinity":
-					fv, special = math.Inf(-1), true
-				}
+		return m.UnmarshalJSON(v)
+	}
+	*m = DoubleValue{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *DoubleValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassFloat
+	bits := 64
+	var fv float64
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassFloat:
+		s := tok.String()
+		special := false
+		if tok.Kind() == jsontext.KindString {
+			switch s {
+			case "NaN":
+				fv, special = math.NaN(), true
+			case "Infinity":
+				fv, special = math.Inf(1), true
+			case "-Infinity":
+				fv, special = math.Inf(-1), true
 			}
-			if !special {
-				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New(wrappersDoubleValueErrInvalidNumber + string(raw))
-				}
-				var err error
-				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(wrappersDoubleValueErrInvalidNumber + string(raw))
-				}
+		}
+		if !special {
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New(wrappersDoubleValueErrInvalidNumber + s)
+			}
+			var err error
+			if fv, err = strconv.ParseFloat(s, bits); err != nil {
+				return errors.New(wrappersDoubleValueErrInvalidNumber + s)
 			}
 		}
-		switch jb.f {
-		case 0:
-			m.Value = fv
-		}
 	}
+	m.Value = fv
 	return nil
 }
 
@@ -598,6 +618,16 @@ func (m *FloatValue) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FloatValue) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FloatValue) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -612,7 +642,7 @@ func (m *FloatValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	case math.IsInf(fl, -1):
 		b = append(b, `"-Infinity"`...)
 	default:
-		b = strconv.AppendFloat(b, fl, 'g', -1, 32)
+		b = jsontext.AppendFloat(b, fl, 32)
 	}
 	return b, nil
 }
@@ -627,60 +657,72 @@ func (m *FloatValue) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FloatValue) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.FloatValue: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FloatValue: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		bits := 64
-		var fv float64
-		switch jb.f {
-		case 0:
-			class, bits = wrappersClassFloat, 32
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FloatValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassFloat:
-			s := string(raw)
-			special := false
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-				switch s {
-				case "NaN":
-					fv, special = math.NaN(), true
-				case "Infinity":
-					fv, special = math.Inf(1), true
-				case "-Infinity":
-					fv, special = math.Inf(-1), true
-				}
+		return m.UnmarshalJSON(v)
+	}
+	*m = FloatValue{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FloatValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassFloat
+	bits := 32
+	var fv float64
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassFloat:
+		s := tok.String()
+		special := false
+		if tok.Kind() == jsontext.KindString {
+			switch s {
+			case "NaN":
+				fv, special = math.NaN(), true
+			case "Infinity":
+				fv, special = math.Inf(1), true
+			case "-Infinity":
+				fv, special = math.Inf(-1), true
 			}
-			if !special {
-				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New(wrappersFloatValueErrInvalidNumber + string(raw))
-				}
-				var err error
-				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(wrappersFloatValueErrInvalidNumber + string(raw))
-				}
+		}
+		if !special {
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New(wrappersFloatValueErrInvalidNumber + s)
+			}
+			var err error
+			if fv, err = strconv.ParseFloat(s, bits); err != nil {
+				return errors.New(wrappersFloatValueErrInvalidNumber + s)
 			}
 		}
-		switch jb.f {
-		case 0:
-			m.Value = float32(fv)
-		}
 	}
+	m.Value = float32(fv)
 	return nil
 }
 
@@ -905,6 +947,16 @@ func (m *Int64Value) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Int64Value) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Int64Value) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -927,65 +979,75 @@ func (m *Int64Value) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Int64Value) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.Int64Value: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.Int64Value: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		bits := 64
-		var iv int64
-		switch jb.f {
-		case 0:
-			class, bits = wrappersClassSigned, 64
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Int64Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
+		return m.UnmarshalJSON(v)
+	}
+	*m = Int64Value{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Int64Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassSigned
+	bits := 64
+	var iv int64
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassSigned:
+		s := tok.String()
+		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+			return errors.New("proto: google.protobuf.Int64Value: invalid number " + s)
+		}
+		var err error
+		iv, err = strconv.ParseInt(s, 10, bits)
+		if err != nil {
+			// Accept exponent and fraction forms that denote an exact integer,
+			// bounding the exponent so that exact arithmetic stays cheap.
+			if i := strings.IndexAny(s, "eE"); i >= 0 {
+				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+					return errors.New(wrappersInt64ValueErrInvalidInteger + s)
 				}
 			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.Int64Value: invalid number " + string(raw))
+			r, ok := new(big.Rat).SetString(s)
+			if !ok || !r.IsInt() {
+				return errors.New(wrappersInt64ValueErrInvalidInteger + s)
 			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-						return errors.New(wrappersInt64ValueErrInvalidInteger + string(raw))
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(wrappersInt64ValueErrInvalidInteger + string(raw))
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(wrappersInt64ValueErrInvalidInteger + string(raw))
-				}
-				iv = n.Int64()
+			n := r.Num()
+			if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+				return errors.New(wrappersInt64ValueErrInvalidInteger + s)
 			}
-		}
-		switch jb.f {
-		case 0:
-			m.Value = iv
+			iv = n.Int64()
 		}
 	}
+	m.Value = iv
 	return nil
 }
 
@@ -1210,6 +1272,16 @@ func (m *UInt64Value) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *UInt64Value) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *UInt64Value) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -1232,65 +1304,75 @@ func (m *UInt64Value) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *UInt64Value) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.UInt64Value: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.UInt64Value: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		bits := 64
-		var uv uint64
-		switch jb.f {
-		case 0:
-			class, bits = wrappersClassUnsigned, 64
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *UInt64Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassUnsigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
+		return m.UnmarshalJSON(v)
+	}
+	*m = UInt64Value{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *UInt64Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassUnsigned
+	bits := 64
+	var uv uint64
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassUnsigned:
+		s := tok.String()
+		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+			return errors.New("proto: google.protobuf.UInt64Value: invalid number " + s)
+		}
+		var err error
+		uv, err = strconv.ParseUint(s, 10, bits)
+		if err != nil {
+			// Accept exponent and fraction forms that denote an exact integer,
+			// bounding the exponent so that exact arithmetic stays cheap.
+			if i := strings.IndexAny(s, "eE"); i >= 0 {
+				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+					return errors.New(wrappersUInt64ValueErrInvalidInteger + s)
 				}
 			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.UInt64Value: invalid number " + string(raw))
+			r, ok := new(big.Rat).SetString(s)
+			if !ok || !r.IsInt() {
+				return errors.New(wrappersUInt64ValueErrInvalidInteger + s)
 			}
-			var err error
-			uv, err = strconv.ParseUint(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-						return errors.New(wrappersUInt64ValueErrInvalidInteger + string(raw))
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(wrappersUInt64ValueErrInvalidInteger + string(raw))
-				}
-				n := r.Num()
-				if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-					return errors.New(wrappersUInt64ValueErrInvalidInteger + string(raw))
-				}
-				uv = n.Uint64()
+			n := r.Num()
+			if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+				return errors.New(wrappersUInt64ValueErrInvalidInteger + s)
 			}
-		}
-		switch jb.f {
-		case 0:
-			m.Value = uv
+			uv = n.Uint64()
 		}
 	}
+	m.Value = uv
 	return nil
 }
 
@@ -1515,6 +1597,16 @@ func (m *Int32Value) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Int32Value) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Int32Value) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -1535,65 +1627,75 @@ func (m *Int32Value) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Int32Value) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.Int32Value: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.Int32Value: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		bits := 64
-		var iv int64
-		switch jb.f {
-		case 0:
-			class, bits = wrappersClassSigned, 32
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Int32Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
+		return m.UnmarshalJSON(v)
+	}
+	*m = Int32Value{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Int32Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassSigned
+	bits := 32
+	var iv int64
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassSigned:
+		s := tok.String()
+		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+			return errors.New("proto: google.protobuf.Int32Value: invalid number " + s)
+		}
+		var err error
+		iv, err = strconv.ParseInt(s, 10, bits)
+		if err != nil {
+			// Accept exponent and fraction forms that denote an exact integer,
+			// bounding the exponent so that exact arithmetic stays cheap.
+			if i := strings.IndexAny(s, "eE"); i >= 0 {
+				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+					return errors.New(wrappersInt32ValueErrInvalidInteger + s)
 				}
 			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.Int32Value: invalid number " + string(raw))
+			r, ok := new(big.Rat).SetString(s)
+			if !ok || !r.IsInt() {
+				return errors.New(wrappersInt32ValueErrInvalidInteger + s)
 			}
-			var err error
-			iv, err = strconv.ParseInt(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-						return errors.New(wrappersInt32ValueErrInvalidInteger + string(raw))
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(wrappersInt32ValueErrInvalidInteger + string(raw))
-				}
-				n := r.Num()
-				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(wrappersInt32ValueErrInvalidInteger + string(raw))
-				}
-				iv = n.Int64()
+			n := r.Num()
+			if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
+				return errors.New(wrappersInt32ValueErrInvalidInteger + s)
 			}
-		}
-		switch jb.f {
-		case 0:
-			m.Value = int32(iv)
+			iv = n.Int64()
 		}
 	}
+	m.Value = int32(iv)
 	return nil
 }
 
@@ -1818,6 +1920,16 @@ func (m *UInt32Value) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *UInt32Value) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *UInt32Value) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -1838,65 +1950,75 @@ func (m *UInt32Value) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *UInt32Value) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.UInt32Value: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.UInt32Value: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		bits := 64
-		var uv uint64
-		switch jb.f {
-		case 0:
-			class, bits = wrappersClassUnsigned, 32
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *UInt32Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassUnsigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
+		return m.UnmarshalJSON(v)
+	}
+	*m = UInt32Value{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *UInt32Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassUnsigned
+	bits := 32
+	var uv uint64
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassUnsigned:
+		s := tok.String()
+		if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+			return errors.New("proto: google.protobuf.UInt32Value: invalid number " + s)
+		}
+		var err error
+		uv, err = strconv.ParseUint(s, 10, bits)
+		if err != nil {
+			// Accept exponent and fraction forms that denote an exact integer,
+			// bounding the exponent so that exact arithmetic stays cheap.
+			if i := strings.IndexAny(s, "eE"); i >= 0 {
+				if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
+					return errors.New(wrappersUInt32ValueErrInvalidInteger + s)
 				}
 			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.UInt32Value: invalid number " + string(raw))
+			r, ok := new(big.Rat).SetString(s)
+			if !ok || !r.IsInt() {
+				return errors.New(wrappersUInt32ValueErrInvalidInteger + s)
 			}
-			var err error
-			uv, err = strconv.ParseUint(s, 10, bits)
-			if err != nil {
-				// Accept exponent and fraction forms that denote an exact integer,
-				// bounding the exponent so that exact arithmetic stays cheap.
-				if i := strings.IndexAny(s, "eE"); i >= 0 {
-					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
-						return errors.New(wrappersUInt32ValueErrInvalidInteger + string(raw))
-					}
-				}
-				r, ok := new(big.Rat).SetString(s)
-				if !ok || !r.IsInt() {
-					return errors.New(wrappersUInt32ValueErrInvalidInteger + string(raw))
-				}
-				n := r.Num()
-				if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-					return errors.New(wrappersUInt32ValueErrInvalidInteger + string(raw))
-				}
-				uv = n.Uint64()
+			n := r.Num()
+			if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
+				return errors.New(wrappersUInt32ValueErrInvalidInteger + s)
 			}
-		}
-		switch jb.f {
-		case 0:
-			m.Value = uint32(uv)
+			uv = n.Uint64()
 		}
 	}
+	m.Value = uint32(uv)
 	return nil
 }
 
@@ -2118,6 +2240,16 @@ func (m *BoolValue) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *BoolValue) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *BoolValue) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -2142,42 +2274,57 @@ func (m *BoolValue) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *BoolValue) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.BoolValue: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.BoolValue: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		var bv bool
-		switch jb.f {
-		case 0:
-			class = wrappersClassBool
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *BoolValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.BoolValue: invalid boolean " + string(raw))
-			}
-		}
-		switch jb.f {
-		case 0:
-			m.Value = bv
+		return m.UnmarshalJSON(v)
+	}
+	*m = BoolValue{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *BoolValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassBool
+	var bv bool
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassBool:
+		switch tok.Kind() {
+		case jsontext.KindTrue:
+			bv = true
+		case jsontext.KindFalse:
+		default:
+			return errors.New("proto: google.protobuf.BoolValue: invalid boolean " + tok.String())
 		}
 	}
+	m.Value = bv
 	return nil
 }
 
@@ -2412,27 +2559,26 @@ func (m *StringValue) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *StringValue) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *StringValue) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		m = &StringValue{}
 	}
-	if !utf8.ValidString(m.Value) {
+	if b, err = jsontext.AppendQuote(b, m.Value); err != nil {
 		return nil, errors.New("proto: google.protobuf.StringValue.value contains invalid UTF-8")
 	}
-	b = append(b, '"')
-	for ci := 0; ci < len(m.Value); ci++ {
-		switch c := m.Value[ci]; {
-		case c == '"' || c == '\\':
-			b = append(b, '\\', c)
-		case c < ' ':
-			b = append(b, '\\', 'u', '0', '0', wrappersHexDigits[c>>4], wrappersHexDigits[c&0xf])
-		default:
-			b = append(b, c)
-		}
-	}
-	b = append(b, '"')
 	return b, nil
 }
 
@@ -2446,41 +2592,54 @@ func (m *StringValue) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *StringValue) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.StringValue: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.StringValue: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		var sv string
-		switch jb.f {
-		case 0:
-			class = wrappersClassString
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *StringValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.StringValue: invalid string " + string(raw))
-			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
-		}
-		switch jb.f {
-		case 0:
-			m.Value = sv
-		}
+		return m.UnmarshalJSON(v)
 	}
+	*m = StringValue{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *StringValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassString
+	var sv string
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassString:
+		if tok.Kind() != jsontext.KindString {
+			return errors.New("proto: google.protobuf.StringValue: invalid string " + tok.String())
+		}
+		sv = tok.String()
+	}
+	m.Value = sv
 	return nil
 }
 
@@ -2709,17 +2868,24 @@ func (m *BytesValue) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *BytesValue) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *BytesValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m == nil {
 		m = &BytesValue{}
 	}
-	n := base64.StdEncoding.EncodedLen(len(m.Value))
 	b = append(b, '"')
-	l := len(b)
-	b = slices.Grow(b, n)[:l+n]
-	base64.StdEncoding.Encode(b[l:], m.Value)
+	b = base64.StdEncoding.AppendEncode(b, m.Value)
 	b = append(b, '"')
 	return b, nil
 }
@@ -2734,53 +2900,65 @@ func (m *BytesValue) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *BytesValue) ProtoMergeJSON(b []byte) error {
-	raw := bytes.TrimSpace(b)
-	if !json.Valid(raw) {
-		return errors.New("proto: google.protobuf.BytesValue: invalid JSON")
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
 	}
-	if string(raw) == "null" {
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.BytesValue: unexpected data after JSON value")
 	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	jobs := []job{{f: 0, raw: raw}}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := wrappersClassNone
-		var by []byte
-		switch jb.f {
-		case 0:
-			class = wrappersClassBytes
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *BytesValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
 		}
-		switch class {
-		case wrappersClassBytes:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(wrappersBytesValueErrInvalidBytes + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
-			}
-			// Accept standard and URL-safe alphabets, with or without padding.
-			enc := base64.StdEncoding
-			if strings.ContainsAny(s, "-_") {
-				enc = base64.URLEncoding
-			}
-			if len(s)%wrappersBase64Quantum != 0 {
-				enc = enc.WithPadding(base64.NoPadding)
-			}
-			var err error
-			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(wrappersBytesValueErrInvalidBytes + string(raw))
-			}
+		return m.UnmarshalJSON(v)
+	}
+	*m = BytesValue{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *BytesValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return d.SkipValue()
+	}
+	class := wrappersClassBytes
+	var by []byte
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch class {
+	case wrappersClassBytes:
+		s := tok.String()
+		if tok.Kind() != jsontext.KindString {
+			return errors.New(wrappersBytesValueErrInvalidBytes + s)
 		}
-		switch jb.f {
-		case 0:
-			m.Value = by
+		// Accept standard and URL-safe alphabets, with or without padding.
+		enc := base64.StdEncoding
+		if strings.ContainsAny(s, "-_") {
+			enc = base64.URLEncoding
+		}
+		if len(s)%wrappersBase64Quantum != 0 {
+			enc = enc.WithPadding(base64.NoPadding)
+		}
+		var err error
+		if by, err = enc.DecodeString(s); err != nil {
+			return errors.New(wrappersBytesValueErrInvalidBytes + s)
 		}
 	}
+	m.Value = by
 	return nil
 }

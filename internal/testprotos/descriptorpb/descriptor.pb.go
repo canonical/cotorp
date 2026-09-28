@@ -7,7 +7,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"math"
@@ -16,7 +17,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // Wire types.
@@ -59,6 +59,7 @@ const (
 	descriptorClassBool     = 4
 	descriptorClassString   = 5
 	descriptorClassBytes    = 6
+	descriptorClassEnum     = 8
 )
 
 // ProtoJSON limits.
@@ -67,73 +68,35 @@ const (
 	descriptorBase64Quantum   = 4   // base64 characters per padded block
 )
 
-// Hexadecimal digits for \u escapes in JSON strings.
-const descriptorHexDigits = "0123456789abcdef"
-
 // Error messages used more than once.
 const (
 	descriptorErrSizeChanged                                              = "proto: message size changed during marshal"
 	descriptorErrParse                                                    = "proto: cannot parse invalid wire-format data"
 	descriptorErrDepth                                                    = "proto: exceeded maximum recursion depth"
-	descriptorFileDescriptorSetErrTrailingData                            = "proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value"
-	descriptorFileDescriptorProtoErrTrailingData                          = "proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value"
 	descriptorFileDescriptorProtoErrInvalidInteger                        = "proto: google.protobuf.FileDescriptorProto: invalid integer "
-	descriptorDescriptorProtoErrTrailingData                              = "proto: google.protobuf.DescriptorProto: unexpected data after JSON value"
 	descriptorDescriptorProtoErrInvalidInteger                            = "proto: google.protobuf.DescriptorProto: invalid integer "
-	descriptorDescriptorProtoExtensionRangeErrTrailingData                = "proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value"
 	descriptorDescriptorProtoExtensionRangeErrInvalidInteger              = "proto: google.protobuf.DescriptorProto.ExtensionRange: invalid integer "
-	descriptorDescriptorProtoReservedRangeErrTrailingData                 = "proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value"
 	descriptorDescriptorProtoReservedRangeErrInvalidInteger               = "proto: google.protobuf.DescriptorProto.ReservedRange: invalid integer "
-	descriptorExtensionRangeOptionsErrTrailingData                        = "proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value"
 	descriptorExtensionRangeOptionsErrInvalidInteger                      = "proto: google.protobuf.ExtensionRangeOptions: invalid integer "
-	descriptorExtensionRangeOptionsDeclarationErrTrailingData             = "proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value"
 	descriptorExtensionRangeOptionsDeclarationErrInvalidInteger           = "proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid integer "
-	descriptorFieldDescriptorProtoErrTrailingData                         = "proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value"
 	descriptorFieldDescriptorProtoErrInvalidInteger                       = "proto: google.protobuf.FieldDescriptorProto: invalid integer "
-	descriptorOneofDescriptorProtoErrTrailingData                         = "proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value"
-	descriptorEnumDescriptorProtoErrTrailingData                          = "proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value"
 	descriptorEnumDescriptorProtoErrInvalidInteger                        = "proto: google.protobuf.EnumDescriptorProto: invalid integer "
-	descriptorEnumDescriptorProtoEnumReservedRangeErrTrailingData         = "proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value"
 	descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger       = "proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid integer "
-	descriptorEnumValueDescriptorProtoErrTrailingData                     = "proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value"
 	descriptorEnumValueDescriptorProtoErrInvalidInteger                   = "proto: google.protobuf.EnumValueDescriptorProto: invalid integer "
-	descriptorServiceDescriptorProtoErrTrailingData                       = "proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value"
-	descriptorMethodDescriptorProtoErrTrailingData                        = "proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value"
-	descriptorFileOptionsErrTrailingData                                  = "proto: google.protobuf.FileOptions: unexpected data after JSON value"
 	descriptorFileOptionsErrInvalidInteger                                = "proto: google.protobuf.FileOptions: invalid integer "
-	descriptorMessageOptionsErrTrailingData                               = "proto: google.protobuf.MessageOptions: unexpected data after JSON value"
-	descriptorFieldOptionsErrTrailingData                                 = "proto: google.protobuf.FieldOptions: unexpected data after JSON value"
 	descriptorFieldOptionsErrInvalidInteger                               = "proto: google.protobuf.FieldOptions: invalid integer "
-	descriptorFieldOptionsEditionDefaultErrTrailingData                   = "proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value"
 	descriptorFieldOptionsEditionDefaultErrInvalidInteger                 = "proto: google.protobuf.FieldOptions.EditionDefault: invalid integer "
-	descriptorFieldOptionsFeatureSupportErrTrailingData                   = "proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value"
 	descriptorFieldOptionsFeatureSupportErrInvalidInteger                 = "proto: google.protobuf.FieldOptions.FeatureSupport: invalid integer "
 	descriptorFieldOptionsFeatureSupportErrInvalidEdition                 = "proto: google.protobuf.FieldOptions.FeatureSupport: invalid value for enum google.protobuf.Edition: "
-	descriptorOneofOptionsErrTrailingData                                 = "proto: google.protobuf.OneofOptions: unexpected data after JSON value"
-	descriptorEnumOptionsErrTrailingData                                  = "proto: google.protobuf.EnumOptions: unexpected data after JSON value"
-	descriptorEnumValueOptionsErrTrailingData                             = "proto: google.protobuf.EnumValueOptions: unexpected data after JSON value"
-	descriptorServiceOptionsErrTrailingData                               = "proto: google.protobuf.ServiceOptions: unexpected data after JSON value"
-	descriptorMethodOptionsErrTrailingData                                = "proto: google.protobuf.MethodOptions: unexpected data after JSON value"
 	descriptorMethodOptionsErrInvalidInteger                              = "proto: google.protobuf.MethodOptions: invalid integer "
-	descriptorUninterpretedOptionErrTrailingData                          = "proto: google.protobuf.UninterpretedOption: unexpected data after JSON value"
 	descriptorUninterpretedOptionErrInvalidNumber                         = "proto: google.protobuf.UninterpretedOption: invalid number "
 	descriptorUninterpretedOptionErrInvalidInteger                        = "proto: google.protobuf.UninterpretedOption: invalid integer "
 	descriptorUninterpretedOptionErrInvalidBytes                          = "proto: google.protobuf.UninterpretedOption: invalid bytes "
-	descriptorUninterpretedOptionNamePartErrTrailingData                  = "proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value"
-	descriptorFeatureSetErrTrailingData                                   = "proto: google.protobuf.FeatureSet: unexpected data after JSON value"
 	descriptorFeatureSetErrInvalidInteger                                 = "proto: google.protobuf.FeatureSet: invalid integer "
-	descriptorFeatureSetVisibilityFeatureErrTrailingData                  = "proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value"
-	descriptorFeatureSetProtoLimitsFeatureErrTrailingData                 = "proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value"
-	descriptorFeatureSetDefaultsErrTrailingData                           = "proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value"
 	descriptorFeatureSetDefaultsErrInvalidInteger                         = "proto: google.protobuf.FeatureSetDefaults: invalid integer "
 	descriptorFeatureSetDefaultsErrInvalidEdition                         = "proto: google.protobuf.FeatureSetDefaults: invalid value for enum google.protobuf.Edition: "
-	descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrTrailingData   = "proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value"
 	descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger = "proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid integer "
-	descriptorSourceCodeInfoErrTrailingData                               = "proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value"
-	descriptorSourceCodeInfoLocationErrTrailingData                       = "proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value"
 	descriptorSourceCodeInfoLocationErrInvalidInteger                     = "proto: google.protobuf.SourceCodeInfo.Location: invalid integer "
-	descriptorGeneratedCodeInfoErrTrailingData                            = "proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value"
-	descriptorGeneratedCodeInfoAnnotationErrTrailingData                  = "proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value"
 	descriptorGeneratedCodeInfoAnnotationErrInvalidInteger                = "proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid integer "
 )
 
@@ -1456,9 +1419,23 @@ func (m *FileDescriptorSet) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FileDescriptorSet) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FileDescriptorSet) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -1466,7 +1443,6 @@ func (m *FileDescriptorSet) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.File) > 0 {
 		b = append(b, "\"file\":["...)
 		for j := range m.File {
-			var err error
 			if b, err = m.File[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -1496,91 +1472,114 @@ func (m *FileDescriptorSet) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FileDescriptorSet) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFileDescriptorSetErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FileDescriptorSet: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FileDescriptorSet) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "file":
-			f = 0
-		default:
-			return errors.New("proto: google.protobuf.FileDescriptorSet: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.FileDescriptorSet: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.FileDescriptorSet: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = FileDescriptorSet{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFileDescriptorSetErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FileDescriptorSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		switch jb.f {
-		case 0:
-			mv := &FileDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON object")
+	}
+	var seen [1]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
 				return err
 			}
-			m.File = append(m.File, mv)
+			key := kt.String()
+			switch key {
+			case "file":
+				f = 0
+			default:
+				return errors.New("proto: google.protobuf.FileDescriptorSet: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.FileDescriptorSet: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.FileDescriptorSet: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.FileDescriptorSet: null is not allowed in repeated fields or map values")
+			}
 		}
+		mv := &FileDescriptorProto{}
+		if err := mv.ProtoMergeJSONFrom(d); err != nil {
+			return err
+		}
+		m.File = append(m.File, mv)
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a complete .proto file.
@@ -2382,69 +2381,47 @@ func (m *FileDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FileDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Package != nil {
 		b = append(b, "\"package\":"...)
-		if !utf8.ValidString((*m.Package)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Package)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileDescriptorProto.package contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Package)); ci++ {
-			switch c := (*m.Package)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Dependency) > 0 {
 		b = append(b, "\"dependency\":["...)
 		for j := range m.Dependency {
-			if !utf8.ValidString(m.Dependency[j]) {
+			if b, err = jsontext.AppendQuote(b, m.Dependency[j]); err != nil {
 				return nil, errors.New("proto: google.protobuf.FileDescriptorProto.dependency contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(m.Dependency[j]); ci++ {
-				switch c := m.Dependency[j][ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -2471,21 +2448,9 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.OptionDependency) > 0 {
 		b = append(b, "\"optionDependency\":["...)
 		for j := range m.OptionDependency {
-			if !utf8.ValidString(m.OptionDependency[j]) {
+			if b, err = jsontext.AppendQuote(b, m.OptionDependency[j]); err != nil {
 				return nil, errors.New("proto: google.protobuf.FileDescriptorProto.option_dependency contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(m.OptionDependency[j]); ci++ {
-				switch c := m.OptionDependency[j][ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -2494,7 +2459,6 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.MessageType) > 0 {
 		b = append(b, "\"messageType\":["...)
 		for j := range m.MessageType {
-			var err error
 			if b, err = m.MessageType[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -2506,7 +2470,6 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.EnumType) > 0 {
 		b = append(b, "\"enumType\":["...)
 		for j := range m.EnumType {
-			var err error
 			if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -2518,7 +2481,6 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Service) > 0 {
 		b = append(b, "\"service\":["...)
 		for j := range m.Service {
-			var err error
 			if b, err = m.Service[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -2530,7 +2492,6 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Extension) > 0 {
 		b = append(b, "\"extension\":["...)
 		for j := range m.Extension {
-			var err error
 			if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -2541,7 +2502,6 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -2549,7 +2509,6 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.SourceCodeInfo != nil {
 		b = append(b, "\"sourceCodeInfo\":"...)
-		var err error
 		if b, err = m.SourceCodeInfo.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -2557,21 +2516,9 @@ func (m *FileDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Syntax != nil {
 		b = append(b, "\"syntax\":"...)
-		if !utf8.ValidString((*m.Syntax)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Syntax)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileDescriptorProto.syntax contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Syntax)); ci++ {
-			switch c := (*m.Syntax)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Edition != nil {
@@ -2606,140 +2553,166 @@ func (m *FileDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFileDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FileDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [14]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FileDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "name":
-			f = 0
-		case "package":
-			f = 1
-		case "dependency":
-			f = 2
-		case "publicDependency", "public_dependency":
-			f = 3
-		case "weakDependency", "weak_dependency":
-			f = 4
-		case "optionDependency", "option_dependency":
-			f = 5
-		case "messageType", "message_type":
-			f = 6
-		case "enumType", "enum_type":
-			f = 7
-		case "service":
-			f = 8
-		case "extension":
-			f = 9
-		case "options":
-			f = 10
-		case "sourceCodeInfo", "source_code_info":
-			f = 11
-		case "syntax":
-			f = 12
-		case "edition":
-			f = 13
-		default:
-			return errors.New("proto: google.protobuf.FileDescriptorProto: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.FileDescriptorProto: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 10, 11, 12, 13:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 2, 3, 4, 5, 6, 7, 8, 9:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.FileDescriptorProto: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = FileDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFileDescriptorProtoErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON object")
+	}
+	var seen [14]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "name":
+				f = 0
+			case "package":
+				f = 1
+			case "dependency":
+				f = 2
+			case "publicDependency", "public_dependency":
+				f = 3
+			case "weakDependency", "weak_dependency":
+				f = 4
+			case "optionDependency", "option_dependency":
+				f = 5
+			case "messageType", "message_type":
+				f = 6
+			case "enumType", "enum_type":
+				f = 7
+			case "service":
+				f = 8
+			case "extension":
+				f = 9
+			case "options":
+				f = 10
+			case "sourceCodeInfo", "source_code_info":
+				f = 11
+			case "syntax":
+				f = 12
+			case "edition":
+				f = 13
+			default:
+				return errors.New("proto: google.protobuf.FileDescriptorProto: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 2, 3, 4, 5, 6, 7, 8, 9:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.FileDescriptorProto: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 3, 4:
 			class, bits = descriptorClassSigned, 32
 		case 0, 1, 2, 5, 12:
 			class = descriptorClassString
 		case 13:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -2748,28 +2721,26 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + string(raw))
+						return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorFileDescriptorProtoErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FileDescriptorProto: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
@@ -2786,25 +2757,25 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 			m.OptionDependency = append(m.OptionDependency, sv)
 		case 6:
 			mv := &DescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.MessageType = append(m.MessageType, mv)
 		case 7:
 			mv := &EnumDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.EnumType = append(m.EnumType, mv)
 		case 8:
 			mv := &ServiceDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Service = append(m.Service, mv)
 		case 9:
 			mv := &FieldDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Extension = append(m.Extension, mv)
@@ -2812,14 +2783,14 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &FileOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 11:
 			if m.SourceCodeInfo == nil {
 				m.SourceCodeInfo = &SourceCodeInfo{}
 			}
-			if err := m.SourceCodeInfo.ProtoMergeJSON(raw); err != nil {
+			if err := m.SourceCodeInfo.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 12:
@@ -2841,7 +2812,8 @@ func (m *FileDescriptorProto) ProtoMergeJSON(b []byte) error {
 			m.Edition = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a message type.
@@ -3520,36 +3492,37 @@ func (m *DescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *DescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.DescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Field) > 0 {
 		b = append(b, "\"field\":["...)
 		for j := range m.Field {
-			var err error
 			if b, err = m.Field[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3561,7 +3534,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Extension) > 0 {
 		b = append(b, "\"extension\":["...)
 		for j := range m.Extension {
-			var err error
 			if b, err = m.Extension[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3573,7 +3545,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.NestedType) > 0 {
 		b = append(b, "\"nestedType\":["...)
 		for j := range m.NestedType {
-			var err error
 			if b, err = m.NestedType[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3585,7 +3556,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.EnumType) > 0 {
 		b = append(b, "\"enumType\":["...)
 		for j := range m.EnumType {
-			var err error
 			if b, err = m.EnumType[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3597,7 +3567,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.ExtensionRange) > 0 {
 		b = append(b, "\"extensionRange\":["...)
 		for j := range m.ExtensionRange {
-			var err error
 			if b, err = m.ExtensionRange[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3609,7 +3578,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.OneofDecl) > 0 {
 		b = append(b, "\"oneofDecl\":["...)
 		for j := range m.OneofDecl {
-			var err error
 			if b, err = m.OneofDecl[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3620,7 +3588,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -3629,7 +3596,6 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.ReservedRange) > 0 {
 		b = append(b, "\"reservedRange\":["...)
 		for j := range m.ReservedRange {
-			var err error
 			if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3641,21 +3607,9 @@ func (m *DescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.ReservedName) > 0 {
 		b = append(b, "\"reservedName\":["...)
 		for j := range m.ReservedName {
-			if !utf8.ValidString(m.ReservedName[j]) {
+			if b, err = jsontext.AppendQuote(b, m.ReservedName[j]); err != nil {
 				return nil, errors.New("proto: google.protobuf.DescriptorProto.reserved_name contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(m.ReservedName[j]); ci++ {
-				switch c := m.ReservedName[j][ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -3693,132 +3647,158 @@ func (m *DescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [11]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *DescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "name":
-			f = 0
-		case "field":
-			f = 1
-		case "extension":
-			f = 2
-		case "nestedType", "nested_type":
-			f = 3
-		case "enumType", "enum_type":
-			f = 4
-		case "extensionRange", "extension_range":
-			f = 5
-		case "oneofDecl", "oneof_decl":
-			f = 6
-		case "options":
-			f = 7
-		case "reservedRange", "reserved_range":
-			f = 8
-		case "reservedName", "reserved_name":
-			f = 9
-		case "visibility":
-			f = 10
-		default:
-			return errors.New("proto: google.protobuf.DescriptorProto: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.DescriptorProto: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 7, 10:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 1, 2, 3, 4, 5, 6, 8, 9:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.DescriptorProto: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = DescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorDescriptorProtoErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON object")
+	}
+	var seen [11]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "name":
+				f = 0
+			case "field":
+				f = 1
+			case "extension":
+				f = 2
+			case "nestedType", "nested_type":
+				f = 3
+			case "enumType", "enum_type":
+				f = 4
+			case "extensionRange", "extension_range":
+				f = 5
+			case "oneofDecl", "oneof_decl":
+				f = 6
+			case "options":
+				f = 7
+			case "reservedRange", "reserved_range":
+				f = 8
+			case "reservedName", "reserved_name":
+				f = 9
+			case "visibility":
+				f = 10
+			default:
+				return errors.New("proto: google.protobuf.DescriptorProto: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.DescriptorProto: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 1, 2, 3, 4, 5, 6, 8, 9:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.DescriptorProto: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.DescriptorProto: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0, 9:
 			class = descriptorClassString
 		case 10:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.DescriptorProto: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.DescriptorProto: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -3827,64 +3807,62 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorDescriptorProtoErrInvalidInteger + string(raw))
+						return errors.New(descriptorDescriptorProtoErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorDescriptorProtoErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorDescriptorProtoErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.DescriptorProto: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.DescriptorProto: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
 		case 1:
 			mv := &FieldDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Field = append(m.Field, mv)
 		case 2:
 			mv := &FieldDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Extension = append(m.Extension, mv)
 		case 3:
 			mv := &DescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.NestedType = append(m.NestedType, mv)
 		case 4:
 			mv := &EnumDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.EnumType = append(m.EnumType, mv)
 		case 5:
 			mv := &DescriptorProto_ExtensionRange{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.ExtensionRange = append(m.ExtensionRange, mv)
 		case 6:
 			mv := &OneofDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.OneofDecl = append(m.OneofDecl, mv)
@@ -3892,12 +3870,12 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &MessageOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 8:
 			mv := &DescriptorProto_ReservedRange{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.ReservedRange = append(m.ReservedRange, mv)
@@ -3919,7 +3897,8 @@ func (m *DescriptorProto) ProtoMergeJSON(b []byte) error {
 			m.Visibility = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type DescriptorProto_ExtensionRange struct {
@@ -4227,9 +4206,23 @@ func (m *DescriptorProto_ExtensionRange) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *DescriptorProto_ExtensionRange) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *DescriptorProto_ExtensionRange) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -4246,7 +4239,6 @@ func (m *DescriptorProto_ExtensionRange) ProtoAppendJSON(b []byte) ([]byte, erro
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -4273,40 +4265,61 @@ func (m *DescriptorProto_ExtensionRange) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorDescriptorProtoExtensionRangeErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *DescriptorProto_ExtensionRange) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = DescriptorProto_ExtensionRange{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *DescriptorProto_ExtensionRange) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: expected a JSON object")
+	}
+	var seen [3]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "start":
 			f = 0
@@ -4321,39 +4334,32 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorDescriptorProtoExtensionRangeErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		switch jb.f {
+		switch f {
 		case 0, 1:
 			class, bits = descriptorClassSigned, 32
 		}
+		var iv int64
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.DescriptorProto.ExtensionRange: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -4362,21 +4368,21 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + string(raw))
+						return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + string(raw))
+					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + string(raw))
+					return errors.New(descriptorDescriptorProtoExtensionRangeErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.Start = &x
@@ -4387,12 +4393,13 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &ExtensionRangeOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Range of reserved tag numbers. Reserved tag numbers may not be used by
@@ -4644,6 +4651,16 @@ func (m *DescriptorProto_ReservedRange) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *DescriptorProto_ReservedRange) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *DescriptorProto_ReservedRange) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -4679,40 +4696,58 @@ func (m *DescriptorProto_ReservedRange) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorDescriptorProtoReservedRangeErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *DescriptorProto_ReservedRange) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = DescriptorProto_ReservedRange{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *DescriptorProto_ReservedRange) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "start":
 			f = 0
@@ -4725,39 +4760,32 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorDescriptorProtoReservedRangeErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		switch jb.f {
+		switch f {
 		case 0, 1:
 			class, bits = descriptorClassSigned, 32
 		}
+		var iv int64
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.DescriptorProto.ReservedRange: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -4766,21 +4794,21 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + string(raw))
+						return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + string(raw))
+					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + string(raw))
+					return errors.New(descriptorDescriptorProtoReservedRangeErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.Start = &x
@@ -4789,7 +4817,8 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeJSON(b []byte) error {
 			m.End = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type ExtensionRangeOptions struct {
@@ -5170,9 +5199,23 @@ func (m *ExtensionRangeOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *ExtensionRangeOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -5180,7 +5223,6 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -5192,7 +5234,6 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Declaration) > 0 {
 		b = append(b, "\"declaration\":["...)
 		for j := range m.Declaration {
-			var err error
 			if b, err = m.Declaration[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -5203,7 +5244,6 @@ func (m *ExtensionRangeOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -5241,116 +5281,142 @@ func (m *ExtensionRangeOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorExtensionRangeOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [4]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *ExtensionRangeOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 0
-		case "declaration":
-			f = 1
-		case "features":
-			f = 2
-		case "verification":
-			f = 3
-		default:
-			return errors.New("proto: google.protobuf.ExtensionRangeOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.ExtensionRangeOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 2, 3:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 0, 1:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.ExtensionRangeOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = ExtensionRangeOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorExtensionRangeOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON object")
+	}
+	var seen [4]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 0
+			case "declaration":
+				f = 1
+			case "features":
+				f = 2
+			case "verification":
+				f = 3
+			default:
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0, 1:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.ExtensionRangeOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
+		switch f {
+		case 3:
+			class = descriptorClassEnum
+		}
 		var iv int64
 		var sv string
-		switch jb.f {
-		case 3:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -5359,37 +5425,35 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + string(raw))
+						return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorExtensionRangeOptionsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		case 1:
 			mv := &ExtensionRangeOptions_Declaration{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Declaration = append(m.Declaration, mv)
@@ -5397,7 +5461,7 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
@@ -5416,7 +5480,8 @@ func (m *ExtensionRangeOptions) ProtoMergeJSON(b []byte) error {
 			m.Verification = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type ExtensionRangeOptions_Declaration struct {
@@ -5773,9 +5838,20 @@ func (m *ExtensionRangeOptions_Declaration) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *ExtensionRangeOptions_Declaration) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *ExtensionRangeOptions_Declaration) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -5787,40 +5863,16 @@ func (m *ExtensionRangeOptions_Declaration) ProtoAppendJSON(b []byte) ([]byte, e
 	}
 	if m.FullName != nil {
 		b = append(b, "\"fullName\":"...)
-		if !utf8.ValidString((*m.FullName)) {
+		if b, err = jsontext.AppendQuote(b, (*m.FullName)); err != nil {
 			return nil, errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration.full_name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.FullName)); ci++ {
-			switch c := (*m.FullName)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Type != nil {
 		b = append(b, "\"type\":"...)
-		if !utf8.ValidString((*m.Type)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Type)); err != nil {
 			return nil, errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration.type contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Type)); ci++ {
-			switch c := (*m.Type)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Reserved != nil {
@@ -5859,40 +5911,58 @@ func (m *ExtensionRangeOptions_Declaration) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorExtensionRangeOptionsDeclarationErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *ExtensionRangeOptions_Declaration) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = ExtensionRangeOptions_Declaration{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: expected a JSON object")
+	}
+	var seen [5]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "number":
 			f = 0
@@ -5911,28 +5981,16 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorExtensionRangeOptionsDeclarationErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class, bits = descriptorClassSigned, 32
 		case 3, 4:
@@ -5940,16 +5998,21 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 		case 1, 2:
 			class = descriptorClassString
 		}
+		var iv int64
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -5958,36 +6021,34 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + string(raw))
+						return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + string(raw))
+					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + string(raw))
+					return errors.New(descriptorExtensionRangeOptionsDeclarationErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid boolean " + string(raw))
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid boolean " + tok.String())
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.ExtensionRangeOptions.Declaration: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.Number = &x
@@ -6005,7 +6066,8 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeJSON(b []byte) error {
 			m.Repeated = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a field within a message.
@@ -6630,30 +6692,32 @@ func (m *FieldDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FieldDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Number != nil {
@@ -6685,59 +6749,23 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.TypeName != nil {
 		b = append(b, "\"typeName\":"...)
-		if !utf8.ValidString((*m.TypeName)) {
+		if b, err = jsontext.AppendQuote(b, (*m.TypeName)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.type_name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.TypeName)); ci++ {
-			switch c := (*m.TypeName)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Extendee != nil {
 		b = append(b, "\"extendee\":"...)
-		if !utf8.ValidString((*m.Extendee)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Extendee)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.extendee contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Extendee)); ci++ {
-			switch c := (*m.Extendee)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.DefaultValue != nil {
 		b = append(b, "\"defaultValue\":"...)
-		if !utf8.ValidString((*m.DefaultValue)) {
+		if b, err = jsontext.AppendQuote(b, (*m.DefaultValue)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.default_value contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.DefaultValue)); ci++ {
-			switch c := (*m.DefaultValue)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.OneofIndex != nil {
@@ -6747,26 +6775,13 @@ func (m *FieldDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.JsonName != nil {
 		b = append(b, "\"jsonName\":"...)
-		if !utf8.ValidString((*m.JsonName)) {
+		if b, err = jsontext.AppendQuote(b, (*m.JsonName)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldDescriptorProto.json_name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.JsonName)); ci++ {
-			switch c := (*m.JsonName)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -6802,40 +6817,61 @@ func (m *FieldDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFieldDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FieldDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [11]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FieldDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = FieldDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FieldDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FieldDescriptorProto: expected a JSON object")
+	}
+	var seen [11]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "name":
 			f = 0
@@ -6866,28 +6902,16 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.FieldDescriptorProto: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFieldDescriptorProtoErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 1, 7:
 			class, bits = descriptorClassSigned, 32
 		case 10:
@@ -6895,25 +6919,33 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 		case 0, 4, 5, 6, 8:
 			class = descriptorClassString
 		case 2, 3:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -6922,36 +6954,34 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + string(raw))
+						return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldDescriptorProtoErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid boolean " + string(raw))
+				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid boolean " + tok.String())
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FieldDescriptorProto: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
@@ -7005,7 +7035,7 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &FieldOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 10:
@@ -7013,7 +7043,8 @@ func (m *FieldDescriptorProto) ProtoMergeJSON(b []byte) error {
 			m.Proto3Optional = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a oneof.
@@ -7295,35 +7326,36 @@ func (m *OneofDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *OneofDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *OneofDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.OneofDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -7350,40 +7382,61 @@ func (m *OneofDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorOneofDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.OneofDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.OneofDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *OneofDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = OneofDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *OneofDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.OneofDescriptorProto: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "name":
 			f = 0
@@ -7396,38 +7449,34 @@ func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.OneofDescriptorProto: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorOneofDescriptorProtoErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class = descriptorClassString
 		}
-		switch class {
-		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.OneofDescriptorProto: invalid string " + string(raw))
-			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassString:
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.OneofDescriptorProto: invalid string " + tok.String())
+			}
+			sv = tok.String()
+		}
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
@@ -7435,12 +7484,13 @@ func (m *OneofDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &OneofOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes an enum type.
@@ -7887,36 +7937,37 @@ func (m *EnumDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *EnumDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.EnumDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Value) > 0 {
 		b = append(b, "\"value\":["...)
 		for j := range m.Value {
-			var err error
 			if b, err = m.Value[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -7927,7 +7978,6 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -7936,7 +7986,6 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.ReservedRange) > 0 {
 		b = append(b, "\"reservedRange\":["...)
 		for j := range m.ReservedRange {
-			var err error
 			if b, err = m.ReservedRange[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -7948,21 +7997,9 @@ func (m *EnumDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.ReservedName) > 0 {
 		b = append(b, "\"reservedName\":["...)
 		for j := range m.ReservedName {
-			if !utf8.ValidString(m.ReservedName[j]) {
+			if b, err = jsontext.AppendQuote(b, m.ReservedName[j]); err != nil {
 				return nil, errors.New("proto: google.protobuf.EnumDescriptorProto.reserved_name contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(m.ReservedName[j]); ci++ {
-				switch c := m.ReservedName[j][ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -8000,122 +8037,148 @@ func (m *EnumDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorEnumDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [6]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *EnumDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "name":
-			f = 0
-		case "value":
-			f = 1
-		case "options":
-			f = 2
-		case "reservedRange", "reserved_range":
-			f = 3
-		case "reservedName", "reserved_name":
-			f = 4
-		case "visibility":
-			f = 5
-		default:
-			return errors.New("proto: google.protobuf.EnumDescriptorProto: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.EnumDescriptorProto: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 2, 5:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 1, 3, 4:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.EnumDescriptorProto: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = EnumDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorEnumDescriptorProtoErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *EnumDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON object")
+	}
+	var seen [6]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "name":
+				f = 0
+			case "value":
+				f = 1
+			case "options":
+				f = 2
+			case "reservedRange", "reserved_range":
+				f = 3
+			case "reservedName", "reserved_name":
+				f = 4
+			case "visibility":
+				f = 5
+			default:
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 1, 3, 4:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.EnumDescriptorProto: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0, 4:
 			class = descriptorClassString
 		case 5:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -8124,34 +8187,32 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + string(raw))
+						return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorEnumDescriptorProtoErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
 		case 1:
 			mv := &EnumValueDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Value = append(m.Value, mv)
@@ -8159,12 +8220,12 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &EnumOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
 			mv := &EnumDescriptorProto_EnumReservedRange{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.ReservedRange = append(m.ReservedRange, mv)
@@ -8186,7 +8247,8 @@ func (m *EnumDescriptorProto) ProtoMergeJSON(b []byte) error {
 			m.Visibility = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Range of reserved numeric values. Reserved values may not be used by
@@ -8441,6 +8503,16 @@ func (m *EnumDescriptorProto_EnumReservedRange) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *EnumDescriptorProto_EnumReservedRange) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -8476,40 +8548,58 @@ func (m *EnumDescriptorProto_EnumReservedRange) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *EnumDescriptorProto_EnumReservedRange) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = EnumDescriptorProto_EnumReservedRange{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "start":
 			f = 0
@@ -8522,39 +8612,32 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		switch jb.f {
+		switch f {
 		case 0, 1:
 			class, bits = descriptorClassSigned, 32
 		}
+		var iv int64
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.EnumDescriptorProto.EnumReservedRange: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -8563,21 +8646,21 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + string(raw))
+						return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + string(raw))
+					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + string(raw))
+					return errors.New(descriptorEnumDescriptorProtoEnumReservedRangeErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.Start = &x
@@ -8586,7 +8669,8 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeJSON(b []byte) error {
 			m.End = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a value within an enum.
@@ -8899,30 +8983,32 @@ func (m *EnumValueDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *EnumValueDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *EnumValueDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.EnumValueDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Number != nil {
@@ -8932,7 +9018,6 @@ func (m *EnumValueDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -8959,40 +9044,61 @@ func (m *EnumValueDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorEnumValueDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *EnumValueDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = EnumValueDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *EnumValueDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.EnumValueDescriptorProto: expected a JSON object")
+	}
+	var seen [3]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "name":
 			f = 0
@@ -9007,42 +9113,35 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.EnumValueDescriptorProto: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorEnumValueDescriptorProtoErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 1:
 			class, bits = descriptorClassSigned, 32
 		case 0:
 			class = descriptorClassString
 		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -9051,28 +9150,26 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + string(raw))
+						return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + string(raw))
+					return errors.New(descriptorEnumValueDescriptorProtoErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.EnumValueDescriptorProto: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
@@ -9083,12 +9180,13 @@ func (m *EnumValueDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &EnumValueOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a service.
@@ -9417,36 +9515,37 @@ func (m *ServiceDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *ServiceDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *ServiceDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.ServiceDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Method) > 0 {
 		b = append(b, "\"method\":["...)
 		for j := range m.Method {
-			var err error
 			if b, err = m.Method[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -9457,7 +9556,6 @@ func (m *ServiceDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -9484,111 +9582,137 @@ func (m *ServiceDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *ServiceDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorServiceDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ServiceDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *ServiceDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "name":
-			f = 0
-		case "method":
-			f = 1
-		case "options":
-			f = 2
-		default:
-			return errors.New("proto: google.protobuf.ServiceDescriptorProto: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.ServiceDescriptorProto: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 1:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.ServiceDescriptorProto: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = ServiceDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorServiceDescriptorProtoErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *ServiceDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON object")
+	}
+	var seen [3]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "name":
+				f = 0
+			case "method":
+				f = 1
+			case "options":
+				f = 2
+			default:
+				return errors.New("proto: google.protobuf.ServiceDescriptorProto: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.ServiceDescriptorProto: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 1:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.ServiceDescriptorProto: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.ServiceDescriptorProto: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class = descriptorClassString
 		}
-		switch class {
-		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.ServiceDescriptorProto: invalid string " + string(raw))
-			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassString:
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.ServiceDescriptorProto: invalid string " + tok.String())
+			}
+			sv = tok.String()
+		}
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
 		case 1:
 			mv := &MethodDescriptorProto{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Method = append(m.Method, mv)
@@ -9596,12 +9720,13 @@ func (m *ServiceDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &ServiceOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes a method of a service.
@@ -10021,73 +10146,50 @@ func (m *MethodDescriptorProto) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *MethodDescriptorProto) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *MethodDescriptorProto) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Name != nil {
 		b = append(b, "\"name\":"...)
-		if !utf8.ValidString((*m.Name)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Name)); err != nil {
 			return nil, errors.New("proto: google.protobuf.MethodDescriptorProto.name contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Name)); ci++ {
-			switch c := (*m.Name)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.InputType != nil {
 		b = append(b, "\"inputType\":"...)
-		if !utf8.ValidString((*m.InputType)) {
+		if b, err = jsontext.AppendQuote(b, (*m.InputType)); err != nil {
 			return nil, errors.New("proto: google.protobuf.MethodDescriptorProto.input_type contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.InputType)); ci++ {
-			switch c := (*m.InputType)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.OutputType != nil {
 		b = append(b, "\"outputType\":"...)
-		if !utf8.ValidString((*m.OutputType)) {
+		if b, err = jsontext.AppendQuote(b, (*m.OutputType)); err != nil {
 			return nil, errors.New("proto: google.protobuf.MethodDescriptorProto.output_type contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.OutputType)); ci++ {
-			switch c := (*m.OutputType)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Options != nil {
 		b = append(b, "\"options\":"...)
-		var err error
 		if b, err = m.Options.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -10132,40 +10234,61 @@ func (m *MethodDescriptorProto) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorMethodDescriptorProtoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.MethodDescriptorProto: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.MethodDescriptorProto: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [6]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *MethodDescriptorProto) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = MethodDescriptorProto{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *MethodDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.MethodDescriptorProto: expected a JSON object")
+	}
+	var seen [6]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "name":
 			f = 0
@@ -10186,49 +10309,45 @@ func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.MethodDescriptorProto: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorMethodDescriptorProtoErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 4, 5:
 			class = descriptorClassBool
 		case 0, 1, 2:
 			class = descriptorClassString
 		}
-		switch class {
-		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid boolean " + string(raw))
-			}
-		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid string " + string(raw))
-			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassBool:
+			switch tok.Kind() {
+			case jsontext.KindTrue:
+				bv = true
+			case jsontext.KindFalse:
+			default:
+				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid boolean " + tok.String())
+			}
+		case descriptorClassString:
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.MethodDescriptorProto: invalid string " + tok.String())
+			}
+			sv = tok.String()
+		}
+		switch f {
 		case 0:
 			x := sv
 			m.Name = &x
@@ -10242,7 +10361,7 @@ func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 			if m.Options == nil {
 				m.Options = &MethodOptions{}
 			}
-			if err := m.Options.ProtoMergeJSON(raw); err != nil {
+			if err := m.Options.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 4:
@@ -10253,7 +10372,8 @@ func (m *MethodDescriptorProto) ProtoMergeJSON(b []byte) error {
 			m.ServerStreaming = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type FileOptions struct {
@@ -11246,49 +11366,39 @@ func (m *FileOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FileOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.JavaPackage != nil {
 		b = append(b, "\"javaPackage\":"...)
-		if !utf8.ValidString((*m.JavaPackage)) {
+		if b, err = jsontext.AppendQuote(b, (*m.JavaPackage)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.java_package contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.JavaPackage)); ci++ {
-			switch c := (*m.JavaPackage)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.JavaOuterClassname != nil {
 		b = append(b, "\"javaOuterClassname\":"...)
-		if !utf8.ValidString((*m.JavaOuterClassname)) {
+		if b, err = jsontext.AppendQuote(b, (*m.JavaOuterClassname)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.java_outer_classname contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.JavaOuterClassname)); ci++ {
-			switch c := (*m.JavaOuterClassname)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.JavaMultipleFiles != nil {
@@ -11331,21 +11441,9 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.GoPackage != nil {
 		b = append(b, "\"goPackage\":"...)
-		if !utf8.ValidString((*m.GoPackage)) {
+		if b, err = jsontext.AppendQuote(b, (*m.GoPackage)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.go_package contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.GoPackage)); ci++ {
-			switch c := (*m.GoPackage)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.CcGenericServices != nil {
@@ -11395,140 +11493,55 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.ObjcClassPrefix != nil {
 		b = append(b, "\"objcClassPrefix\":"...)
-		if !utf8.ValidString((*m.ObjcClassPrefix)) {
+		if b, err = jsontext.AppendQuote(b, (*m.ObjcClassPrefix)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.objc_class_prefix contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.ObjcClassPrefix)); ci++ {
-			switch c := (*m.ObjcClassPrefix)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.CsharpNamespace != nil {
 		b = append(b, "\"csharpNamespace\":"...)
-		if !utf8.ValidString((*m.CsharpNamespace)) {
+		if b, err = jsontext.AppendQuote(b, (*m.CsharpNamespace)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.csharp_namespace contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.CsharpNamespace)); ci++ {
-			switch c := (*m.CsharpNamespace)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.SwiftPrefix != nil {
 		b = append(b, "\"swiftPrefix\":"...)
-		if !utf8.ValidString((*m.SwiftPrefix)) {
+		if b, err = jsontext.AppendQuote(b, (*m.SwiftPrefix)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.swift_prefix contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.SwiftPrefix)); ci++ {
-			switch c := (*m.SwiftPrefix)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.PhpClassPrefix != nil {
 		b = append(b, "\"phpClassPrefix\":"...)
-		if !utf8.ValidString((*m.PhpClassPrefix)) {
+		if b, err = jsontext.AppendQuote(b, (*m.PhpClassPrefix)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.php_class_prefix contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.PhpClassPrefix)); ci++ {
-			switch c := (*m.PhpClassPrefix)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.PhpNamespace != nil {
 		b = append(b, "\"phpNamespace\":"...)
-		if !utf8.ValidString((*m.PhpNamespace)) {
+		if b, err = jsontext.AppendQuote(b, (*m.PhpNamespace)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.php_namespace contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.PhpNamespace)); ci++ {
-			switch c := (*m.PhpNamespace)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.PhpMetadataNamespace != nil {
 		b = append(b, "\"phpMetadataNamespace\":"...)
-		if !utf8.ValidString((*m.PhpMetadataNamespace)) {
+		if b, err = jsontext.AppendQuote(b, (*m.PhpMetadataNamespace)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.php_metadata_namespace contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.PhpMetadataNamespace)); ci++ {
-			switch c := (*m.PhpMetadataNamespace)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.RubyPackage != nil {
 		b = append(b, "\"rubyPackage\":"...)
-		if !utf8.ValidString((*m.RubyPackage)) {
+		if b, err = jsontext.AppendQuote(b, (*m.RubyPackage)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FileOptions.ruby_package contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.RubyPackage)); ci++ {
-			switch c := (*m.RubyPackage)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -11537,7 +11550,6 @@ func (m *FileOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -11567,155 +11579,181 @@ func (m *FileOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FileOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFileOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FileOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FileOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [21]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FileOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "javaPackage", "java_package":
-			f = 0
-		case "javaOuterClassname", "java_outer_classname":
-			f = 1
-		case "javaMultipleFiles", "java_multiple_files":
-			f = 2
-		case "javaGenerateEqualsAndHash", "java_generate_equals_and_hash":
-			f = 3
-		case "javaStringCheckUtf8", "java_string_check_utf8":
-			f = 4
-		case "optimizeFor", "optimize_for":
-			f = 5
-		case "goPackage", "go_package":
-			f = 6
-		case "ccGenericServices", "cc_generic_services":
-			f = 7
-		case "javaGenericServices", "java_generic_services":
-			f = 8
-		case "pyGenericServices", "py_generic_services":
-			f = 9
-		case "deprecated":
-			f = 10
-		case "ccEnableArenas", "cc_enable_arenas":
-			f = 11
-		case "objcClassPrefix", "objc_class_prefix":
-			f = 12
-		case "csharpNamespace", "csharp_namespace":
-			f = 13
-		case "swiftPrefix", "swift_prefix":
-			f = 14
-		case "phpClassPrefix", "php_class_prefix":
-			f = 15
-		case "phpNamespace", "php_namespace":
-			f = 16
-		case "phpMetadataNamespace", "php_metadata_namespace":
-			f = 17
-		case "rubyPackage", "ruby_package":
-			f = 18
-		case "features":
-			f = 19
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 20
-		default:
-			return errors.New("proto: google.protobuf.FileOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.FileOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 20:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.FileOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.FileOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = FileOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFileOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FileOptions: expected a JSON object")
+	}
+	var seen [21]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "javaPackage", "java_package":
+				f = 0
+			case "javaOuterClassname", "java_outer_classname":
+				f = 1
+			case "javaMultipleFiles", "java_multiple_files":
+				f = 2
+			case "javaGenerateEqualsAndHash", "java_generate_equals_and_hash":
+				f = 3
+			case "javaStringCheckUtf8", "java_string_check_utf8":
+				f = 4
+			case "optimizeFor", "optimize_for":
+				f = 5
+			case "goPackage", "go_package":
+				f = 6
+			case "ccGenericServices", "cc_generic_services":
+				f = 7
+			case "javaGenericServices", "java_generic_services":
+				f = 8
+			case "pyGenericServices", "py_generic_services":
+				f = 9
+			case "deprecated":
+				f = 10
+			case "ccEnableArenas", "cc_enable_arenas":
+				f = 11
+			case "objcClassPrefix", "objc_class_prefix":
+				f = 12
+			case "csharpNamespace", "csharp_namespace":
+				f = 13
+			case "swiftPrefix", "swift_prefix":
+				f = 14
+			case "phpClassPrefix", "php_class_prefix":
+				f = 15
+			case "phpNamespace", "php_namespace":
+				f = 16
+			case "phpMetadataNamespace", "php_metadata_namespace":
+				f = 17
+			case "rubyPackage", "ruby_package":
+				f = 18
+			case "features":
+				f = 19
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 20
+			default:
+				return errors.New("proto: google.protobuf.FileOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.FileOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 20:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.FileOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.FileOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 2, 3, 4, 7, 8, 9, 10, 11:
 			class = descriptorClassBool
 		case 0, 1, 6, 12, 13, 14, 15, 16, 17, 18:
 			class = descriptorClassString
 		case 5:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FileOptions: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FileOptions: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -11724,36 +11762,34 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFileOptionsErrInvalidInteger + string(raw))
+						return errors.New(descriptorFileOptionsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFileOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorFileOptionsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFileOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorFileOptionsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: google.protobuf.FileOptions: invalid boolean " + string(raw))
+				return errors.New("proto: google.protobuf.FileOptions: invalid boolean " + tok.String())
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FileOptions: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FileOptions: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := sv
 			m.JavaPackage = &x
@@ -11826,18 +11862,19 @@ func (m *FileOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 20:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type MessageOptions struct {
@@ -12342,9 +12379,23 @@ func (m *MessageOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *MessageOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *MessageOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -12396,7 +12447,6 @@ func (m *MessageOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -12405,7 +12455,6 @@ func (m *MessageOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -12435,114 +12484,142 @@ func (m *MessageOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *MessageOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorMessageOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.MessageOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.MessageOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [7]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *MessageOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "messageSetWireFormat", "message_set_wire_format":
-			f = 0
-		case "noStandardDescriptorAccessor", "no_standard_descriptor_accessor":
-			f = 1
-		case "deprecated":
-			f = 2
-		case "mapEntry", "map_entry":
-			f = 3
-		case "deprecatedLegacyJsonFieldConflicts", "deprecated_legacy_json_field_conflicts":
-			f = 4
-		case "features":
-			f = 5
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 6
-		default:
-			return errors.New("proto: google.protobuf.MessageOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.MessageOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 6:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.MessageOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.MessageOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = MessageOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorMessageOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *MessageOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.MessageOptions: expected a JSON object")
+	}
+	var seen [7]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "messageSetWireFormat", "message_set_wire_format":
+				f = 0
+			case "noStandardDescriptorAccessor", "no_standard_descriptor_accessor":
+				f = 1
+			case "deprecated":
+				f = 2
+			case "mapEntry", "map_entry":
+				f = 3
+			case "deprecatedLegacyJsonFieldConflicts", "deprecated_legacy_json_field_conflicts":
+				f = 4
+			case "features":
+				f = 5
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 6
+			default:
+				return errors.New("proto: google.protobuf.MessageOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.MessageOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 6:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.MessageOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.MessageOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
-		var bv bool
-		switch jb.f {
+		switch f {
 		case 0, 1, 2, 3, 4:
 			class = descriptorClassBool
 		}
-		switch class {
-		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.MessageOptions: invalid boolean " + string(raw))
+		var bv bool
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassBool:
+			switch tok.Kind() {
+			case jsontext.KindTrue:
+				bv = true
+			case jsontext.KindFalse:
+			default:
+				return errors.New("proto: google.protobuf.MessageOptions: invalid boolean " + tok.String())
+			}
+		}
+		switch f {
 		case 0:
 			x := bv
 			m.MessageSetWireFormat = &x
@@ -12562,18 +12639,19 @@ func (m *MessageOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 6:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type FieldOptions struct {
@@ -13362,9 +13440,23 @@ func (m *FieldOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FieldOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -13474,7 +13566,6 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.EditionDefaults) > 0 {
 		b = append(b, "\"editionDefaults\":["...)
 		for j := range m.EditionDefaults {
-			var err error
 			if b, err = m.EditionDefaults[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -13485,7 +13576,6 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -13493,7 +13583,6 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.FeatureSupport != nil {
 		b = append(b, "\"featureSupport\":"...)
-		var err error
 		if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -13502,7 +13591,6 @@ func (m *FieldOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -13532,139 +13620,165 @@ func (m *FieldOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFieldOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FieldOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [14]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FieldOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "ctype":
-			f = 0
-		case "packed":
-			f = 1
-		case "jstype":
-			f = 2
-		case "lazy":
-			f = 3
-		case "unverifiedLazy", "unverified_lazy":
-			f = 4
-		case "deprecated":
-			f = 5
-		case "weak":
-			f = 6
-		case "debugRedact", "debug_redact":
-			f = 7
-		case "retention":
-			f = 8
-		case "targets":
-			f = 9
-		case "editionDefaults", "edition_defaults":
-			f = 10
-		case "features":
-			f = 11
-		case "featureSupport", "feature_support":
-			f = 12
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 13
-		default:
-			return errors.New("proto: google.protobuf.FieldOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.FieldOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 9, 10, 13:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.FieldOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.FieldOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = FieldOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFieldOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FieldOptions: expected a JSON object")
+	}
+	var seen [14]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "ctype":
+				f = 0
+			case "packed":
+				f = 1
+			case "jstype":
+				f = 2
+			case "lazy":
+				f = 3
+			case "unverifiedLazy", "unverified_lazy":
+				f = 4
+			case "deprecated":
+				f = 5
+			case "weak":
+				f = 6
+			case "debugRedact", "debug_redact":
+				f = 7
+			case "retention":
+				f = 8
+			case "targets":
+				f = 9
+			case "editionDefaults", "edition_defaults":
+				f = 10
+			case "features":
+				f = 11
+			case "featureSupport", "feature_support":
+				f = 12
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 13
+			default:
+				return errors.New("proto: google.protobuf.FieldOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.FieldOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 9, 10, 13:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.FieldOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.FieldOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 1, 3, 4, 5, 6, 7:
 			class = descriptorClassBool
 		case 0, 2, 8, 9:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FieldOptions: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FieldOptions: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -13673,36 +13787,34 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldOptionsErrInvalidInteger + string(raw))
+						return errors.New(descriptorFieldOptionsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldOptionsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldOptionsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: google.protobuf.FieldOptions: invalid boolean " + string(raw))
+				return errors.New("proto: google.protobuf.FieldOptions: invalid boolean " + tok.String())
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FieldOptions: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FieldOptions: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			var ev FieldOptions_CType
 			switch class {
@@ -13778,7 +13890,7 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 			m.Targets = append(m.Targets, ev)
 		case 10:
 			mv := &FieldOptions_EditionDefault{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.EditionDefaults = append(m.EditionDefaults, mv)
@@ -13786,25 +13898,26 @@ func (m *FieldOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 12:
 			if m.FeatureSupport == nil {
 				m.FeatureSupport = &FieldOptions_FeatureSupport{}
 			}
-			if err := m.FeatureSupport.ProtoMergeJSON(raw); err != nil {
+			if err := m.FeatureSupport.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 13:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type FieldOptions_EditionDefault struct {
@@ -14062,9 +14175,20 @@ func (m *FieldOptions_EditionDefault) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FieldOptions_EditionDefault) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FieldOptions_EditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -14082,21 +14206,9 @@ func (m *FieldOptions_EditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) 
 	}
 	if m.Value != nil {
 		b = append(b, "\"value\":"...)
-		if !utf8.ValidString((*m.Value)) {
+		if b, err = jsontext.AppendQuote(b, (*m.Value)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldOptions.EditionDefault.value contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.Value)); ci++ {
-			switch c := (*m.Value)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -14117,40 +14229,58 @@ func (m *FieldOptions_EditionDefault) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFieldOptionsEditionDefaultErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FieldOptions_EditionDefault) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = FieldOptions_EditionDefault{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FieldOptions_EditionDefault) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "edition":
 			f = 0
@@ -14163,49 +14293,45 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFieldOptionsEditionDefaultErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 1:
 			class = descriptorClassString
 		case 0:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -14214,28 +14340,26 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + string(raw))
+						return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldOptionsEditionDefaultErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FieldOptions.EditionDefault: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			var ev Edition
 			switch class {
@@ -14255,7 +14379,8 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSON(b []byte) error {
 			m.Value = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Information about the support window of a feature.
@@ -14633,9 +14758,20 @@ func (m *FieldOptions_FeatureSupport) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FieldOptions_FeatureSupport) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -14664,21 +14800,9 @@ func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) 
 	}
 	if m.DeprecationWarning != nil {
 		b = append(b, "\"deprecationWarning\":"...)
-		if !utf8.ValidString((*m.DeprecationWarning)) {
+		if b, err = jsontext.AppendQuote(b, (*m.DeprecationWarning)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldOptions.FeatureSupport.deprecation_warning contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.DeprecationWarning)); ci++ {
-			switch c := (*m.DeprecationWarning)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.EditionRemoved != nil {
@@ -14694,21 +14818,9 @@ func (m *FieldOptions_FeatureSupport) ProtoAppendJSON(b []byte) ([]byte, error) 
 	}
 	if m.RemovalError != nil {
 		b = append(b, "\"removalError\":"...)
-		if !utf8.ValidString((*m.RemovalError)) {
+		if b, err = jsontext.AppendQuote(b, (*m.RemovalError)); err != nil {
 			return nil, errors.New("proto: google.protobuf.FieldOptions.FeatureSupport.removal_error contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.RemovalError)); ci++ {
-			switch c := (*m.RemovalError)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -14729,40 +14841,58 @@ func (m *FieldOptions_FeatureSupport) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFieldOptionsFeatureSupportErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FieldOptions_FeatureSupport) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = FieldOptions_FeatureSupport{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FieldOptions_FeatureSupport) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: expected a JSON object")
+	}
+	var seen [5]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "editionIntroduced", "edition_introduced":
 			f = 0
@@ -14781,49 +14911,45 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFieldOptionsFeatureSupportErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 2, 4:
 			class = descriptorClassString
 		case 0, 1, 3:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -14832,28 +14958,26 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + string(raw))
+						return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + string(raw))
+					return errors.New(descriptorFieldOptionsFeatureSupportErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FieldOptions.FeatureSupport: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			var ev Edition
 			switch class {
@@ -14904,7 +15028,8 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSON(b []byte) error {
 			m.RemovalError = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type OneofOptions struct {
@@ -15199,16 +15324,29 @@ func (m *OneofOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *OneofOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *OneofOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -15217,7 +15355,6 @@ func (m *OneofOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -15247,104 +15384,126 @@ func (m *OneofOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *OneofOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorOneofOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.OneofOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.OneofOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *OneofOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "features":
-			f = 0
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 1
-		default:
-			return errors.New("proto: google.protobuf.OneofOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.OneofOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 1:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.OneofOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.OneofOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = OneofOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorOneofOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *OneofOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		switch jb.f {
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.OneofOptions: expected a JSON object")
+	}
+	var seen [2]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "features":
+				f = 0
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 1
+			default:
+				return errors.New("proto: google.protobuf.OneofOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.OneofOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 1:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.OneofOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.OneofOptions: null is not allowed in repeated fields or map values")
+			}
+		}
+		switch f {
 		case 0:
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 1:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type EnumOptions struct {
@@ -15745,9 +15904,23 @@ func (m *EnumOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *EnumOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *EnumOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -15781,7 +15954,6 @@ func (m *EnumOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -15790,7 +15962,6 @@ func (m *EnumOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -15820,110 +15991,138 @@ func (m *EnumOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *EnumOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorEnumOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.EnumOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *EnumOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "allowAlias", "allow_alias":
-			f = 0
-		case "deprecated":
-			f = 1
-		case "deprecatedLegacyJsonFieldConflicts", "deprecated_legacy_json_field_conflicts":
-			f = 2
-		case "features":
-			f = 3
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 4
-		default:
-			return errors.New("proto: google.protobuf.EnumOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.EnumOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 4:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.EnumOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.EnumOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = EnumOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorEnumOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *EnumOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.EnumOptions: expected a JSON object")
+	}
+	var seen [5]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "allowAlias", "allow_alias":
+				f = 0
+			case "deprecated":
+				f = 1
+			case "deprecatedLegacyJsonFieldConflicts", "deprecated_legacy_json_field_conflicts":
+				f = 2
+			case "features":
+				f = 3
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 4
+			default:
+				return errors.New("proto: google.protobuf.EnumOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.EnumOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 4:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.EnumOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.EnumOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
-		var bv bool
-		switch jb.f {
+		switch f {
 		case 0, 1, 2:
 			class = descriptorClassBool
 		}
-		switch class {
-		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.EnumOptions: invalid boolean " + string(raw))
+		var bv bool
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassBool:
+			switch tok.Kind() {
+			case jsontext.KindTrue:
+				bv = true
+			case jsontext.KindFalse:
+			default:
+				return errors.New("proto: google.protobuf.EnumOptions: invalid boolean " + tok.String())
+			}
+		}
+		switch f {
 		case 0:
 			x := bv
 			m.AllowAlias = &x
@@ -15937,18 +16136,19 @@ func (m *EnumOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 4:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type EnumValueOptions struct {
@@ -16359,9 +16559,23 @@ func (m *EnumValueOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *EnumValueOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -16377,7 +16591,6 @@ func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -16394,7 +16607,6 @@ func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.FeatureSupport != nil {
 		b = append(b, "\"featureSupport\":"...)
-		var err error
 		if b, err = m.FeatureSupport.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -16403,7 +16615,6 @@ func (m *EnumValueOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -16433,110 +16644,138 @@ func (m *EnumValueOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorEnumValueOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.EnumValueOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *EnumValueOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "deprecated":
-			f = 0
-		case "features":
-			f = 1
-		case "debugRedact", "debug_redact":
-			f = 2
-		case "featureSupport", "feature_support":
-			f = 3
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 4
-		default:
-			return errors.New("proto: google.protobuf.EnumValueOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.EnumValueOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 4:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.EnumValueOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = EnumValueOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorEnumValueOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *EnumValueOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON object")
+	}
+	var seen [5]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "deprecated":
+				f = 0
+			case "features":
+				f = 1
+			case "debugRedact", "debug_redact":
+				f = 2
+			case "featureSupport", "feature_support":
+				f = 3
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 4
+			default:
+				return errors.New("proto: google.protobuf.EnumValueOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.EnumValueOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 4:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.EnumValueOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.EnumValueOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
-		var bv bool
-		switch jb.f {
+		switch f {
 		case 0, 2:
 			class = descriptorClassBool
 		}
-		switch class {
-		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.EnumValueOptions: invalid boolean " + string(raw))
+		var bv bool
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassBool:
+			switch tok.Kind() {
+			case jsontext.KindTrue:
+				bv = true
+			case jsontext.KindFalse:
+			default:
+				return errors.New("proto: google.protobuf.EnumValueOptions: invalid boolean " + tok.String())
+			}
+		}
+		switch f {
 		case 0:
 			x := bv
 			m.Deprecated = &x
@@ -16544,7 +16783,7 @@ func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 2:
@@ -16554,18 +16793,19 @@ func (m *EnumValueOptions) ProtoMergeJSON(b []byte) error {
 			if m.FeatureSupport == nil {
 				m.FeatureSupport = &FieldOptions_FeatureSupport{}
 			}
-			if err := m.FeatureSupport.ProtoMergeJSON(raw); err != nil {
+			if err := m.FeatureSupport.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 4:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type ServiceOptions struct {
@@ -16898,16 +17138,29 @@ func (m *ServiceOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *ServiceOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *ServiceOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -16925,7 +17178,6 @@ func (m *ServiceOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -16955,111 +17207,139 @@ func (m *ServiceOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *ServiceOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorServiceOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.ServiceOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *ServiceOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "features":
-			f = 0
-		case "deprecated":
-			f = 1
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 2
-		default:
-			return errors.New("proto: google.protobuf.ServiceOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.ServiceOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 2:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.ServiceOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = ServiceOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorServiceOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *ServiceOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON object")
+	}
+	var seen [3]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "features":
+				f = 0
+			case "deprecated":
+				f = 1
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 2
+			default:
+				return errors.New("proto: google.protobuf.ServiceOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.ServiceOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 2:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.ServiceOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.ServiceOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
-		var bv bool
-		switch jb.f {
+		switch f {
 		case 1:
 			class = descriptorClassBool
 		}
-		switch class {
-		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.ServiceOptions: invalid boolean " + string(raw))
+		var bv bool
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassBool:
+			switch tok.Kind() {
+			case jsontext.KindTrue:
+				bv = true
+			case jsontext.KindFalse:
+			default:
+				return errors.New("proto: google.protobuf.ServiceOptions: invalid boolean " + tok.String())
+			}
+		}
+		switch f {
 		case 0:
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 1:
@@ -17067,13 +17347,14 @@ func (m *ServiceOptions) ProtoMergeJSON(b []byte) error {
 			m.Deprecated = &x
 		case 2:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type MethodOptions struct {
@@ -17443,9 +17724,23 @@ func (m *MethodOptions) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *MethodOptions) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *MethodOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -17472,7 +17767,6 @@ func (m *MethodOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Features != nil {
 		b = append(b, "\"features\":"...)
-		var err error
 		if b, err = m.Features.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -17481,7 +17775,6 @@ func (m *MethodOptions) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.UninterpretedOption) > 0 {
 		b = append(b, "\"uninterpretedOption\":["...)
 		for j := range m.UninterpretedOption {
-			var err error
 			if b, err = m.UninterpretedOption[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -17511,119 +17804,145 @@ func (m *MethodOptions) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorMethodOptionsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.MethodOptions: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.MethodOptions: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [4]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *MethodOptions) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "deprecated":
-			f = 0
-		case "idempotencyLevel", "idempotency_level":
-			f = 1
-		case "features":
-			f = 2
-		case "uninterpretedOption", "uninterpreted_option":
-			f = 3
-		default:
-			return errors.New("proto: google.protobuf.MethodOptions: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.MethodOptions: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 3:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.MethodOptions: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.MethodOptions: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = MethodOptions{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorMethodOptionsErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *MethodOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.MethodOptions: expected a JSON object")
+	}
+	var seen [4]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "deprecated":
+				f = 0
+			case "idempotencyLevel", "idempotency_level":
+				f = 1
+			case "features":
+				f = 2
+			case "uninterpretedOption", "uninterpreted_option":
+				f = 3
+			default:
+				return errors.New("proto: google.protobuf.MethodOptions: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.MethodOptions: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 3:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.MethodOptions: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.MethodOptions: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class = descriptorClassBool
 		case 1:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.MethodOptions: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.MethodOptions: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -17632,36 +17951,34 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorMethodOptionsErrInvalidInteger + string(raw))
+						return errors.New(descriptorMethodOptionsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorMethodOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorMethodOptionsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorMethodOptionsErrInvalidInteger + string(raw))
+					return errors.New(descriptorMethodOptionsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: google.protobuf.MethodOptions: invalid boolean " + string(raw))
+				return errors.New("proto: google.protobuf.MethodOptions: invalid boolean " + tok.String())
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.MethodOptions: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.MethodOptions: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := bv
 			m.Deprecated = &x
@@ -17683,18 +18000,19 @@ func (m *MethodOptions) ProtoMergeJSON(b []byte) error {
 			if m.Features == nil {
 				m.Features = &FeatureSet{}
 			}
-			if err := m.Features.ProtoMergeJSON(raw); err != nil {
+			if err := m.Features.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
 			mv := &UninterpretedOption{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.UninterpretedOption = append(m.UninterpretedOption, mv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // A message representing a option the parser does not recognize. This only
@@ -18139,9 +18457,23 @@ func (m *UninterpretedOption) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *UninterpretedOption) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -18149,7 +18481,6 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Name) > 0 {
 		b = append(b, "\"name\":["...)
 		for j := range m.Name {
-			var err error
 			if b, err = m.Name[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -18160,21 +18491,9 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.IdentifierValue != nil {
 		b = append(b, "\"identifierValue\":"...)
-		if !utf8.ValidString((*m.IdentifierValue)) {
+		if b, err = jsontext.AppendQuote(b, (*m.IdentifierValue)); err != nil {
 			return nil, errors.New("proto: google.protobuf.UninterpretedOption.identifier_value contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.IdentifierValue)); ci++ {
-			switch c := (*m.IdentifierValue)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.PositiveIntValue != nil {
@@ -18201,37 +18520,22 @@ func (m *UninterpretedOption) ProtoAppendJSON(b []byte) ([]byte, error) {
 		case math.IsInf(fl, -1):
 			b = append(b, `"-Infinity"`...)
 		default:
-			b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+			b = jsontext.AppendFloat(b, fl, 64)
 		}
 		b = append(b, ',')
 	}
 	if m.StringValue != nil {
 		b = append(b, "\"stringValue\":"...)
-		n := base64.StdEncoding.EncodedLen(len(m.StringValue))
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, n)[:l+n]
-		base64.StdEncoding.Encode(b[l:], m.StringValue)
+		b = base64.StdEncoding.AppendEncode(b, m.StringValue)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.AggregateValue != nil {
 		b = append(b, "\"aggregateValue\":"...)
-		if !utf8.ValidString((*m.AggregateValue)) {
+		if b, err = jsontext.AppendQuote(b, (*m.AggregateValue)); err != nil {
 			return nil, errors.New("proto: google.protobuf.UninterpretedOption.aggregate_value contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.AggregateValue)); ci++ {
-			switch c := (*m.AggregateValue)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -18255,105 +18559,121 @@ func (m *UninterpretedOption) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorUninterpretedOptionErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.UninterpretedOption: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [7]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *UninterpretedOption) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "name":
-			f = 0
-		case "identifierValue", "identifier_value":
-			f = 1
-		case "positiveIntValue", "positive_int_value":
-			f = 2
-		case "negativeIntValue", "negative_int_value":
-			f = 3
-		case "doubleValue", "double_value":
-			f = 4
-		case "stringValue", "string_value":
-			f = 5
-		case "aggregateValue", "aggregate_value":
-			f = 6
-		default:
-			return errors.New("proto: google.protobuf.UninterpretedOption: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.UninterpretedOption: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 1, 2, 3, 4, 5, 6:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 0:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.UninterpretedOption: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = UninterpretedOption{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorUninterpretedOptionErrTrailingData)
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *UninterpretedOption) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON object")
+	}
+	var seen [7]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "name":
+				f = 0
+			case "identifierValue", "identifier_value":
+				f = 1
+			case "positiveIntValue", "positive_int_value":
+				f = 2
+			case "negativeIntValue", "negative_int_value":
+				f = 3
+			case "doubleValue", "double_value":
+				f = 4
+			case "stringValue", "string_value":
+				f = 5
+			case "aggregateValue", "aggregate_value":
+				f = 6
+			default:
+				return errors.New("proto: google.protobuf.UninterpretedOption: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.UninterpretedOption: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.UninterpretedOption: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.UninterpretedOption: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var uv uint64
-		var fv float64
-		var sv string
-		var by []byte
-		switch jb.f {
+		switch f {
 		case 3:
 			class, bits = descriptorClassSigned, 64
 		case 2:
@@ -18365,16 +18685,23 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 		case 5:
 			class = descriptorClassBytes
 		}
+		var iv int64
+		var uv uint64
+		var fv float64
+		var sv string
+		var by []byte
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned, descriptorClassUnsigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New(descriptorUninterpretedOptionErrInvalidNumber + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New(descriptorUninterpretedOptionErrInvalidNumber + s)
 			}
 			var err error
 			if class == descriptorClassSigned {
@@ -18387,33 +18714,30 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
+						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
+					return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if class == descriptorClassSigned {
 					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
+						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
 					}
 					iv = n.Int64()
 				} else {
 					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + string(raw))
+						return errors.New(descriptorUninterpretedOptionErrInvalidInteger + s)
 					}
 					uv = n.Uint64()
 				}
 			}
 		case descriptorClassFloat:
-			s := string(raw)
+			s := tok.String()
 			special := false
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
+			if tok.Kind() == jsontext.KindString {
 				switch s {
 				case "NaN":
 					fv, special = math.NaN(), true
@@ -18424,28 +18748,23 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 				}
 			}
 			if !special {
-				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + string(raw))
+				if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + s)
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + string(raw))
+					return errors.New(descriptorUninterpretedOptionErrInvalidNumber + s)
 				}
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.UninterpretedOption: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.UninterpretedOption: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		case descriptorClassBytes:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + s)
 			}
 			// Accept standard and URL-safe alphabets, with or without padding.
 			enc := base64.StdEncoding
@@ -18457,13 +18776,13 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + string(raw))
+				return errors.New(descriptorUninterpretedOptionErrInvalidBytes + s)
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			mv := &UninterpretedOption_NamePart{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Name = append(m.Name, mv)
@@ -18486,7 +18805,8 @@ func (m *UninterpretedOption) ProtoMergeJSON(b []byte) error {
 			m.AggregateValue = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // The name of the uninterpreted option.  Each string represents a segment in
@@ -18760,30 +19080,32 @@ func (m *UninterpretedOption_NamePart) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *UninterpretedOption_NamePart) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *UninterpretedOption_NamePart) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.NamePart != nil {
 		b = append(b, "\"namePart\":"...)
-		if !utf8.ValidString((*m.NamePart)) {
+		if b, err = jsontext.AppendQuote(b, (*m.NamePart)); err != nil {
 			return nil, errors.New("proto: google.protobuf.UninterpretedOption.NamePart.name_part contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.NamePart)); ci++ {
-			switch c := (*m.NamePart)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.IsExtension != nil {
@@ -18816,40 +19138,61 @@ func (m *UninterpretedOption_NamePart) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorUninterpretedOptionNamePartErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *UninterpretedOption_NamePart) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = UninterpretedOption_NamePart{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *UninterpretedOption_NamePart) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "namePart", "name_part":
 			f = 0
@@ -18862,49 +19205,45 @@ func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorUninterpretedOptionNamePartErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
-		var bv bool
-		var sv string
-		switch jb.f {
+		switch f {
 		case 1:
 			class = descriptorClassBool
 		case 0:
 			class = descriptorClassString
 		}
-		switch class {
-		case descriptorClassBool:
-			switch string(raw) {
-			case "true":
-				bv = true
-			case "false":
-			default:
-				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid boolean " + string(raw))
-			}
-		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid string " + string(raw))
-			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
+		var bv bool
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case descriptorClassBool:
+			switch tok.Kind() {
+			case jsontext.KindTrue:
+				bv = true
+			case jsontext.KindFalse:
+			default:
+				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid boolean " + tok.String())
+			}
+		case descriptorClassString:
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.UninterpretedOption.NamePart: invalid string " + tok.String())
+			}
+			sv = tok.String()
+		}
+		switch f {
 		case 0:
 			x := sv
 			m.NamePart = &x
@@ -18913,7 +19252,8 @@ func (m *UninterpretedOption_NamePart) ProtoMergeJSON(b []byte) error {
 			m.IsExtension = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // TODO Enums in C++ gencode (and potentially other languages) are
@@ -19430,6 +19770,16 @@ func (m *FeatureSet) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FeatureSet) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FeatureSet) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -19554,40 +19904,58 @@ func (m *FeatureSet) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFeatureSetErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSet: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FeatureSet: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [9]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FeatureSet) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = FeatureSet{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FeatureSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FeatureSet: expected a JSON object")
+	}
+	var seen [9]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "fieldPresence", "field_presence":
 			f = 0
@@ -19614,47 +19982,43 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: google.protobuf.FeatureSet: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFeatureSetErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
+		switch f {
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
+			class = descriptorClassEnum
+		}
 		var iv int64
 		var sv string
-		switch jb.f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FeatureSet: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FeatureSet: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -19663,28 +20027,26 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFeatureSetErrInvalidInteger + string(raw))
+						return errors.New(descriptorFeatureSetErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFeatureSetErrInvalidInteger + string(raw))
+					return errors.New(descriptorFeatureSetErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFeatureSetErrInvalidInteger + string(raw))
+					return errors.New(descriptorFeatureSetErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FeatureSet: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FeatureSet: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			var ev FeatureSet_FieldPresence
 			switch class {
@@ -19813,7 +20175,8 @@ func (m *FeatureSet) ProtoMergeJSON(b []byte) error {
 			m.EnforceProtoLimits = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type FeatureSet_VisibilityFeature struct {
@@ -19995,6 +20358,16 @@ func (m *FeatureSet_VisibilityFeature) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FeatureSet_VisibilityFeature) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FeatureSet_VisibilityFeature) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -20020,34 +20393,56 @@ func (m *FeatureSet_VisibilityFeature) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FeatureSet_VisibilityFeature) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FeatureSet_VisibilityFeature) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = FeatureSet_VisibilityFeature{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FeatureSet_VisibilityFeature) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok == nil {
+	if tok.Kind() == jsontext.KindNull {
 		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFeatureSetVisibilityFeatureErrTrailingData)
-		}
 		return nil
 	}
-	if tok != json.Delim('{') {
+	if tok.Kind() != jsontext.KindBeginObject {
 		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: expected a JSON object")
 	}
-	if d.More() {
-		tok, _ := d.Token()
-		key, _ := tok.(string)
-		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unknown field " + strconv.Quote(key))
+	if d.PeekKind() != jsontext.KindEndObject {
+		kt, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		return errors.New("proto: google.protobuf.FeatureSet.VisibilityFeature: unknown field " + strconv.Quote(kt.String()))
 	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFeatureSetVisibilityFeatureErrTrailingData)
-	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type FeatureSet_ProtoLimitsFeature struct {
@@ -20229,6 +20624,16 @@ func (m *FeatureSet_ProtoLimitsFeature) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FeatureSet_ProtoLimitsFeature) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -20254,34 +20659,56 @@ func (m *FeatureSet_ProtoLimitsFeature) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FeatureSet_ProtoLimitsFeature) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = FeatureSet_ProtoLimitsFeature{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok == nil {
+	if tok.Kind() == jsontext.KindNull {
 		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFeatureSetProtoLimitsFeatureErrTrailingData)
-		}
 		return nil
 	}
-	if tok != json.Delim('{') {
+	if tok.Kind() != jsontext.KindBeginObject {
 		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: expected a JSON object")
 	}
-	if d.More() {
-		tok, _ := d.Token()
-		key, _ := tok.(string)
-		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unknown field " + strconv.Quote(key))
+	if d.PeekKind() != jsontext.KindEndObject {
+		kt, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		return errors.New("proto: google.protobuf.FeatureSet.ProtoLimitsFeature: unknown field " + strconv.Quote(kt.String()))
 	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFeatureSetProtoLimitsFeatureErrTrailingData)
-	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // A compiled specification for the defaults of a set of features.  These
@@ -20590,9 +21017,20 @@ func (m *FeatureSetDefaults) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FeatureSetDefaults) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FeatureSetDefaults) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -20600,7 +21038,6 @@ func (m *FeatureSetDefaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Defaults) > 0 {
 		b = append(b, "\"defaults\":["...)
 		for j := range m.Defaults {
-			var err error
 			if b, err = m.Defaults[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -20649,114 +21086,137 @@ func (m *FeatureSetDefaults) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFeatureSetDefaultsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FeatureSetDefaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "defaults":
-			f = 0
-		case "minimumEdition", "minimum_edition":
-			f = 1
-		case "maximumEdition", "maximum_edition":
-			f = 2
-		default:
-			return errors.New("proto: google.protobuf.FeatureSetDefaults: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.FeatureSetDefaults: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 1, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 0:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.FeatureSetDefaults: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = FeatureSetDefaults{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FeatureSetDefaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFeatureSetDefaultsErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON object")
+	}
+	var seen [3]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "defaults":
+				f = 0
+			case "minimumEdition", "minimum_edition":
+				f = 1
+			case "maximumEdition", "maximum_edition":
+				f = 2
+			default:
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.FeatureSetDefaults: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
+		switch f {
+		case 1, 2:
+			class = descriptorClassEnum
+		}
 		var iv int64
 		var sv string
-		switch jb.f {
-		case 1, 2:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -20765,31 +21225,29 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + string(raw))
+						return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + string(raw))
+					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + string(raw))
+					return errors.New(descriptorFeatureSetDefaultsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			mv := &FeatureSetDefaults_FeatureSetEditionDefault{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Defaults = append(m.Defaults, mv)
@@ -20823,7 +21281,8 @@ func (m *FeatureSetDefaults) ProtoMergeJSON(b []byte) error {
 			m.MaximumEdition = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // A map from every known edition with a unique set of defaults to its
@@ -21142,9 +21601,20 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) MarshalJSON() ([]byte, err
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -21162,7 +21632,6 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoAppendJSON(b []byte) 
 	}
 	if m.OverridableFeatures != nil {
 		b = append(b, "\"overridableFeatures\":"...)
-		var err error
 		if b, err = m.OverridableFeatures.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -21170,7 +21639,6 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoAppendJSON(b []byte) 
 	}
 	if m.FixedFeatures != nil {
 		b = append(b, "\"fixedFeatures\":"...)
-		var err error
 		if b, err = m.FixedFeatures.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -21194,40 +21662,58 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) UnmarshalJSON(b []byte) er
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = FeatureSetDefaults_FeatureSetEditionDefault{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: expected a JSON object")
+	}
+	var seen [3]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "edition":
 			f = 0
@@ -21242,47 +21728,43 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 			return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := descriptorClassNone
 		bits := 64
+		switch f {
+		case 0:
+			class = descriptorClassEnum
+		}
 		var iv int64
 		var sv string
-		switch jb.f {
-		case 0:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -21291,28 +21773,26 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + string(raw))
+						return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + string(raw))
+					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + string(raw))
+					return errors.New(descriptorFeatureSetDefaultsFeatureSetEditionDefaultErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			var ev Edition
 			switch class {
@@ -21331,19 +21811,20 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSON(b []byte) e
 			if m.OverridableFeatures == nil {
 				m.OverridableFeatures = &FeatureSet{}
 			}
-			if err := m.OverridableFeatures.ProtoMergeJSON(raw); err != nil {
+			if err := m.OverridableFeatures.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 2:
 			if m.FixedFeatures == nil {
 				m.FixedFeatures = &FeatureSet{}
 			}
-			if err := m.FixedFeatures.ProtoMergeJSON(raw); err != nil {
+			if err := m.FixedFeatures.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Encapsulates information about the original source file from which a
@@ -21617,9 +22098,20 @@ func (m *SourceCodeInfo) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *SourceCodeInfo) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *SourceCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -21627,7 +22119,6 @@ func (m *SourceCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Location) > 0 {
 		b = append(b, "\"location\":["...)
 		for j := range m.Location {
-			var err error
 			if b, err = m.Location[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -21654,91 +22145,111 @@ func (m *SourceCodeInfo) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *SourceCodeInfo) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorSourceCodeInfoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.SourceCodeInfo: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *SourceCodeInfo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "location":
-			f = 0
-		default:
-			return errors.New("proto: google.protobuf.SourceCodeInfo: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.SourceCodeInfo: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.SourceCodeInfo: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = SourceCodeInfo{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *SourceCodeInfo) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorSourceCodeInfoErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		switch jb.f {
-		case 0:
-			mv := &SourceCodeInfo_Location{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON object")
+	}
+	var seen [1]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
 				return err
 			}
-			m.Location = append(m.Location, mv)
+			key := kt.String()
+			switch key {
+			case "location":
+				f = 0
+			default:
+				return errors.New("proto: google.protobuf.SourceCodeInfo: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.SourceCodeInfo: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.SourceCodeInfo: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.SourceCodeInfo: null is not allowed in repeated fields or map values")
+			}
 		}
+		mv := &SourceCodeInfo_Location{}
+		if err := mv.ProtoMergeJSONFrom(d); err != nil {
+			return err
+		}
+		m.Location = append(m.Location, mv)
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type SourceCodeInfo_Location struct {
@@ -22243,9 +22754,20 @@ func (m *SourceCodeInfo_Location) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *SourceCodeInfo_Location) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *SourceCodeInfo_Location) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -22270,60 +22792,24 @@ func (m *SourceCodeInfo_Location) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.LeadingComments != nil {
 		b = append(b, "\"leadingComments\":"...)
-		if !utf8.ValidString((*m.LeadingComments)) {
+		if b, err = jsontext.AppendQuote(b, (*m.LeadingComments)); err != nil {
 			return nil, errors.New("proto: google.protobuf.SourceCodeInfo.Location.leading_comments contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.LeadingComments)); ci++ {
-			switch c := (*m.LeadingComments)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.TrailingComments != nil {
 		b = append(b, "\"trailingComments\":"...)
-		if !utf8.ValidString((*m.TrailingComments)) {
+		if b, err = jsontext.AppendQuote(b, (*m.TrailingComments)); err != nil {
 			return nil, errors.New("proto: google.protobuf.SourceCodeInfo.Location.trailing_comments contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.TrailingComments)); ci++ {
-			switch c := (*m.TrailingComments)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.LeadingDetachedComments) > 0 {
 		b = append(b, "\"leadingDetachedComments\":["...)
 		for j := range m.LeadingDetachedComments {
-			if !utf8.ValidString(m.LeadingDetachedComments[j]) {
+			if b, err = jsontext.AppendQuote(b, m.LeadingDetachedComments[j]); err != nil {
 				return nil, errors.New("proto: google.protobuf.SourceCodeInfo.Location.leading_detached_comments contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(m.LeadingDetachedComments[j]); ci++ {
-				switch c := m.LeadingDetachedComments[j][ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -22347,113 +22833,133 @@ func (m *SourceCodeInfo_Location) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorSourceCodeInfoLocationErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *SourceCodeInfo_Location) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "path":
-			f = 0
-		case "span":
-			f = 1
-		case "leadingComments", "leading_comments":
-			f = 2
-		case "trailingComments", "trailing_comments":
-			f = 3
-		case "leadingDetachedComments", "leading_detached_comments":
-			f = 4
-		default:
-			return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.SourceCodeInfo.Location: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 2, 3:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 0, 1, 4:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = SourceCodeInfo_Location{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *SourceCodeInfo_Location) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorSourceCodeInfoLocationErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON object")
+	}
+	var seen [5]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "path":
+				f = 0
+			case "span":
+				f = 1
+			case "leadingComments", "leading_comments":
+				f = 2
+			case "trailingComments", "trailing_comments":
+				f = 3
+			case "leadingDetachedComments", "leading_detached_comments":
+				f = 4
+			default:
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0, 1, 4:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.SourceCodeInfo.Location: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0, 1:
 			class, bits = descriptorClassSigned, 32
 		case 2, 3, 4:
 			class = descriptorClassString
 		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -22462,28 +22968,26 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + string(raw))
+						return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + string(raw))
+					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + string(raw))
+					return errors.New(descriptorSourceCodeInfoLocationErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.SourceCodeInfo.Location: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.Path = append(m.Path, int32(iv))
 		case 1:
@@ -22498,7 +23002,8 @@ func (m *SourceCodeInfo_Location) ProtoMergeJSON(b []byte) error {
 			m.LeadingDetachedComments = append(m.LeadingDetachedComments, sv)
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 // Describes the relationship between generated code and its original source
@@ -22732,9 +23237,20 @@ func (m *GeneratedCodeInfo) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *GeneratedCodeInfo) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *GeneratedCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -22742,7 +23258,6 @@ func (m *GeneratedCodeInfo) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Annotation) > 0 {
 		b = append(b, "\"annotation\":["...)
 		for j := range m.Annotation {
-			var err error
 			if b, err = m.Annotation[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -22769,91 +23284,111 @@ func (m *GeneratedCodeInfo) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *GeneratedCodeInfo) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorGeneratedCodeInfoErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *GeneratedCodeInfo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "annotation":
-			f = 0
-		default:
-			return errors.New("proto: google.protobuf.GeneratedCodeInfo: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.GeneratedCodeInfo: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = GeneratedCodeInfo{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *GeneratedCodeInfo) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorGeneratedCodeInfoErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		switch jb.f {
-		case 0:
-			mv := &GeneratedCodeInfo_Annotation{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON object")
+	}
+	var seen [1]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
 				return err
 			}
-			m.Annotation = append(m.Annotation, mv)
+			key := kt.String()
+			switch key {
+			case "annotation":
+				f = 0
+			default:
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo: null is not allowed in repeated fields or map values")
+			}
 		}
+		mv := &GeneratedCodeInfo_Annotation{}
+		if err := mv.ProtoMergeJSONFrom(d); err != nil {
+			return err
+		}
+		m.Annotation = append(m.Annotation, mv)
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type GeneratedCodeInfo_Annotation struct {
@@ -23242,9 +23777,20 @@ func (m *GeneratedCodeInfo_Annotation) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *GeneratedCodeInfo_Annotation) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *GeneratedCodeInfo_Annotation) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -23260,21 +23806,9 @@ func (m *GeneratedCodeInfo_Annotation) ProtoAppendJSON(b []byte) ([]byte, error)
 	}
 	if m.SourceFile != nil {
 		b = append(b, "\"sourceFile\":"...)
-		if !utf8.ValidString((*m.SourceFile)) {
+		if b, err = jsontext.AppendQuote(b, (*m.SourceFile)); err != nil {
 			return nil, errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation.source_file contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.SourceFile)); ci++ {
-			switch c := (*m.SourceFile)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', descriptorHexDigits[c>>4], descriptorHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Begin != nil {
@@ -23316,122 +23850,145 @@ func (m *GeneratedCodeInfo_Annotation) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(descriptorGeneratedCodeInfoAnnotationErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *GeneratedCodeInfo_Annotation) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "path":
-			f = 0
-		case "sourceFile", "source_file":
-			f = 1
-		case "begin":
-			f = 2
-		case "end":
-			f = 3
-		case "semantic":
-			f = 4
-		default:
-			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 1, 2, 3, 4:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 0:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = GeneratedCodeInfo_Annotation{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(descriptorGeneratedCodeInfoAnnotationErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON object")
+	}
+	var seen [5]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "path":
+				f = 0
+			case "sourceFile", "source_file":
+				f = 1
+			case "begin":
+				f = 2
+			case "end":
+				f = 3
+			case "semantic":
+				f = 4
+			default:
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := descriptorClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0, 2, 3:
 			class, bits = descriptorClassSigned, 32
 		case 1:
 			class = descriptorClassString
 		case 4:
-			switch {
-			case string(raw) == "null":
-				class = descriptorClassNone
-			case raw[0] == '"':
-				class = descriptorClassString
-			default:
-				class, bits = descriptorClassSigned, 32
+			class = descriptorClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != descriptorClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == descriptorClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = descriptorClassNone
+				case jsontext.KindString:
+					class = descriptorClassString
+				default:
+					class, bits = descriptorClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case descriptorClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -23440,28 +23997,26 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > descriptorMaxJSONExponent || e < -descriptorMaxJSONExponent {
-						return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + string(raw))
+						return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + string(raw))
+					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + string(raw))
+					return errors.New(descriptorGeneratedCodeInfoAnnotationErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case descriptorClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.Path = append(m.Path, int32(iv))
 		case 1:
@@ -23489,5 +24044,6 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSON(b []byte) error {
 			m.Semantic = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }

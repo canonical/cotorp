@@ -6,7 +6,10 @@ package wktpb
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
+	"io"
 	"math/bits"
 	"slices"
 	"unicode/utf8"
@@ -367,6 +370,16 @@ func (m *Any) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Any) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Any) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -383,8 +396,38 @@ func (m *Any) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Any) ProtoMergeJSON(b []byte) error {
-	if string(bytes.TrimSpace(b)) == "null" {
-		return nil
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: google.protobuf.Any: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Any) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = Any{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Any) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
 	}
 	return errors.New(anyAnyErrUnsupported)
 }

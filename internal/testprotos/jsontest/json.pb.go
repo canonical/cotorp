@@ -7,7 +7,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"math"
@@ -65,6 +66,7 @@ const (
 	jsonClassSigned = 1
 	jsonClassString = 5
 	jsonClassBytes  = 6
+	jsonClassEnum   = 8
 )
 
 // ProtoJSON limits.
@@ -73,9 +75,6 @@ const (
 	jsonBase64Quantum   = 4   // base64 characters per padded block
 )
 
-// Hexadecimal digits for \u escapes in JSON strings.
-const jsonHexDigits = "0123456789abcdef"
-
 // Error messages used more than once.
 const (
 	jsonErrSizeChanged                 = "proto: message size changed during marshal"
@@ -83,14 +82,10 @@ const (
 	jsonWellKnownValMapEntryKeyErrUTF8 = "proto: field cotorp.test.json.WellKnown.ValMapEntry.key contains invalid UTF-8"
 	jsonErrParse                       = "proto: cannot parse invalid wire-format data"
 	jsonErrDepth                       = "proto: exceeded maximum recursion depth"
-	jsonWellKnownErrTrailingData       = "proto: cotorp.test.json.WellKnown: unexpected data after JSON value"
 	jsonWellKnownErrNotObject          = "proto: cotorp.test.json.WellKnown: expected a JSON object"
-	jsonWellKnownErrNotArray           = "proto: cotorp.test.json.WellKnown: expected a JSON array"
-	jsonWellKnownErrNullElement        = "proto: cotorp.test.json.WellKnown: null is not allowed in repeated fields or map values"
 	jsonWellKnownErrInvalidInteger     = "proto: cotorp.test.json.WellKnown: invalid integer "
 	jsonWellKnownErrInvalidNullValue   = "proto: cotorp.test.json.WellKnown: invalid value for enum google.protobuf.NullValue: "
 	jsonNamesByBoolEntryValueErrUTF8   = "proto: field cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8"
-	jsonNamesErrTrailingData           = "proto: cotorp.test.json.Names: unexpected data after JSON value"
 	jsonNamesErrNotObject              = "proto: cotorp.test.json.Names: expected a JSON object"
 	jsonNamesErrInvalidInteger         = "proto: cotorp.test.json.Names: invalid integer "
 	jsonNamesErrInvalidBytes           = "proto: cotorp.test.json.Names: invalid bytes "
@@ -1693,16 +1688,26 @@ func (m *WellKnown) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *WellKnown) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Ts != nil {
 		b = append(b, "\"ts\":"...)
-		var err error
 		if b, err = m.Ts.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1710,7 +1715,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Dur != nil {
 		b = append(b, "\"dur\":"...)
-		var err error
 		if b, err = m.Dur.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1718,7 +1722,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Dbl != nil {
 		b = append(b, "\"dbl\":"...)
-		var err error
 		if b, err = m.Dbl.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1726,7 +1729,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Flt != nil {
 		b = append(b, "\"flt\":"...)
-		var err error
 		if b, err = m.Flt.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1734,7 +1736,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.I64 != nil {
 		b = append(b, "\"i64\":"...)
-		var err error
 		if b, err = m.I64.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1742,7 +1743,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.U64 != nil {
 		b = append(b, "\"u64\":"...)
-		var err error
 		if b, err = m.U64.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1750,7 +1750,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.I32 != nil {
 		b = append(b, "\"i32\":"...)
-		var err error
 		if b, err = m.I32.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1758,7 +1757,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.U32 != nil {
 		b = append(b, "\"u32\":"...)
-		var err error
 		if b, err = m.U32.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1766,7 +1764,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Bool != nil {
 		b = append(b, "\"bool\":"...)
-		var err error
 		if b, err = m.Bool.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1774,7 +1771,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Str != nil {
 		b = append(b, "\"str\":"...)
-		var err error
 		if b, err = m.Str.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1782,7 +1778,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Bytes != nil {
 		b = append(b, "\"bytes\":"...)
-		var err error
 		if b, err = m.Bytes.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1790,7 +1785,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.St != nil {
 		b = append(b, "\"st\":"...)
-		var err error
 		if b, err = m.St.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1798,7 +1792,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Val != nil {
 		b = append(b, "\"val\":"...)
-		var err error
 		if b, err = m.Val.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1806,7 +1799,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Lst != nil {
 		b = append(b, "\"lst\":"...)
-		var err error
 		if b, err = m.Lst.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1814,7 +1806,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Mask != nil {
 		b = append(b, "\"mask\":"...)
-		var err error
 		if b, err = m.Mask.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1822,7 +1813,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Empty != nil {
 		b = append(b, "\"empty\":"...)
-		var err error
 		if b, err = m.Empty.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1836,7 +1826,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Vals) > 0 {
 		b = append(b, "\"vals\":["...)
 		for j := range m.Vals {
-			var err error
 			if b, err = m.Vals[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -1854,23 +1843,10 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 		slices.Sort(keys)
 		for _, k := range keys {
 			v := m.ValMap[k]
-			if !utf8.ValidString(k) {
+			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.json.WellKnown.val_map contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(k); ci++ {
-				switch c := k[ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', jsonHexDigits[c>>4], jsonHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ':')
-			var err error
 			if b, err = v.ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -1886,7 +1862,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if o, ok := m.O.(*WellKnown_OVal); ok {
 		b = append(b, "\"oVal\":"...)
-		var err error
 		if b, err = o.OVal.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1899,26 +1874,13 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if o, ok := m.O.(*WellKnown_OStr); ok {
 		b = append(b, "\"oStr\":"...)
-		if !utf8.ValidString(o.OStr) {
+		if b, err = jsontext.AppendQuote(b, o.OStr); err != nil {
 			return nil, errors.New("proto: cotorp.test.json.WellKnown.o_str contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len(o.OStr); ci++ {
-			switch c := o.OStr[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', jsonHexDigits[c>>4], jsonHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Any != nil {
 		b = append(b, "\"any\":"...)
-		var err error
 		if b, err = m.Any.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -1927,7 +1889,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Tss) > 0 {
 		b = append(b, "\"tss\":["...)
 		for j := range m.Tss {
-			var err error
 			if b, err = m.Tss[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -1949,7 +1910,6 @@ func (m *WellKnown) ProtoAppendJSON(b []byte) ([]byte, error) {
 			b = strconv.AppendInt(b, int64(k), 10)
 			b = append(b, '"')
 			b = append(b, ':')
-			var err error
 			if b, err = v.ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -1976,235 +1936,209 @@ func (m *WellKnown) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *WellKnown) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(jsonWellKnownErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.json.WellKnown: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New(jsonWellKnownErrNotObject)
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [26]bool
-	var oneofs [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *WellKnown) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "ts":
-			f = 0
-		case "dur":
-			f = 1
-		case "dbl":
-			f = 2
-		case "flt":
-			f = 3
-		case "i64":
-			f = 4
-		case "u64":
-			f = 5
-		case "i32":
-			f = 6
-		case "u32":
-			f = 7
-		case "bool":
-			f = 8
-		case "str":
-			f = 9
-		case "bytes":
-			f = 10
-		case "st":
-			f = 11
-		case "val":
-			f = 12
-		case "lst":
-			f = 13
-		case "mask":
-			f = 14
-		case "empty":
-			f = 15
-		case "nullValue", "null_value":
-			f = 16
-		case "vals":
-			f = 17
-		case "valMap", "val_map":
-			f = 18
-		case "optNull", "opt_null":
-			f = 19
-		case "oVal", "o_val":
-			f = 20
-		case "oNull", "o_null":
-			f = 21
-		case "oStr", "o_str":
-			f = 22
-		case "any":
-			f = 23
-		case "tss":
-			f = 24
-		case "durs":
-			f = 25
-		default:
-			return errors.New("proto: cotorp.test.json.WellKnown: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.json.WellKnown: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 23:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 12, 16, 19:
-			jobs = append(jobs, job{f: f, raw: raw})
-		case 20, 21, 22:
-			if null && f != 20 && f != 21 {
-				continue
-			}
-			if oneofs[0] {
-				return errors.New("proto: cotorp.test.json.WellKnown: multiple fields set for oneof o")
-			}
-			oneofs[0] = true
-			jobs = append(jobs, job{f: f, raw: raw})
-		case 24:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New(jsonWellKnownErrNotArray)
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New(jsonWellKnownErrNullElement)
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		case 17:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New(jsonWellKnownErrNotArray)
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		case 25:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New(jsonWellKnownErrNotObject)
-			}
-			for ad.More() {
-				kt, err := ad.Token()
-				if err != nil {
-					return err
-				}
-				ks, _ := kt.(string)
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New(jsonWellKnownErrNullElement)
-				}
-				jobs = append(jobs, job{f: f, key: ks, raw: e})
-			}
-		case 18:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New(jsonWellKnownErrNotObject)
-			}
-			for ad.More() {
-				kt, err := ad.Token()
-				if err != nil {
-					return err
-				}
-				ks, _ := kt.(string)
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				jobs = append(jobs, job{f: f, key: ks, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = WellKnown{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(jsonWellKnownErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New(jsonWellKnownErrNotObject)
+	}
+	var seen [26]bool
+	var oneofs [1]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var mk string
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "ts":
+				f = 0
+			case "dur":
+				f = 1
+			case "dbl":
+				f = 2
+			case "flt":
+				f = 3
+			case "i64":
+				f = 4
+			case "u64":
+				f = 5
+			case "i32":
+				f = 6
+			case "u32":
+				f = 7
+			case "bool":
+				f = 8
+			case "str":
+				f = 9
+			case "bytes":
+				f = 10
+			case "st":
+				f = 11
+			case "val":
+				f = 12
+			case "lst":
+				f = 13
+			case "mask":
+				f = 14
+			case "empty":
+				f = 15
+			case "nullValue", "null_value":
+				f = 16
+			case "vals":
+				f = 17
+			case "valMap", "val_map":
+				f = 18
+			case "optNull", "opt_null":
+				f = 19
+			case "oVal", "o_val":
+				f = 20
+			case "oNull", "o_null":
+				f = 21
+			case "oStr", "o_str":
+				f = 22
+			case "any":
+				f = 23
+			case "tss":
+				f = 24
+			case "durs":
+				f = 25
+			default:
+				return errors.New("proto: cotorp.test.json.WellKnown: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: cotorp.test.json.WellKnown: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull && f != 12 && f != 16 && f != 19 && f != 20 && f != 21 {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 20, 21, 22:
+				if oneofs[0] {
+					return errors.New("proto: cotorp.test.json.WellKnown: multiple fields set for oneof o")
+				}
+				oneofs[0] = true
+			case 24, 17:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.json.WellKnown: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			case 25, 18:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginObject {
+					return errors.New(jsonWellKnownErrNotObject)
+				}
+				in = jsontext.KindBeginObject
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if in == jsontext.KindBeginObject {
+				kt, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				mk = kt.String()
+			}
+			if d.PeekKind() == jsontext.KindNull && f != 17 && f != 18 {
+				return errors.New("proto: cotorp.test.json.WellKnown: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := jsonClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 22:
 			class = jsonClassString
 		case 16, 19, 21:
-			switch {
-			case string(raw) == "null":
-				class = jsonClassNone
-			case raw[0] == '"':
-				class = jsonClassString
-			default:
-				class, bits = jsonClassSigned, 32
+			class = jsonClassEnum
+		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != jsonClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == jsonClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = jsonClassNone
+				case jsontext.KindString:
+					class = jsonClassString
+				default:
+					class, bits = jsonClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case jsonClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.json.WellKnown: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.json.WellKnown: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -2213,138 +2147,136 @@ func (m *WellKnown) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > jsonMaxJSONExponent || e < -jsonMaxJSONExponent {
-						return errors.New(jsonWellKnownErrInvalidInteger + string(raw))
+						return errors.New(jsonWellKnownErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(jsonWellKnownErrInvalidInteger + string(raw))
+					return errors.New(jsonWellKnownErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(jsonWellKnownErrInvalidInteger + string(raw))
+					return errors.New(jsonWellKnownErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case jsonClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.json.WellKnown: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.json.WellKnown: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			if m.Ts == nil {
 				m.Ts = &wktpb.Timestamp{}
 			}
-			if err := m.Ts.ProtoMergeJSON(raw); err != nil {
+			if err := m.Ts.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 1:
 			if m.Dur == nil {
 				m.Dur = &wktpb.Duration{}
 			}
-			if err := m.Dur.ProtoMergeJSON(raw); err != nil {
+			if err := m.Dur.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 2:
 			if m.Dbl == nil {
 				m.Dbl = &wktpb.DoubleValue{}
 			}
-			if err := m.Dbl.ProtoMergeJSON(raw); err != nil {
+			if err := m.Dbl.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
 			if m.Flt == nil {
 				m.Flt = &wktpb.FloatValue{}
 			}
-			if err := m.Flt.ProtoMergeJSON(raw); err != nil {
+			if err := m.Flt.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 4:
 			if m.I64 == nil {
 				m.I64 = &wktpb.Int64Value{}
 			}
-			if err := m.I64.ProtoMergeJSON(raw); err != nil {
+			if err := m.I64.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 5:
 			if m.U64 == nil {
 				m.U64 = &wktpb.UInt64Value{}
 			}
-			if err := m.U64.ProtoMergeJSON(raw); err != nil {
+			if err := m.U64.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 6:
 			if m.I32 == nil {
 				m.I32 = &wktpb.Int32Value{}
 			}
-			if err := m.I32.ProtoMergeJSON(raw); err != nil {
+			if err := m.I32.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 7:
 			if m.U32 == nil {
 				m.U32 = &wktpb.UInt32Value{}
 			}
-			if err := m.U32.ProtoMergeJSON(raw); err != nil {
+			if err := m.U32.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 8:
 			if m.Bool == nil {
 				m.Bool = &wktpb.BoolValue{}
 			}
-			if err := m.Bool.ProtoMergeJSON(raw); err != nil {
+			if err := m.Bool.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 9:
 			if m.Str == nil {
 				m.Str = &wktpb.StringValue{}
 			}
-			if err := m.Str.ProtoMergeJSON(raw); err != nil {
+			if err := m.Str.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 10:
 			if m.Bytes == nil {
 				m.Bytes = &wktpb.BytesValue{}
 			}
-			if err := m.Bytes.ProtoMergeJSON(raw); err != nil {
+			if err := m.Bytes.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 11:
 			if m.St == nil {
 				m.St = &wktpb.Struct{}
 			}
-			if err := m.St.ProtoMergeJSON(raw); err != nil {
+			if err := m.St.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 12:
 			if m.Val == nil {
 				m.Val = &wktpb.Value{}
 			}
-			if err := m.Val.ProtoMergeJSON(raw); err != nil {
+			if err := m.Val.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 13:
 			if m.Lst == nil {
 				m.Lst = &wktpb.ListValue{}
 			}
-			if err := m.Lst.ProtoMergeJSON(raw); err != nil {
+			if err := m.Lst.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 14:
 			if m.Mask == nil {
 				m.Mask = &wktpb.FieldMask{}
 			}
-			if err := m.Mask.ProtoMergeJSON(raw); err != nil {
+			if err := m.Mask.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 15:
 			if m.Empty == nil {
 				m.Empty = &wktpb.Empty{}
 			}
-			if err := m.Empty.ProtoMergeJSON(raw); err != nil {
+			if err := m.Empty.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 16:
@@ -2362,14 +2294,14 @@ func (m *WellKnown) ProtoMergeJSON(b []byte) error {
 			m.NullValue = ev
 		case 17:
 			mv := &wktpb.Value{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Vals = append(m.Vals, mv)
 		case 18:
-			k := jb.key
+			k := mk
 			mv := &wktpb.Value{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			if m.ValMap == nil {
@@ -2392,7 +2324,7 @@ func (m *WellKnown) ProtoMergeJSON(b []byte) error {
 			m.OptNull = &x
 		case 20:
 			mv := &wktpb.Value{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.O = &WellKnown_OVal{OVal: mv}
@@ -2415,23 +2347,23 @@ func (m *WellKnown) ProtoMergeJSON(b []byte) error {
 			if m.Any == nil {
 				m.Any = &wktpb.Any{}
 			}
-			if err := m.Any.ProtoMergeJSON(raw); err != nil {
+			if err := m.Any.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 24:
 			mv := &wktpb.Timestamp{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Tss = append(m.Tss, mv)
 		case 25:
-			k64, err := strconv.ParseInt(jb.key, 10, 32)
+			k64, err := strconv.ParseInt(mk, 10, 32)
 			if err != nil {
-				return errors.New("proto: cotorp.test.json.WellKnown: invalid map key for field durs: " + strconv.Quote(jb.key))
+				return errors.New("proto: cotorp.test.json.WellKnown: invalid map key for field durs: " + strconv.Quote(mk))
 			}
 			k := int32(k64)
 			mv := &wktpb.Duration{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			if m.Durs == nil {
@@ -2440,7 +2372,8 @@ func (m *WellKnown) ProtoMergeJSON(b []byte) error {
 			m.Durs[k] = mv
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Names struct {
@@ -3282,9 +3215,20 @@ func (m *Names) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Names) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -3333,21 +3277,9 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 				b = append(b, `"false"`...)
 			}
 			b = append(b, ':')
-			if !utf8.ValidString(v) {
+			if b, err = jsontext.AppendQuote(b, v); err != nil {
 				return nil, errors.New("proto: cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(v); ci++ {
-				switch c := v[ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', jsonHexDigits[c>>4], jsonHexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = '}'
@@ -3385,11 +3317,8 @@ func (m *Names) ProtoAppendJSON(b []byte) ([]byte, error) {
 			b = strconv.AppendInt(b, int64(k), 10)
 			b = append(b, '"')
 			b = append(b, ':')
-			n := base64.StdEncoding.EncodedLen(len(v))
 			b = append(b, '"')
-			l := len(b)
-			b = slices.Grow(b, n)[:l+n]
-			base64.StdEncoding.Encode(b[l:], v)
+			b = base64.StdEncoding.AppendEncode(b, v)
 			b = append(b, '"')
 			b = append(b, ',')
 		}
@@ -3414,110 +3343,128 @@ func (m *Names) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Names) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(jsonNamesErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.json.Names: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New(jsonNamesErrNotObject)
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [8]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Names) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "renamed", "custom":
-			f = 0
-		case "snakeCaseField", "snake_case_field":
-			f = 1
-		case "Leading", "_leading":
-			f = 2
-		case "with2Digits", "with_2_digits":
-			f = 3
-		case "color":
-			f = 4
-		case "byBool", "by_bool":
-			f = 5
-		case "byU64", "by_u64":
-			f = 6
-		case "byS32", "by_s32":
-			f = 7
-		default:
-			return errors.New("proto: cotorp.test.json.Names: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.json.Names: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		return m.UnmarshalJSON(v)
+	}
+	*m = Names{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New(jsonNamesErrNotObject)
+	}
+	var seen [8]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var mk string
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
 			}
-		case 5, 6, 7:
-			if null {
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "renamed", "custom":
+				f = 0
+			case "snakeCaseField", "snake_case_field":
+				f = 1
+			case "Leading", "_leading":
+				f = 2
+			case "with2Digits", "with_2_digits":
+				f = 3
+			case "color":
+				f = 4
+			case "byBool", "by_bool":
+				f = 5
+			case "byU64", "by_u64":
+				f = 6
+			case "byS32", "by_s32":
+				f = 7
+			default:
+				return errors.New("proto: cotorp.test.json.Names: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: cotorp.test.json.Names: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
 				continue
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New(jsonNamesErrNotObject)
-			}
-			for ad.More() {
-				kt, err := ad.Token()
+			switch f {
+			case 5, 6, 7:
+				tok, err := d.ReadToken()
 				if err != nil {
 					return err
 				}
-				ks, _ := kt.(string)
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+				if tok.Kind() != jsontext.KindBeginObject {
+					return errors.New(jsonNamesErrNotObject)
+				}
+				in = jsontext.KindBeginObject
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.json.Names: null is not allowed in repeated fields or map values")
+				in = jsontext.KindInvalid
+				continue
+			}
+			if in == jsontext.KindBeginObject {
+				kt, err := d.ReadToken()
+				if err != nil {
+					return err
 				}
-				jobs = append(jobs, job{f: f, key: ks, raw: e})
+				mk = kt.String()
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.json.Names: null is not allowed in repeated fields or map values")
 			}
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(jsonNamesErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := jsonClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		var by []byte
-		switch jb.f {
+		switch f {
 		case 0, 1, 2, 3, 6:
 			class, bits = jsonClassSigned, 32
 		case 5:
@@ -3525,25 +3472,33 @@ func (m *Names) ProtoMergeJSON(b []byte) error {
 		case 7:
 			class = jsonClassBytes
 		case 4:
-			switch {
-			case string(raw) == "null":
-				class = jsonClassNone
-			case raw[0] == '"':
-				class = jsonClassString
-			default:
-				class, bits = jsonClassSigned, 32
+			class = jsonClassEnum
+		}
+		var iv int64
+		var sv string
+		var by []byte
+		var tok jsontext.Token
+		if class != jsonClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == jsonClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = jsonClassNone
+				case jsontext.KindString:
+					class = jsonClassString
+				default:
+					class, bits = jsonClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case jsonClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.json.Names: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.json.Names: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -3552,33 +3507,28 @@ func (m *Names) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > jsonMaxJSONExponent || e < -jsonMaxJSONExponent {
-						return errors.New(jsonNamesErrInvalidInteger + string(raw))
+						return errors.New(jsonNamesErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(jsonNamesErrInvalidInteger + string(raw))
+					return errors.New(jsonNamesErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(jsonNamesErrInvalidInteger + string(raw))
+					return errors.New(jsonNamesErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case jsonClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.json.Names: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.json.Names: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		case jsonClassBytes:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(jsonNamesErrInvalidBytes + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(jsonNamesErrInvalidBytes + s)
 			}
 			// Accept standard and URL-safe alphabets, with or without padding.
 			enc := base64.StdEncoding
@@ -3590,10 +3540,10 @@ func (m *Names) ProtoMergeJSON(b []byte) error {
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(jsonNamesErrInvalidBytes + string(raw))
+				return errors.New(jsonNamesErrInvalidBytes + s)
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.Custom = int32(iv)
 		case 1:
@@ -3617,21 +3567,21 @@ func (m *Names) ProtoMergeJSON(b []byte) error {
 			m.Color = ev
 		case 5:
 			var k bool
-			switch jb.key {
+			switch mk {
 			case "true":
 				k = true
 			case "false":
 			default:
-				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_bool: " + strconv.Quote(jb.key))
+				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_bool: " + strconv.Quote(mk))
 			}
 			if m.ByBool == nil {
 				m.ByBool = make(map[bool]string)
 			}
 			m.ByBool[k] = sv
 		case 6:
-			k64, err := strconv.ParseUint(jb.key, 10, 64)
+			k64, err := strconv.ParseUint(mk, 10, 64)
 			if err != nil {
-				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_u64: " + strconv.Quote(jb.key))
+				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_u64: " + strconv.Quote(mk))
 			}
 			k := uint64(k64)
 			if m.ByU64 == nil {
@@ -3639,9 +3589,9 @@ func (m *Names) ProtoMergeJSON(b []byte) error {
 			}
 			m.ByU64[k] = int32(iv)
 		case 7:
-			k64, err := strconv.ParseInt(jb.key, 10, 32)
+			k64, err := strconv.ParseInt(mk, 10, 32)
 			if err != nil {
-				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_s32: " + strconv.Quote(jb.key))
+				return errors.New("proto: cotorp.test.json.Names: invalid map key for field by_s32: " + strconv.Quote(mk))
 			}
 			k := int32(k64)
 			if m.ByS32 == nil {
@@ -3650,5 +3600,6 @@ func (m *Names) ProtoMergeJSON(b []byte) error {
 			m.ByS32[k] = by
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }

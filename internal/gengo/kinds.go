@@ -107,21 +107,22 @@ func fixedSize(k desc.Kind) int {
 
 // Standard library packages used by generated code, by import path.
 var stdPackages = map[string]string{
-	"bytes":           "bytes",
-	"encoding/base64": "base64",
-	"encoding/binary": "binary",
-	"encoding/hex":    "hex",
-	"encoding/json":   "json",
-	"io":              "io",
-	"math/big":        "big",
-	"strings":         "strings",
-	"time":            "time",
-	"errors":          "errors",
-	"math":            "math",
-	"math/bits":       "bits",
-	"slices":          "slices",
-	"strconv":         "strconv",
-	"unicode/utf8":    "utf8",
+	"bytes":                  "bytes",
+	"encoding/base64":        "base64",
+	"encoding/binary":        "binary",
+	"encoding/hex":           "hex",
+	"encoding/json/jsontext": "jsontext",
+	"encoding/json/v2":       "json",
+	"io":                     "io",
+	"math/big":               "big",
+	"strings":                "strings",
+	"time":                   "time",
+	"errors":                 "errors",
+	"math":                   "math",
+	"math/bits":              "bits",
+	"slices":                 "slices",
+	"strconv":                "strconv",
+	"unicode/utf8":           "utf8",
 }
 
 // std records a use of a standard library package and returns its name.

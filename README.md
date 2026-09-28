@@ -81,14 +81,18 @@ func (m *M) ProtoUnknownFields() []byte
 func (m *M) Reset()
 func (m *M) GetX() T                                 // nil-safe getters, returning defaults
 
-func (m *M) MarshalJSON() ([]byte, error)            // json.Marshaler (ProtoJSON)
-func (m *M) UnmarshalJSON(b []byte) error            // json.Unmarshaler; resets m first
+func (m *M) MarshalJSON() ([]byte, error)                 // json.Marshaler (ProtoJSON)
+func (m *M) UnmarshalJSON(b []byte) error                 // json.Unmarshaler; resets m first
+func (m *M) MarshalJSONTo(e *jsontext.Encoder) error      // json/v2 MarshalerTo
+func (m *M) UnmarshalJSONFrom(d *jsontext.Decoder) error  // json/v2 UnmarshalerFrom; resets m first
 func (m *M) ProtoAppendJSON(b []byte) ([]byte, error)
 func (m *M) ProtoMergeJSON(b []byte) error
+func (m *M) ProtoMergeJSONFrom(d *jsontext.Decoder) error
 ```
 
-`ProtoMarshalToSizedBuffer` and `ProtoMergeDepth` are exported only so that
-generated packages can call each other; application code should not need them.
+`ProtoMarshalToSizedBuffer`, `ProtoMergeDepth` and `ProtoMergeJSONFrom` are
+exported only so that generated packages can call each other; application code
+should not need them.
 
 Errors are created with `errors.New` where they occur, so compare them by
 message rather than with `errors.Is`.
@@ -113,18 +117,27 @@ message rather than with `errors.Is`.
 
 `MarshalJSON` and `UnmarshalJSON` implement the canonical
 [ProtoJSON mapping](https://protobuf.dev/programming-guides/json/), and the
-methods work with `encoding/json`. Use pointers (`*M`), because the methods
-have pointer receivers.
+methods work with `encoding/json` and `encoding/json/v2`. Use pointers (`*M`),
+because the methods have pointer receivers.
+
+* Decoding streams tokens from one `jsontext.Decoder`, and nested messages
+  read from the same decoder. `encoding/json/v2` and, since Go 1.27,
+  `encoding/json` call `MarshalJSONTo` and `UnmarshalJSONFrom`, so messages
+  inside ordinary Go values are not buffered and re-parsed. ProtoJSON rules
+  still apply there: `encoding/json` would replace invalid UTF-8, so
+  `UnmarshalJSONFrom` decodes such input strictly instead.
 
 * Output uses lowerCamelCase JSON names (or `json_name`) and omits fields that
   are unset or hold default values. Enums are written as names (numbers when
   unknown), 64-bit integers as strings, bytes as standard base64, and
-  NaN/±Infinity as strings. Map keys are sorted.
+  NaN/±Infinity as strings. Map keys are sorted. Floats and string escapes
+  are formatted as protojson does, byte for byte.
 * Input accepts either the JSON name or the proto field name, and integers as
   numbers or strings, including exponent forms such as `1e2` when they are
   exact. Bytes may be standard or URL-safe base64, with or without padding.
   `null` means unset, except for `google.protobuf.Value` and `NullValue`.
-* Unknown keys, duplicate keys and multiple members of one oneof are
+* Unknown keys, duplicate keys (including one field under both its names,
+  and repeated map keys), invalid UTF-8 and multiple members of one oneof are
   rejected. Required fields are checked, as in binary.
 * Well-known types use their special forms: `Timestamp` (RFC 3339),
   `Duration` (`"1.5s"`), the wrapper types, `Struct`, `Value`, `ListValue`,
@@ -160,9 +173,12 @@ have pointer receivers.
   would need shared runtime code. Unknown fields and extensions are dropped
   from JSON output. Beyond the generator options above, there are
   no protojson-style options (such as `EmitUnpopulated`).
-* **Deliberate deviation:** a top-level `null` passed to `UnmarshalJSON` is a
-  no-op, following the `encoding/json` convention for `Unmarshaler`s;
-  protojson rejects it.
+* **Deliberate deviations:**
+  * A top-level `null` passed to `UnmarshalJSON` is a no-op, following the
+    `encoding/json` convention for `Unmarshaler`s; protojson rejects it.
+  * With `-json_discard_unknown`, an unknown key repeated within one object
+    is rejected as a duplicate name, as `jsontext` does; protojson skips
+    both.
 
 ## Language support
 

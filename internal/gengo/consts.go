@@ -66,6 +66,7 @@ var constGroups = []constGroup{
 		{"ClassString", strconv.Itoa(classString), ""},
 		{"ClassBytes", strconv.Itoa(classBytes), ""},
 		{"ClassHex", strconv.Itoa(classHex), ""},
+		{"ClassEnum", strconv.Itoa(classEnum), ""},
 	}},
 	{"ProtoJSON limits.", []constDef{
 		{"MaxJSONExponent", "100", "bounds exact integer parsing of exponent forms"},
@@ -81,9 +82,6 @@ var constGroups = []constGroup{
 		{"NanosPerMicro", "1000", ""},
 		{"MicrosPerSecond", "1000000", ""},
 		{"MillisPerSecond", "1000", ""},
-	}},
-	{"Hexadecimal digits for \\u escapes in JSON strings.", []constDef{
-		{"HexDigits", `"0123456789abcdef"`, ""},
 	}},
 }
 

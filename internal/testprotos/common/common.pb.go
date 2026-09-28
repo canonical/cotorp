@@ -6,7 +6,8 @@ package commonpb
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"math"
@@ -59,13 +60,9 @@ const (
 // ProtoJSON limits.
 const commonMaxJSONExponent = 100 // bounds exact integer parsing of exponent forms
 
-// Hexadecimal digits for \u escapes in JSON strings.
-const commonHexDigits = "0123456789abcdef"
-
 // Error messages used more than once.
 const (
 	commonSharedLabelErrUTF8      = "proto: field cotorp.test.common.Shared.label contains invalid UTF-8"
-	commonSharedErrTrailingData   = "proto: cotorp.test.common.Shared: unexpected data after JSON value"
 	commonSharedErrInvalidInteger = "proto: cotorp.test.common.Shared: invalid integer "
 )
 
@@ -369,30 +366,29 @@ func (m *Shared) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Shared) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Shared) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if len(m.Label) > 0 {
 		b = append(b, "\"label\":"...)
-		if !utf8.ValidString(m.Label) {
+		if b, err = jsontext.AppendQuote(b, m.Label); err != nil {
 			return nil, errors.New("proto: cotorp.test.common.Shared.label contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len(m.Label); ci++ {
-			switch c := m.Label[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', commonHexDigits[c>>4], commonHexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Value != 0 {
@@ -420,40 +416,58 @@ func (m *Shared) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Shared) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(commonSharedErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.common.Shared: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.common.Shared: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Shared) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Shared{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Shared) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.common.Shared: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "label":
 			f = 0
@@ -466,42 +480,35 @@ func (m *Shared) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.common.Shared: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(commonSharedErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := commonClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 1:
 			class, bits = commonClassSigned, 64
 		case 0:
 			class = commonClassString
 		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != commonClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case commonClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.common.Shared: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.common.Shared: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -510,33 +517,32 @@ func (m *Shared) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > commonMaxJSONExponent || e < -commonMaxJSONExponent {
-						return errors.New(commonSharedErrInvalidInteger + string(raw))
+						return errors.New(commonSharedErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(commonSharedErrInvalidInteger + string(raw))
+					return errors.New(commonSharedErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(commonSharedErrInvalidInteger + string(raw))
+					return errors.New(commonSharedErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case commonClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.common.Shared: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.common.Shared: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.Label = sv
 		case 1:
 			m.Value = iv
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }

@@ -7,7 +7,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"math"
@@ -16,7 +17,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	commonpb "github.com/canonical/cotorp/internal/testprotos/common"
 )
@@ -67,6 +67,7 @@ const (
 	proto2ClassBool     = 4
 	proto2ClassString   = 5
 	proto2ClassBytes    = 6
+	proto2ClassEnum     = 8
 )
 
 // ProtoJSON limits.
@@ -75,45 +76,27 @@ const (
 	proto2Base64Quantum   = 4   // base64 characters per padded block
 )
 
-// Hexadecimal digits for \u escapes in JSON strings.
-const proto2HexDigits = "0123456789abcdef"
-
 // Error messages used more than once.
 const (
 	proto2ErrSizeChanged                      = "proto: message size changed during marshal"
 	proto2ErrParse                            = "proto: cannot parse invalid wire-format data"
 	proto2ErrDepth                            = "proto: exceeded maximum recursion depth"
-	proto2DefaultsErrTrailingData             = "proto: cotorp.test.proto2.Defaults: unexpected data after JSON value"
 	proto2DefaultsErrInvalidNumber            = "proto: cotorp.test.proto2.Defaults: invalid number "
 	proto2DefaultsErrInvalidInteger           = "proto: cotorp.test.proto2.Defaults: invalid integer "
 	proto2DefaultsErrInvalidBytes             = "proto: cotorp.test.proto2.Defaults: invalid bytes "
 	proto2DefaultsErrInvalidClosed            = "proto: cotorp.test.proto2.Defaults: invalid value for enum cotorp.test.proto2.Closed: "
-	proto2RequiredErrTrailingData             = "proto: cotorp.test.proto2.Required: unexpected data after JSON value"
 	proto2RequiredErrNotObject                = "proto: cotorp.test.proto2.Required: expected a JSON object"
-	proto2RequiredErrNullElement              = "proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values"
 	proto2RequiredErrInvalidInteger           = "proto: cotorp.test.proto2.Required: invalid integer "
-	proto2RequiredInnerErrTrailingData        = "proto: cotorp.test.proto2.Required.Inner: unexpected data after JSON value"
-	proto2GroupsErrTrailingData               = "proto: cotorp.test.proto2.Groups: unexpected data after JSON value"
 	proto2GroupsErrInvalidInteger             = "proto: cotorp.test.proto2.Groups: invalid integer "
-	proto2GroupsOptGroupErrTrailingData       = "proto: cotorp.test.proto2.Groups.OptGroup: unexpected data after JSON value"
 	proto2GroupsOptGroupErrInvalidInteger     = "proto: cotorp.test.proto2.Groups.OptGroup: invalid integer "
-	proto2GroupsRepGroupErrTrailingData       = "proto: cotorp.test.proto2.Groups.RepGroup: unexpected data after JSON value"
 	proto2GroupsRepGroupErrInvalidInteger     = "proto: cotorp.test.proto2.Groups.RepGroup: invalid integer "
-	proto2GroupsRepGroupDeepErrTrailingData   = "proto: cotorp.test.proto2.Groups.RepGroup.Deep: unexpected data after JSON value"
 	proto2GroupsRepGroupDeepErrInvalidInteger = "proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid integer "
-	proto2ClosedEnumsErrTrailingData          = "proto: cotorp.test.proto2.ClosedEnums: unexpected data after JSON value"
 	proto2ClosedEnumsErrNotObject             = "proto: cotorp.test.proto2.ClosedEnums: expected a JSON object"
-	proto2ClosedEnumsErrNullElement           = "proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values"
 	proto2ClosedEnumsErrInvalidInteger        = "proto: cotorp.test.proto2.ClosedEnums: invalid integer "
 	proto2ClosedEnumsErrInvalidClosed         = "proto: cotorp.test.proto2.ClosedEnums: invalid value for enum cotorp.test.proto2.Closed: "
-	proto2PackedErrTrailingData               = "proto: cotorp.test.proto2.Packed: unexpected data after JSON value"
 	proto2PackedErrInvalidNumber              = "proto: cotorp.test.proto2.Packed: invalid number "
 	proto2PackedErrInvalidInteger             = "proto: cotorp.test.proto2.Packed: invalid integer "
-	proto2ExtendableErrTrailingData           = "proto: cotorp.test.proto2.Extendable: unexpected data after JSON value"
 	proto2ExtendableErrInvalidInteger         = "proto: cotorp.test.proto2.Extendable: invalid integer "
-	proto2ScopeErrTrailingData                = "proto: cotorp.test.proto2.Scope: unexpected data after JSON value"
-	proto2Proto2StringsErrTrailingData        = "proto: cotorp.test.proto2.Proto2Strings: unexpected data after JSON value"
-	proto2ExtGroupErrTrailingData             = "proto: cotorp.test.proto2.ExtGroup: unexpected data after JSON value"
 	proto2ExtGroupErrInvalidInteger           = "proto: cotorp.test.proto2.ExtGroup: invalid integer "
 )
 
@@ -990,9 +973,20 @@ func (m *Defaults) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Defaults) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -1067,7 +1061,7 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 		case math.IsInf(fl, -1):
 			b = append(b, `"-Infinity"`...)
 		default:
-			b = strconv.AppendFloat(b, fl, 'g', -1, 32)
+			b = jsontext.AppendFloat(b, fl, 32)
 		}
 		b = append(b, ',')
 	}
@@ -1081,7 +1075,7 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 		case math.IsInf(fl, -1):
 			b = append(b, `"-Infinity"`...)
 		default:
-			b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+			b = jsontext.AppendFloat(b, fl, 64)
 		}
 		b = append(b, ',')
 	}
@@ -1095,7 +1089,7 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 		case math.IsInf(fl, -1):
 			b = append(b, `"-Infinity"`...)
 		default:
-			b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+			b = jsontext.AppendFloat(b, fl, 64)
 		}
 		b = append(b, ',')
 	}
@@ -1110,30 +1104,15 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.DString != nil {
 		b = append(b, "\"dString\":"...)
-		if !utf8.ValidString((*m.DString)) {
+		if b, err = jsontext.AppendQuote(b, (*m.DString)); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto2.Defaults.d_string contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.DString)); ci++ {
-			switch c := (*m.DString)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.DBytes != nil {
 		b = append(b, "\"dBytes\":"...)
-		n := base64.StdEncoding.EncodedLen(len(m.DBytes))
 		b = append(b, '"')
-		l := len(b)
-		b = slices.Grow(b, n)[:l+n]
-		base64.StdEncoding.Encode(b[l:], m.DBytes)
+		b = base64.StdEncoding.AppendEncode(b, m.DBytes)
 		b = append(b, '"')
 		b = append(b, ',')
 	}
@@ -1169,7 +1148,7 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 		case math.IsInf(fl, -1):
 			b = append(b, `"-Infinity"`...)
 		default:
-			b = strconv.AppendFloat(b, fl, 'g', -1, 32)
+			b = jsontext.AppendFloat(b, fl, 32)
 		}
 		b = append(b, ',')
 	}
@@ -1183,7 +1162,7 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 		case math.IsInf(fl, -1):
 			b = append(b, `"-Infinity"`...)
 		default:
-			b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+			b = jsontext.AppendFloat(b, fl, 64)
 		}
 		b = append(b, ',')
 	}
@@ -1205,40 +1184,58 @@ func (m *Defaults) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Defaults) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2DefaultsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Defaults: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Defaults: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [20]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Defaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Defaults{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Defaults: expected a JSON object")
+	}
+	var seen [20]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "dInt32", "d_int32":
 			f = 0
@@ -1287,31 +1284,16 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.Defaults: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2DefaultsErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := proto2ClassNone
 		bits := 64
-		var iv int64
-		var uv uint64
-		var fv float64
-		var bv bool
-		var sv string
-		var by []byte
-		switch jb.f {
+		switch f {
 		case 0, 4, 8:
 			class, bits = proto2ClassSigned, 32
 		case 1, 5, 9:
@@ -1331,25 +1313,36 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 		case 15:
 			class = proto2ClassBytes
 		case 16, 17:
-			switch {
-			case string(raw) == "null":
-				class = proto2ClassNone
-			case raw[0] == '"':
-				class = proto2ClassString
-			default:
-				class, bits = proto2ClassSigned, 32
+			class = proto2ClassEnum
+		}
+		var iv int64
+		var uv uint64
+		var fv float64
+		var bv bool
+		var sv string
+		var by []byte
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == proto2ClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = proto2ClassNone
+				case jsontext.KindString:
+					class = proto2ClassString
+				default:
+					class, bits = proto2ClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case proto2ClassSigned, proto2ClassUnsigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New(proto2DefaultsErrInvalidNumber + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New(proto2DefaultsErrInvalidNumber + s)
 			}
 			var err error
 			if class == proto2ClassSigned {
@@ -1362,33 +1355,30 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
+						return errors.New(proto2DefaultsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
+					return errors.New(proto2DefaultsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if class == proto2ClassSigned {
 					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
+						return errors.New(proto2DefaultsErrInvalidInteger + s)
 					}
 					iv = n.Int64()
 				} else {
 					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(proto2DefaultsErrInvalidInteger + string(raw))
+						return errors.New(proto2DefaultsErrInvalidInteger + s)
 					}
 					uv = n.Uint64()
 				}
 			}
 		case proto2ClassFloat:
-			s := string(raw)
+			s := tok.String()
 			special := false
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
+			if tok.Kind() == jsontext.KindString {
 				switch s {
 				case "NaN":
 					fv, special = math.NaN(), true
@@ -1399,36 +1389,31 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 				}
 			}
 			if !special {
-				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New(proto2DefaultsErrInvalidNumber + string(raw))
+				if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+					return errors.New(proto2DefaultsErrInvalidNumber + s)
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(proto2DefaultsErrInvalidNumber + string(raw))
+					return errors.New(proto2DefaultsErrInvalidNumber + s)
 				}
 			}
 		case proto2ClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid boolean " + string(raw))
+				return errors.New("proto: cotorp.test.proto2.Defaults: invalid boolean " + tok.String())
 			}
 		case proto2ClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.proto2.Defaults: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.proto2.Defaults: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		case proto2ClassBytes:
-			var s string
-			if raw[0] != '"' {
-				return errors.New(proto2DefaultsErrInvalidBytes + string(raw))
-			}
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return err
+			s := tok.String()
+			if tok.Kind() != jsontext.KindString {
+				return errors.New(proto2DefaultsErrInvalidBytes + s)
 			}
 			// Accept standard and URL-safe alphabets, with or without padding.
 			enc := base64.StdEncoding
@@ -1440,10 +1425,10 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 			}
 			var err error
 			if by, err = enc.DecodeString(s); err != nil {
-				return errors.New(proto2DefaultsErrInvalidBytes + string(raw))
+				return errors.New(proto2DefaultsErrInvalidBytes + s)
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.DInt32 = &x
@@ -1527,7 +1512,8 @@ func (m *Defaults) ProtoMergeJSON(b []byte) error {
 			m.DDoubleInt = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Required struct {
@@ -2155,9 +2141,23 @@ func (m *Required) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Required) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -2169,26 +2169,13 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.ReqString != nil {
 		b = append(b, "\"reqString\":"...)
-		if !utf8.ValidString((*m.ReqString)) {
+		if b, err = jsontext.AppendQuote(b, (*m.ReqString)); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto2.Required.req_string contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.ReqString)); ci++ {
-			switch c := (*m.ReqString)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if m.Inner != nil {
 		b = append(b, "\"inner\":"...)
-		var err error
 		if b, err = m.Inner.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -2197,7 +2184,6 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Inners) > 0 {
 		b = append(b, "\"inners\":["...)
 		for j := range m.Inners {
-			var err error
 			if b, err = m.Inners[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -2215,23 +2201,10 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 		slices.Sort(keys)
 		for _, k := range keys {
 			v := m.InnerMap[k]
-			if !utf8.ValidString(k) {
+			if b, err = jsontext.AppendQuote(b, k); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto2.Required.inner_map contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(k); ci++ {
-				switch c := k[ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ':')
-			var err error
 			if b, err = v.ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -2242,7 +2215,6 @@ func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if o, ok := m.O.(*Required_InnerOneof); ok {
 		b = append(b, "\"innerOneof\":"...)
-		var err error
 		if b, err = o.InnerOneof.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -2269,149 +2241,162 @@ func (m *Required) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Required) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2RequiredErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Required: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New(proto2RequiredErrNotObject)
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [6]bool
-	var oneofs [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Required) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "reqInt32", "req_int32":
-			f = 0
-		case "reqString", "req_string":
-			f = 1
-		case "inner":
-			f = 2
-		case "inners":
-			f = 3
-		case "innerMap", "inner_map":
-			f = 4
-		case "innerOneof", "inner_oneof":
-			f = 5
-		default:
-			return errors.New("proto: cotorp.test.proto2.Required: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Required: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		return m.UnmarshalJSON(v)
+	}
+	*m = Required{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New(proto2RequiredErrNotObject)
+	}
+	var seen [6]bool
+	var oneofs [1]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var mk string
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
 			}
-		case 5:
-			if null {
-				continue
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
 			}
-			if oneofs[0] {
-				return errors.New("proto: cotorp.test.proto2.Required: multiple fields set for oneof o")
+			key := kt.String()
+			switch key {
+			case "reqInt32", "req_int32":
+				f = 0
+			case "reqString", "req_string":
+				f = 1
+			case "inner":
+				f = 2
+			case "inners":
+				f = 3
+			case "innerMap", "inner_map":
+				f = 4
+			case "innerOneof", "inner_oneof":
+				f = 5
+			default:
+				return errors.New("proto: cotorp.test.proto2.Required: unknown field " + strconv.Quote(key))
 			}
-			oneofs[0] = true
-			jobs = append(jobs, job{f: f, raw: raw})
-		case 3:
-			if null {
-				continue
+			if seen[f] {
+				return errors.New("proto: cotorp.test.proto2.Required: duplicate field " + strconv.Quote(key))
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: cotorp.test.proto2.Required: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New(proto2RequiredErrNullElement)
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		case 4:
-			if null {
 				continue
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New(proto2RequiredErrNotObject)
-			}
-			for ad.More() {
-				kt, err := ad.Token()
+			switch f {
+			case 5:
+				if oneofs[0] {
+					return errors.New("proto: cotorp.test.proto2.Required: multiple fields set for oneof o")
+				}
+				oneofs[0] = true
+			case 3:
+				tok, err := d.ReadToken()
 				if err != nil {
 					return err
 				}
-				ks, _ := kt.(string)
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.proto2.Required: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			case 4:
+				tok, err := d.ReadToken()
+				if err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New(proto2RequiredErrNullElement)
+				if tok.Kind() != jsontext.KindBeginObject {
+					return errors.New(proto2RequiredErrNotObject)
 				}
-				jobs = append(jobs, job{f: f, key: ks, raw: e})
+				in = jsontext.KindBeginObject
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if in == jsontext.KindBeginObject {
+				kt, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				mk = kt.String()
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values")
 			}
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2RequiredErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := proto2ClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class, bits = proto2ClassSigned, 32
 		case 1:
 			class = proto2ClassString
 		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Required: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.Required: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -2420,28 +2405,26 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2RequiredErrInvalidInteger + string(raw))
+						return errors.New(proto2RequiredErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2RequiredErrInvalidInteger + string(raw))
+					return errors.New(proto2RequiredErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2RequiredErrInvalidInteger + string(raw))
+					return errors.New(proto2RequiredErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case proto2ClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.proto2.Required: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.proto2.Required: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.ReqInt32 = &x
@@ -2452,19 +2435,19 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 			if m.Inner == nil {
 				m.Inner = &Required_Inner{}
 			}
-			if err := m.Inner.ProtoMergeJSON(raw); err != nil {
+			if err := m.Inner.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 3:
 			mv := &Required_Inner{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Inners = append(m.Inners, mv)
 		case 4:
-			k := jb.key
+			k := mk
 			mv := &Required_Inner{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			if m.InnerMap == nil {
@@ -2473,13 +2456,14 @@ func (m *Required) ProtoMergeJSON(b []byte) error {
 			m.InnerMap[k] = mv
 		case 5:
 			mv := &Required_Inner{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.O = &Required_InnerOneof{InnerOneof: mv}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Required_Inner struct {
@@ -2709,6 +2693,19 @@ func (m *Required_Inner) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Required_Inner) MarshalJSONTo(e *jsontext.Encoder) error {
+	if err := m.ProtoCheckInitialized(); err != nil {
+		return err
+	}
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Required_Inner) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -2746,40 +2743,61 @@ func (m *Required_Inner) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Required_Inner) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2RequiredInnerErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Required.Inner: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Required.Inner: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Required_Inner) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Required_Inner{}
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	return m.ProtoCheckInitialized()
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Required.Inner: expected a JSON object")
+	}
+	var seen [1]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "flag":
 			f = 0
@@ -2790,45 +2808,34 @@ func (m *Required_Inner) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.Required.Inner: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2RequiredInnerErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := proto2ClassNone
+		class := proto2ClassBool
 		var bv bool
-		switch jb.f {
-		case 0:
-			class = proto2ClassBool
+		tok, err := d.ReadToken()
+		if err != nil {
+			return err
 		}
 		switch class {
 		case proto2ClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: cotorp.test.proto2.Required.Inner: invalid boolean " + string(raw))
+				return errors.New("proto: cotorp.test.proto2.Required.Inner: invalid boolean " + tok.String())
 			}
 		}
-		switch jb.f {
-		case 0:
-			x := bv
-			m.Flag = &x
-		}
+		x := bv
+		m.Flag = &x
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Groups struct {
@@ -3200,16 +3207,26 @@ func (m *Groups) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Groups) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Groups) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.Optgroup != nil {
 		b = append(b, "\"optgroup\":"...)
-		var err error
 		if b, err = m.Optgroup.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -3218,7 +3235,6 @@ func (m *Groups) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.Repgroup) > 0 {
 		b = append(b, "\"repgroup\":["...)
 		for j := range m.Repgroup {
-			var err error
 			if b, err = m.Repgroup[j].ProtoAppendJSON(b); err != nil {
 				return nil, err
 			}
@@ -3250,106 +3266,126 @@ func (m *Groups) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Groups) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2GroupsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Groups: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Groups: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Groups) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "optgroup":
-			f = 0
-		case "repgroup":
-			f = 1
-		case "after":
-			f = 2
-		default:
-			return errors.New("proto: cotorp.test.proto2.Groups: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Groups: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 1:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: cotorp.test.proto2.Groups: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.Groups: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = Groups{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2GroupsErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Groups: expected a JSON object")
+	}
+	var seen [3]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "optgroup":
+				f = 0
+			case "repgroup":
+				f = 1
+			case "after":
+				f = 2
+			default:
+				return errors.New("proto: cotorp.test.proto2.Groups: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: cotorp.test.proto2.Groups: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 1:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.proto2.Groups: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.proto2.Groups: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := proto2ClassNone
 		bits := 64
-		var iv int64
-		switch jb.f {
+		switch f {
 		case 2:
 			class, bits = proto2ClassSigned, 32
 		}
+		var iv int64
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Groups: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.Groups: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -3358,31 +3394,31 @@ func (m *Groups) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsErrInvalidInteger + string(raw))
+						return errors.New(proto2GroupsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			if m.Optgroup == nil {
 				m.Optgroup = &Groups_OptGroup{}
 			}
-			if err := m.Optgroup.ProtoMergeJSON(raw); err != nil {
+			if err := m.Optgroup.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		case 1:
 			mv := &Groups_RepGroup{}
-			if err := mv.ProtoMergeJSON(raw); err != nil {
+			if err := mv.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 			m.Repgroup = append(m.Repgroup, mv)
@@ -3391,7 +3427,8 @@ func (m *Groups) ProtoMergeJSON(b []byte) error {
 			m.After = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Groups_OptGroup struct {
@@ -3644,9 +3681,20 @@ func (m *Groups_OptGroup) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Groups_OptGroup) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Groups_OptGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -3658,21 +3706,9 @@ func (m *Groups_OptGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.B != nil {
 		b = append(b, "\"b\":"...)
-		if !utf8.ValidString((*m.B)) {
+		if b, err = jsontext.AppendQuote(b, (*m.B)); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto2.Groups.OptGroup.b contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.B)); ci++ {
-			switch c := (*m.B)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if b[len(b)-1] == ',' {
@@ -3693,40 +3729,58 @@ func (m *Groups_OptGroup) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2GroupsOptGroupErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Groups_OptGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Groups_OptGroup{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "a":
 			f = 0
@@ -3739,42 +3793,35 @@ func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2GroupsOptGroupErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := proto2ClassNone
 		bits := 64
-		var iv int64
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0:
 			class, bits = proto2ClassSigned, 32
 		case 1:
 			class = proto2ClassString
 		}
+		var iv int64
+		var sv string
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -3783,28 +3830,26 @@ func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsOptGroupErrInvalidInteger + string(raw))
+						return errors.New(proto2GroupsOptGroupErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsOptGroupErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsOptGroupErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsOptGroupErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsOptGroupErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case proto2ClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.A = &x
@@ -3813,7 +3858,8 @@ func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
 			m.B = &x
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Groups_RepGroup struct {
@@ -4109,9 +4155,20 @@ func (m *Groups_RepGroup) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Groups_RepGroup) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Groups_RepGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
@@ -4123,7 +4180,6 @@ func (m *Groups_RepGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Deep != nil {
 		b = append(b, "\"deep\":"...)
-		var err error
 		if b, err = m.Deep.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -4147,40 +4203,58 @@ func (m *Groups_RepGroup) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2GroupsRepGroupErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [2]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Groups_RepGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Groups_RepGroup{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: expected a JSON object")
+	}
+	var seen [2]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "c":
 			f = 0
@@ -4193,39 +4267,32 @@ func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2GroupsRepGroupErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := proto2ClassNone
 		bits := 64
-		var iv int64
-		switch jb.f {
+		switch f {
 		case 0:
 			class, bits = proto2ClassSigned, 32
 		}
+		var iv int64
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -4234,21 +4301,21 @@ func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsRepGroupErrInvalidInteger + string(raw))
+						return errors.New(proto2GroupsRepGroupErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsRepGroupErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsRepGroupErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsRepGroupErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsRepGroupErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			x := int32(iv)
 			m.C = &x
@@ -4256,12 +4323,13 @@ func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
 			if m.Deep == nil {
 				m.Deep = &Groups_RepGroup_Deep{}
 			}
-			if err := m.Deep.ProtoMergeJSON(raw); err != nil {
+			if err := m.Deep.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Groups_RepGroup_Deep struct {
@@ -4479,6 +4547,16 @@ func (m *Groups_RepGroup_Deep) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Groups_RepGroup_Deep) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Groups_RepGroup_Deep) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -4511,40 +4589,58 @@ func (m *Groups_RepGroup_Deep) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2GroupsRepGroupDeepErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Groups_RepGroup_Deep) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Groups_RepGroup_Deep{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: expected a JSON object")
+	}
+	var seen [1]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "d":
 			f = 0
@@ -4555,39 +4651,25 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2GroupsRepGroupDeepErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := proto2ClassNone
+		class := proto2ClassSigned
 		bits := 64
 		var iv int64
-		switch jb.f {
-		case 0:
-			class, bits = proto2ClassSigned, 64
+		tok, err := d.ReadToken()
+		if err != nil {
+			return err
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -4596,27 +4678,25 @@ func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + string(raw))
+						return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + string(raw))
+					return errors.New(proto2GroupsRepGroupDeepErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
-		case 0:
-			x := iv
-			m.D = &x
-		}
+		x := iv
+		m.D = &x
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type ClosedEnums struct {
@@ -5190,6 +5270,16 @@ func (m *ClosedEnums) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *ClosedEnums) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *ClosedEnums) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -5292,152 +5382,165 @@ func (m *ClosedEnums) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2ClosedEnumsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.ClosedEnums: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New(proto2ClosedEnumsErrNotObject)
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [5]bool
-	var oneofs [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *ClosedEnums) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "single":
-			f = 0
-		case "rep":
-			f = 1
-		case "packed":
-			f = 2
-		case "byKey", "by_key":
-			f = 3
-		case "inOneof", "in_oneof":
-			f = 4
-		default:
-			return errors.New("proto: cotorp.test.proto2.ClosedEnums: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.ClosedEnums: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		return m.UnmarshalJSON(v)
+	}
+	*m = ClosedEnums{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New(proto2ClosedEnumsErrNotObject)
+	}
+	var seen [5]bool
+	var oneofs [1]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var mk string
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
 			}
-		case 4:
-			if null {
-				continue
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
 			}
-			if oneofs[0] {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: multiple fields set for oneof o")
+			key := kt.String()
+			switch key {
+			case "single":
+				f = 0
+			case "rep":
+				f = 1
+			case "packed":
+				f = 2
+			case "byKey", "by_key":
+				f = 3
+			case "inOneof", "in_oneof":
+				f = 4
+			default:
+				return errors.New("proto: cotorp.test.proto2.ClosedEnums: unknown field " + strconv.Quote(key))
 			}
-			oneofs[0] = true
-			jobs = append(jobs, job{f: f, raw: raw})
-		case 1, 2:
-			if null {
-				continue
+			if seen[f] {
+				return errors.New("proto: cotorp.test.proto2.ClosedEnums: duplicate field " + strconv.Quote(key))
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New(proto2ClosedEnumsErrNullElement)
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		case 3:
-			if null {
 				continue
 			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('{') {
-				return errors.New(proto2ClosedEnumsErrNotObject)
-			}
-			for ad.More() {
-				kt, err := ad.Token()
+			switch f {
+			case 4:
+				if oneofs[0] {
+					return errors.New("proto: cotorp.test.proto2.ClosedEnums: multiple fields set for oneof o")
+				}
+				oneofs[0] = true
+			case 1, 2:
+				tok, err := d.ReadToken()
 				if err != nil {
 					return err
 				}
-				ks, _ := kt.(string)
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.proto2.ClosedEnums: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			case 3:
+				tok, err := d.ReadToken()
+				if err != nil {
 					return err
 				}
-				if string(e) == "null" {
-					return errors.New(proto2ClosedEnumsErrNullElement)
+				if tok.Kind() != jsontext.KindBeginObject {
+					return errors.New(proto2ClosedEnumsErrNotObject)
 				}
-				jobs = append(jobs, job{f: f, key: ks, raw: e})
+				in = jsontext.KindBeginObject
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if in == jsontext.KindBeginObject {
+				kt, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				mk = kt.String()
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values")
 			}
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2ClosedEnumsErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
 		class := proto2ClassNone
 		bits := 64
+		switch f {
+		case 0, 1, 2, 3, 4:
+			class = proto2ClassEnum
+		}
 		var iv int64
 		var sv string
-		switch jb.f {
-		case 0, 1, 2, 3, 4:
-			switch {
-			case string(raw) == "null":
-				class = proto2ClassNone
-			case raw[0] == '"':
-				class = proto2ClassString
-			default:
-				class, bits = proto2ClassSigned, 32
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+			if class == proto2ClassEnum {
+				switch tok.Kind() {
+				case jsontext.KindNull:
+					class = proto2ClassNone
+				case jsontext.KindString:
+					class = proto2ClassString
+				default:
+					class, bits = proto2ClassSigned, 32
+				}
 			}
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -5446,28 +5549,26 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2ClosedEnumsErrInvalidInteger + string(raw))
+						return errors.New(proto2ClosedEnumsErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2ClosedEnumsErrInvalidInteger + string(raw))
+					return errors.New(proto2ClosedEnumsErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2ClosedEnumsErrInvalidInteger + string(raw))
+					return errors.New(proto2ClosedEnumsErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		case proto2ClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid string " + string(raw))
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid string " + tok.String())
 			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
-				return err
-			}
+			sv = tok.String()
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			var ev Closed
 			switch class {
@@ -5509,9 +5610,9 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 			}
 			m.Packed = append(m.Packed, ev)
 		case 3:
-			k64, err := strconv.ParseInt(jb.key, 10, 32)
+			k64, err := strconv.ParseInt(mk, 10, 32)
 			if err != nil {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid map key for field by_key: " + strconv.Quote(jb.key))
+				return errors.New("proto: cotorp.test.proto2.ClosedEnums: invalid map key for field by_key: " + strconv.Quote(mk))
 			}
 			k := int32(k64)
 			var ev ClosedZero
@@ -5544,7 +5645,8 @@ func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
 			m.O = &ClosedEnums_InOneof{InOneof: ev}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Packed struct {
@@ -6071,6 +6173,16 @@ func (m *Packed) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Packed) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Packed) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -6118,7 +6230,7 @@ func (m *Packed) ProtoAppendJSON(b []byte) ([]byte, error) {
 			case math.IsInf(fl, -1):
 				b = append(b, `"-Infinity"`...)
 			default:
-				b = strconv.AppendFloat(b, fl, 'g', -1, 64)
+				b = jsontext.AppendFloat(b, fl, 64)
 			}
 			b = append(b, ',')
 		}
@@ -6165,98 +6277,116 @@ func (m *Packed) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Packed) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2PackedErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Packed: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Packed: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [6]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Packed) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "pInt32", "p_int32":
-			f = 0
-		case "pSint64", "p_sint64":
-			f = 1
-		case "pFixed32", "p_fixed32":
-			f = 2
-		case "pDouble", "p_double":
-			f = 3
-		case "pBool", "p_bool":
-			f = 4
-		case "uInt32", "u_int32":
-			f = 5
-		default:
-			return errors.New("proto: cotorp.test.proto2.Packed: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Packed: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 1, 2, 3, 4, 5:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: cotorp.test.proto2.Packed: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.Packed: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = Packed{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2PackedErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Packed: expected a JSON object")
+	}
+	var seen [6]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "pInt32", "p_int32":
+				f = 0
+			case "pSint64", "p_sint64":
+				f = 1
+			case "pFixed32", "p_fixed32":
+				f = 2
+			case "pDouble", "p_double":
+				f = 3
+			case "pBool", "p_bool":
+				f = 4
+			case "uInt32", "u_int32":
+				f = 5
+			default:
+				return errors.New("proto: cotorp.test.proto2.Packed: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: cotorp.test.proto2.Packed: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 0, 1, 2, 3, 4, 5:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.proto2.Packed: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.proto2.Packed: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := proto2ClassNone
 		bits := 64
-		var iv int64
-		var uv uint64
-		var fv float64
-		var bv bool
-		switch jb.f {
+		switch f {
 		case 0, 5:
 			class, bits = proto2ClassSigned, 32
 		case 1:
@@ -6268,16 +6398,22 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 		case 4:
 			class = proto2ClassBool
 		}
+		var iv int64
+		var uv uint64
+		var fv float64
+		var bv bool
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
+				return err
+			}
+		}
 		switch class {
 		case proto2ClassSigned, proto2ClassUnsigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New(proto2PackedErrInvalidNumber + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New(proto2PackedErrInvalidNumber + s)
 			}
 			var err error
 			if class == proto2ClassSigned {
@@ -6290,33 +6426,30 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2PackedErrInvalidInteger + string(raw))
+						return errors.New(proto2PackedErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2PackedErrInvalidInteger + string(raw))
+					return errors.New(proto2PackedErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if class == proto2ClassSigned {
 					if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-						return errors.New(proto2PackedErrInvalidInteger + string(raw))
+						return errors.New(proto2PackedErrInvalidInteger + s)
 					}
 					iv = n.Int64()
 				} else {
 					if !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-						return errors.New(proto2PackedErrInvalidInteger + string(raw))
+						return errors.New(proto2PackedErrInvalidInteger + s)
 					}
 					uv = n.Uint64()
 				}
 			}
 		case proto2ClassFloat:
-			s := string(raw)
+			s := tok.String()
 			special := false
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
+			if tok.Kind() == jsontext.KindString {
 				switch s {
 				case "NaN":
 					fv, special = math.NaN(), true
@@ -6327,24 +6460,24 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 				}
 			}
 			if !special {
-				if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-					return errors.New(proto2PackedErrInvalidNumber + string(raw))
+				if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+					return errors.New(proto2PackedErrInvalidNumber + s)
 				}
 				var err error
 				if fv, err = strconv.ParseFloat(s, bits); err != nil {
-					return errors.New(proto2PackedErrInvalidNumber + string(raw))
+					return errors.New(proto2PackedErrInvalidNumber + s)
 				}
 			}
 		case proto2ClassBool:
-			switch string(raw) {
-			case "true":
+			switch tok.Kind() {
+			case jsontext.KindTrue:
 				bv = true
-			case "false":
+			case jsontext.KindFalse:
 			default:
-				return errors.New("proto: cotorp.test.proto2.Packed: invalid boolean " + string(raw))
+				return errors.New("proto: cotorp.test.proto2.Packed: invalid boolean " + tok.String())
 			}
 		}
-		switch jb.f {
+		switch f {
 		case 0:
 			m.PInt32 = append(m.PInt32, int32(iv))
 		case 1:
@@ -6359,7 +6492,8 @@ func (m *Packed) ProtoMergeJSON(b []byte) error {
 			m.UInt32 = append(m.UInt32, int32(iv))
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Extendable struct {
@@ -6577,6 +6711,16 @@ func (m *Extendable) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Extendable) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Extendable) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -6607,40 +6751,58 @@ func (m *Extendable) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Extendable) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2ExtendableErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Extendable: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Extendable: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Extendable) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = Extendable{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Extendable: expected a JSON object")
+	}
+	var seen [1]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "known":
 			f = 0
@@ -6651,39 +6813,25 @@ func (m *Extendable) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.Extendable: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2ExtendableErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := proto2ClassNone
-		bits := 64
+		class := proto2ClassSigned
+		bits := 32
 		var iv int64
-		switch jb.f {
-		case 0:
-			class, bits = proto2ClassSigned, 32
+		tok, err := d.ReadToken()
+		if err != nil {
+			return err
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.Extendable: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.Extendable: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -6692,27 +6840,25 @@ func (m *Extendable) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2ExtendableErrInvalidInteger + string(raw))
+						return errors.New(proto2ExtendableErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2ExtendableErrInvalidInteger + string(raw))
+					return errors.New(proto2ExtendableErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2ExtendableErrInvalidInteger + string(raw))
+					return errors.New(proto2ExtendableErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
-		case 0:
-			x := int32(iv)
-			m.Known = &x
-		}
+		x := int32(iv)
+		m.Known = &x
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Scope struct {
@@ -6894,6 +7040,16 @@ func (m *Scope) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Scope) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Scope) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -6919,34 +7075,56 @@ func (m *Scope) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Scope) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
+		return err
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Scope: unexpected data after JSON value")
+	}
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Scope) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
+		if err != nil {
+			return err
+		}
+		return m.UnmarshalJSON(v)
+	}
+	*m = Scope{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Scope) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok == nil {
+	if tok.Kind() == jsontext.KindNull {
 		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2ScopeErrTrailingData)
-		}
 		return nil
 	}
-	if tok != json.Delim('{') {
+	if tok.Kind() != jsontext.KindBeginObject {
 		return errors.New("proto: cotorp.test.proto2.Scope: expected a JSON object")
 	}
-	if d.More() {
-		tok, _ := d.Token()
-		key, _ := tok.(string)
-		return errors.New("proto: cotorp.test.proto2.Scope: unknown field " + strconv.Quote(key))
+	if d.PeekKind() != jsontext.KindEndObject {
+		kt, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		return errors.New("proto: cotorp.test.proto2.Scope: unknown field " + strconv.Quote(kt.String()))
 	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2ScopeErrTrailingData)
-	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type Proto2Strings struct {
@@ -7247,50 +7425,37 @@ func (m *Proto2Strings) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *Proto2Strings) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *Proto2Strings) ProtoAppendJSON(b []byte) ([]byte, error) {
+	var err error
 	if m == nil {
 		return append(b, "{}"...), nil
 	}
 	b = append(b, '{')
 	if m.S != nil {
 		b = append(b, "\"s\":"...)
-		if !utf8.ValidString((*m.S)) {
+		if b, err = jsontext.AppendQuote(b, (*m.S)); err != nil {
 			return nil, errors.New("proto: cotorp.test.proto2.Proto2Strings.s contains invalid UTF-8")
 		}
-		b = append(b, '"')
-		for ci := 0; ci < len((*m.S)); ci++ {
-			switch c := (*m.S)[ci]; {
-			case c == '"' || c == '\\':
-				b = append(b, '\\', c)
-			case c < ' ':
-				b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
-			default:
-				b = append(b, c)
-			}
-		}
-		b = append(b, '"')
 		b = append(b, ',')
 	}
 	if len(m.Rs) > 0 {
 		b = append(b, "\"rs\":["...)
 		for j := range m.Rs {
-			if !utf8.ValidString(m.Rs[j]) {
+			if b, err = jsontext.AppendQuote(b, m.Rs[j]); err != nil {
 				return nil, errors.New("proto: cotorp.test.proto2.Proto2Strings.rs contains invalid UTF-8")
 			}
-			b = append(b, '"')
-			for ci := 0; ci < len(m.Rs[j]); ci++ {
-				switch c := m.Rs[j][ci]; {
-				case c == '"' || c == '\\':
-					b = append(b, '\\', c)
-				case c < ' ':
-					b = append(b, '\\', 'u', '0', '0', proto2HexDigits[c>>4], proto2HexDigits[c&0xf])
-				default:
-					b = append(b, c)
-				}
-			}
-			b = append(b, '"')
 			b = append(b, ',')
 		}
 		b[len(b)-1] = ']'
@@ -7298,7 +7463,6 @@ func (m *Proto2Strings) ProtoAppendJSON(b []byte) ([]byte, error) {
 	}
 	if m.Shared != nil {
 		b = append(b, "\"shared\":"...)
-		var err error
 		if b, err = m.Shared.ProtoAppendJSON(b); err != nil {
 			return nil, err
 		}
@@ -7322,105 +7486,128 @@ func (m *Proto2Strings) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *Proto2Strings) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2Proto2StringsErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.Proto2Strings: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.Proto2Strings: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [3]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *Proto2Strings) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
-			return err
-		}
-		f := -1
-		switch key {
-		case "s":
-			f = 0
-		case "rs":
-			f = 1
-		case "shared":
-			f = 2
-		default:
-			return errors.New("proto: cotorp.test.proto2.Proto2Strings: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Proto2Strings: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0, 2:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
-			}
-		case 1:
-			if null {
-				continue
-			}
-			ad := json.NewDecoder(bytes.NewReader(raw))
-			ad.UseNumber()
-			if t, err := ad.Token(); err != nil || t != json.Delim('[') {
-				return errors.New("proto: cotorp.test.proto2.Proto2Strings: expected a JSON array")
-			}
-			for ad.More() {
-				var e json.RawMessage
-				if err := ad.Decode(&e); err != nil {
-					return err
-				}
-				if string(e) == "null" {
-					return errors.New("proto: cotorp.test.proto2.Proto2Strings: null is not allowed in repeated fields or map values")
-				}
-				jobs = append(jobs, job{f: f, raw: e})
-			}
-		}
+		return m.UnmarshalJSON(v)
 	}
-	if _, err := d.Token(); err != nil {
+	*m = Proto2Strings{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
 		return err
 	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2Proto2StringsErrTrailingData)
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
 	}
-	for _, jb := range jobs {
-		raw := jb.raw
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.Proto2Strings: expected a JSON object")
+	}
+	var seen [3]bool
+	// in is the kind of the array or object of repeated or map field f
+	// while its elements are read.
+	var in jsontext.Kind
+	var f int
+	for {
+		if in == jsontext.KindInvalid {
+			if d.PeekKind() == jsontext.KindEndObject {
+				break
+			}
+			kt, err := d.ReadToken()
+			if err != nil {
+				return err
+			}
+			key := kt.String()
+			switch key {
+			case "s":
+				f = 0
+			case "rs":
+				f = 1
+			case "shared":
+				f = 2
+			default:
+				return errors.New("proto: cotorp.test.proto2.Proto2Strings: unknown field " + strconv.Quote(key))
+			}
+			if seen[f] {
+				return errors.New("proto: cotorp.test.proto2.Proto2Strings: duplicate field " + strconv.Quote(key))
+			}
+			seen[f] = true
+			if d.PeekKind() == jsontext.KindNull {
+				// null leaves the field unset.
+				if err := d.SkipValue(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch f {
+			case 1:
+				tok, err := d.ReadToken()
+				if err != nil {
+					return err
+				}
+				if tok.Kind() != jsontext.KindBeginArray {
+					return errors.New("proto: cotorp.test.proto2.Proto2Strings: expected a JSON array")
+				}
+				in = jsontext.KindBeginArray
+				continue
+			}
+		} else {
+			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
+				if _, err := d.ReadToken(); err != nil {
+					return err
+				}
+				in = jsontext.KindInvalid
+				continue
+			}
+			if d.PeekKind() == jsontext.KindNull {
+				return errors.New("proto: cotorp.test.proto2.Proto2Strings: null is not allowed in repeated fields or map values")
+			}
+		}
 		class := proto2ClassNone
-		var sv string
-		switch jb.f {
+		switch f {
 		case 0, 1:
 			class = proto2ClassString
 		}
-		switch class {
-		case proto2ClassString:
-			if raw[0] != '"' || !utf8.Valid(raw) {
-				return errors.New("proto: cotorp.test.proto2.Proto2Strings: invalid string " + string(raw))
-			}
-			if err := json.Unmarshal(raw, &sv); err != nil {
+		var sv string
+		var tok jsontext.Token
+		if class != proto2ClassNone {
+			var err error
+			if tok, err = d.ReadToken(); err != nil {
 				return err
 			}
 		}
-		switch jb.f {
+		switch class {
+		case proto2ClassString:
+			if tok.Kind() != jsontext.KindString {
+				return errors.New("proto: cotorp.test.proto2.Proto2Strings: invalid string " + tok.String())
+			}
+			sv = tok.String()
+		}
+		switch f {
 		case 0:
 			x := sv
 			m.S = &x
@@ -7430,12 +7617,13 @@ func (m *Proto2Strings) ProtoMergeJSON(b []byte) error {
 			if m.Shared == nil {
 				m.Shared = &commonpb.Shared{}
 			}
-			if err := m.Shared.ProtoMergeJSON(raw); err != nil {
+			if err := m.Shared.ProtoMergeJSONFrom(d); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
 
 type ExtGroup struct {
@@ -7653,6 +7841,16 @@ func (m *ExtGroup) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
+// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
+// json.MarshalerTo from encoding/json/v2.
+func (m *ExtGroup) MarshalJSONTo(e *jsontext.Encoder) error {
+	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
+	if err != nil {
+		return err
+	}
+	return e.WriteValue(b)
+}
+
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
 // check required fields.
 func (m *ExtGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
@@ -7683,40 +7881,58 @@ func (m *ExtGroup) UnmarshalJSON(b []byte) error {
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
 // It does not check required fields.
 func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.UseNumber()
-	tok, err := d.Token()
-	if err != nil {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := m.ProtoMergeJSONFrom(d); err != nil {
 		return err
 	}
-	if tok == nil {
-		// JSON null leaves the message unchanged.
-		if _, err := d.Token(); err != io.EOF {
-			return errors.New(proto2ExtGroupErrTrailingData)
-		}
-		return nil
+	if _, err := d.ReadToken(); err != io.EOF {
+		return errors.New("proto: cotorp.test.proto2.ExtGroup: unexpected data after JSON value")
 	}
-	if tok != json.Delim('{') {
-		return errors.New("proto: cotorp.test.proto2.ExtGroup: expected a JSON object")
-	}
-	type job struct {
-		f   int
-		key string
-		raw []byte
-	}
-	var jobs []job
-	var seen [1]bool
-	for d.More() {
-		tok, err := d.Token()
+	return nil
+}
+
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
+// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+func (m *ExtGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); lax {
+		// ProtoJSON rejects invalid UTF-8, which d would replace (as
+		// encoding/json does), so decode the value with a strict decoder.
+		v, err := d.ReadValue()
 		if err != nil {
 			return err
 		}
-		key, _ := tok.(string)
-		var raw json.RawMessage
-		if err := d.Decode(&raw); err != nil {
+		return m.UnmarshalJSON(v)
+	}
+	*m = ExtGroup{}
+	return m.ProtoMergeJSONFrom(d)
+}
+
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
+// into m. It does not check required fields. d should reject invalid
+// UTF-8, as jsontext decoders do by default.
+func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() == jsontext.KindNull {
+		// JSON null leaves the message unchanged.
+		return nil
+	}
+	if tok.Kind() != jsontext.KindBeginObject {
+		return errors.New("proto: cotorp.test.proto2.ExtGroup: expected a JSON object")
+	}
+	var seen [1]bool
+	var f int
+	for {
+		if d.PeekKind() == jsontext.KindEndObject {
+			break
+		}
+		kt, err := d.ReadToken()
+		if err != nil {
 			return err
 		}
-		f := -1
+		key := kt.String()
 		switch key {
 		case "g":
 			f = 0
@@ -7727,39 +7943,25 @@ func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
 			return errors.New("proto: cotorp.test.proto2.ExtGroup: duplicate field " + strconv.Quote(key))
 		}
 		seen[f] = true
-		null := string(raw) == "null"
-		switch f {
-		case 0:
-			if !null {
-				jobs = append(jobs, job{f: f, raw: raw})
+		if d.PeekKind() == jsontext.KindNull {
+			// null leaves the field unset.
+			if err := d.SkipValue(); err != nil {
+				return err
 			}
+			continue
 		}
-	}
-	if _, err := d.Token(); err != nil {
-		return err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return errors.New(proto2ExtGroupErrTrailingData)
-	}
-	for _, jb := range jobs {
-		raw := jb.raw
-		class := proto2ClassNone
-		bits := 64
+		class := proto2ClassSigned
+		bits := 32
 		var iv int64
-		switch jb.f {
-		case 0:
-			class, bits = proto2ClassSigned, 32
+		tok, err := d.ReadToken()
+		if err != nil {
+			return err
 		}
 		switch class {
 		case proto2ClassSigned:
-			s := string(raw)
-			if raw[0] == '"' {
-				if err := json.Unmarshal(raw, &s); err != nil {
-					return err
-				}
-			}
-			if s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !json.Valid([]byte(s)) {
-				return errors.New("proto: cotorp.test.proto2.ExtGroup: invalid number " + string(raw))
+			s := tok.String()
+			if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
+				return errors.New("proto: cotorp.test.proto2.ExtGroup: invalid number " + s)
 			}
 			var err error
 			iv, err = strconv.ParseInt(s, 10, bits)
@@ -7768,25 +7970,23 @@ func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
 				// bounding the exponent so that exact arithmetic stays cheap.
 				if i := strings.IndexAny(s, "eE"); i >= 0 {
 					if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
-						return errors.New(proto2ExtGroupErrInvalidInteger + string(raw))
+						return errors.New(proto2ExtGroupErrInvalidInteger + s)
 					}
 				}
 				r, ok := new(big.Rat).SetString(s)
 				if !ok || !r.IsInt() {
-					return errors.New(proto2ExtGroupErrInvalidInteger + string(raw))
+					return errors.New(proto2ExtGroupErrInvalidInteger + s)
 				}
 				n := r.Num()
 				if !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-					return errors.New(proto2ExtGroupErrInvalidInteger + string(raw))
+					return errors.New(proto2ExtGroupErrInvalidInteger + s)
 				}
 				iv = n.Int64()
 			}
 		}
-		switch jb.f {
-		case 0:
-			x := int32(iv)
-			m.G = &x
-		}
+		x := int32(iv)
+		m.G = &x
 	}
-	return nil
+	_, err = d.ReadToken()
+	return err
 }
