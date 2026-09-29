@@ -31,9 +31,9 @@ const (
 	anyVarintPayloadBits = 7
 	anyVarintContBit     = 0x80
 	anyMaxDepth          = 10000
-	anyAnyTypeUrlErrUTF8 = "proto: field google.protobuf.Any.type_url contains invalid UTF-8"
-	anyErrParse          = "proto: cannot parse invalid wire-format data"
-	anyAnyErrUnsupported = "proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have"
+	anyE1                = "proto: field google.protobuf.Any.type_url contains invalid UTF-8"
+	anyE2                = "proto: cannot parse invalid wire-format data"
+	anyE3                = "proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have"
 )
 
 // `Any` contains an arbitrary serialized protocol buffer message along with a
@@ -100,24 +100,24 @@ type Any struct {
 	// Holds a Protobuf serialization of the type described by type_url.
 	Value []byte
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Any) Reset()             { *m = Any{} }
-func (m *Any) z() *Any            { return anyIf(m == nil, &anyZeroAny, m) }
+func (m *Any) z() *Any            { return anyIf(m == nil, &anyZAny, m) }
 func (m *Any) GetTypeUrl() string { return m.z().TypeUrl }
 func (m *Any) GetValue() []byte   { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Any) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Any) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Any) ProtoSize() (n int) {
 	m = m.z()
 	n += anySizeLenField(1, len(m.TypeUrl))
 	n += anySizeLenField(1, len(m.Value))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -131,8 +131,8 @@ func (m *Any) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Any) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := anyCopyUnknown(b, len(b), m.unknownFields)
-	if err := anyCheckUTF8(m.TypeUrl, anyAnyTypeUrlErrUTF8, nil); err != nil {
+	i := anyCopyUnknown(b, len(b), m.u)
+	if err := anyCheckUTF8(m.TypeUrl, anyE1, nil); err != nil {
 		return 0, err
 	}
 	i = anyPutBytesField(b, i, m.Value, 2<<anyTagTypeBits|anyWireBytes)
@@ -153,14 +153,14 @@ func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<anyTagTypeBits | anyWireBytes:
-			n, err = anyString(b, &m.TypeUrl, anyAnyTypeUrlErrUTF8)
+			n, err = anyString(b, &m.TypeUrl, anyE1)
 		case 2<<anyTagTypeBits | anyWireBytes:
 			n = anyBytes(b, &m.Value)
 		default:
-			n, err = anyUnknown(b, t, depth, &m.unknownFields)
+			n, err = anyUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(anyErrParse))
+			return cmp.Or(err, errors.New(anyE2))
 		}
 		b = b[n:]
 	}
@@ -180,7 +180,7 @@ func (m *Any) MarshalJSONTo(e *jsontext.Encoder) error {
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Any) ProtoAppendJSON(b []byte) ([]byte, error) {
-	return nil, errors.New(anyAnyErrUnsupported)
+	return nil, errors.New(anyE3)
 }
 
 // UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
@@ -202,11 +202,11 @@ func (m *Any) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if d.PeekKind() == jsontext.KindNull {
 		return d.SkipValue()
 	}
-	return errors.New(anyAnyErrUnsupported)
+	return errors.New(anyE3)
 }
 
 var (
-	anyZeroAny Any
+	anyZAny Any
 )
 
 func anySizeLen(l int) int           { return l + anyVarintLen(l) }
@@ -303,7 +303,7 @@ func anySkipField(b []byte, t uint64, depth int) (int, error) {
 		n = anyIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(anyErrParse)
+		return 0, errors.New(anyE2)
 	}
 	return n, nil
 }
@@ -312,7 +312,7 @@ func anySkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(anyErrParse)
+			return 0, errors.New(anyE2)
 		}
 		if n += k; t == uint64(num)<<anyTagTypeBits|anyWireEndGroup {
 			return n, nil
@@ -331,7 +331,7 @@ func anyUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func anyEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(anyErrParse)
+		return errors.New(anyE2)
 	}
 	return err
 }

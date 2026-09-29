@@ -9,8 +9,10 @@ cotorp is a protobuf compiler that generates Go marshal/unmarshal code. It has
 two hard requirements:
 
 1. **Generated code imports only the Go standard library** (plus other
-   cotorp-generated packages it references). It has no runtime package, no
-   shared helper file, and no protobuf-go dependency.
+   cotorp-generated packages it references). It has no runtime package and
+   no protobuf-go dependency. Each file declares the helper functions it
+   uses, unless `-helpers` names a package that cotorp generates to hold
+   them all, exported, for every file to import.
 2. **The compiler itself is stdlib-only.** It has its own `.proto` parser and
    does not use protoc or any third-party module. This includes tests: never
    add a dependency to `go.mod`.
@@ -53,11 +55,23 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   (`ProtoSize`, `ProtoMarshalToSizedBuffer`, `ProtoMergeDepth`,
   `ProtoCheckInitialized`, `ProtoAppendJSON`, `ProtoMergeJSONFrom`) and
   enums (`IsValid`, `E_name`, `E_value`).
-  - Code that would repeat in every message goes in an unexported helper
-    function, declared from `helperDefs` in `helpers.go` and named
-    `fg.fn("Name")` (the file prefix plus the suffix). A file declares only
-    the helpers it uses. `TestSelfContained` rejects package-level functions
-    without the file's prefix.
+  - Code that would repeat in every message goes in a helper function,
+    declared from `helperDefs` in `helpers.go` and named `fg.fn("Name")`:
+    the file prefix plus the suffix, declared in the file, or
+    `<alias>.Name` in the shared package generated with `Options.Helpers`
+    (`generateHelpers`, which emits every helper and constant, exported,
+    with its `doc`; give each new helper one). Constants (`fg.c`) and the
+    error messages helpers use (`errString`, through `g.sharedErrs`) follow
+    the same rule. A file declares only the helpers it uses.
+    `TestSelfContained` rejects package-level functions without the file's
+    prefix, except in a shared package, whose header says `// helpers:`.
+    `gen.go` generates `otlp` with `-helpers` and the other packages
+    without, so both forms are tested.
+  - Names that stay per file are short, since they are unexported: the
+    prefix plus `E<n>` for error message constants (numbered in order of
+    first use), `Z<Msg>` for zero values, `J<Enum>` for the JSON parse
+    function of an enum, and the struct field `u` for unknown fields
+    (`unknownField` in `message.go`).
   - **Helpers never take a message.** Calling methods through an interface
     or a type parameter makes the message escape to the heap, so
     `var m M; m.UnmarshalBinary(b)` would allocate. A method calls its own

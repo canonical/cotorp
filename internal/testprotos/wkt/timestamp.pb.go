@@ -18,29 +18,29 @@ import (
 )
 
 const (
-	timestampWireVarint             = 0
-	timestampWireFixed64            = 1
-	timestampWireBytes              = 2
-	timestampWireStartGroup         = 3
-	timestampWireEndGroup           = 4
-	timestampWireFixed32            = 5
-	timestampTagTypeBits            = 3
-	timestampTagTypeMask            = 1<<3 - 1
-	timestampMaxFieldNumber         = 1<<29 - 1
-	timestampFixed32Size            = 4
-	timestampFixed64Size            = 8
-	timestampVarintPayloadBits      = 7
-	timestampVarintContBit          = 0x80
-	timestampMaxDepth               = 10000
-	timestampMinTimestampSeconds    = -62135596800
-	timestampMaxTimestampSeconds    = 253402300799
-	timestampNanosPerSecond         = 1000000000
-	timestampNanosPerMilli          = 1000000
-	timestampNanosPerMicro          = 1000
-	timestampMicrosPerSecond        = 1000000
-	timestampMillisPerSecond        = 1000
-	timestampErrParse               = "proto: cannot parse invalid wire-format data"
-	timestampTimestampErrOutOfRange = "proto: google.protobuf.Timestamp: timestamp out of range"
+	timestampWireVarint          = 0
+	timestampWireFixed64         = 1
+	timestampWireBytes           = 2
+	timestampWireStartGroup      = 3
+	timestampWireEndGroup        = 4
+	timestampWireFixed32         = 5
+	timestampTagTypeBits         = 3
+	timestampTagTypeMask         = 1<<3 - 1
+	timestampMaxFieldNumber      = 1<<29 - 1
+	timestampFixed32Size         = 4
+	timestampFixed64Size         = 8
+	timestampVarintPayloadBits   = 7
+	timestampVarintContBit       = 0x80
+	timestampMaxDepth            = 10000
+	timestampMinTimestampSeconds = -62135596800
+	timestampMaxTimestampSeconds = 253402300799
+	timestampNanosPerSecond      = 1000000000
+	timestampNanosPerMilli       = 1000000
+	timestampNanosPerMicro       = 1000
+	timestampMicrosPerSecond     = 1000000
+	timestampMillisPerSecond     = 1000
+	timestampE1                  = "proto: cannot parse invalid wire-format data"
+	timestampE2                  = "proto: google.protobuf.Timestamp: timestamp out of range"
 )
 
 // A Timestamp represents a point in time independent of any time zone or local
@@ -144,24 +144,24 @@ type Timestamp struct {
 	// inclusive.
 	Nanos int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Timestamp) Reset()            { *m = Timestamp{} }
-func (m *Timestamp) z() *Timestamp     { return timestampIf(m == nil, &timestampZeroTimestamp, m) }
+func (m *Timestamp) z() *Timestamp     { return timestampIf(m == nil, &timestampZTimestamp, m) }
 func (m *Timestamp) GetSeconds() int64 { return m.z().Seconds }
 func (m *Timestamp) GetNanos() int32   { return m.z().Nanos }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Timestamp) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Timestamp) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Timestamp) ProtoSize() (n int) {
 	m = m.z()
 	n += timestampSizeVarint(1, uint64(m.Seconds))
 	n += timestampSizeVarint(1, uint64(int64(m.Nanos)))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -175,7 +175,7 @@ func (m *Timestamp) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Timestamp) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := timestampCopyUnknown(b, len(b), m.unknownFields)
+	i := timestampCopyUnknown(b, len(b), m.u)
 	i = timestampPutVarintField(b, i, uint64(int64(m.Nanos)), 2<<timestampTagTypeBits|timestampWireVarint)
 	i = timestampPutVarintField(b, i, uint64(m.Seconds), 1<<timestampTagTypeBits|timestampWireVarint)
 	return len(b) - i, nil
@@ -198,10 +198,10 @@ func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
 		case 2<<timestampTagTypeBits | timestampWireVarint:
 			n = timestampVarint(b, &m.Nanos)
 		default:
-			n, err = timestampUnknown(b, t, depth, &m.unknownFields)
+			n, err = timestampUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(timestampErrParse))
+			return cmp.Or(err, errors.New(timestampE1))
 		}
 		b = b[n:]
 	}
@@ -227,7 +227,7 @@ func (m *Timestamp) ProtoAppendJSON(b []byte) ([]byte, error) {
 		s, ns = m.Seconds, m.Nanos
 	}
 	if s < timestampMinTimestampSeconds || s > timestampMaxTimestampSeconds || ns < 0 || ns >= timestampNanosPerSecond {
-		return nil, errors.New(timestampTimestampErrOutOfRange)
+		return nil, errors.New(timestampE2)
 	}
 	b = append(b, '"')
 	b = time.Unix(s, 0).UTC().AppendFormat(b, "2006-01-02T15:04:05")
@@ -280,14 +280,14 @@ func (m *Timestamp) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	secs := t.Unix()
 	if secs < timestampMinTimestampSeconds || secs > timestampMaxTimestampSeconds {
-		return errors.New(timestampTimestampErrOutOfRange)
+		return errors.New(timestampE2)
 	}
 	m.Seconds, m.Nanos = secs, int32(t.Nanosecond())
 	return nil
 }
 
 var (
-	timestampZeroTimestamp Timestamp
+	timestampZTimestamp Timestamp
 )
 
 func timestampSizeVarint(tag int, u uint64) int {
@@ -361,7 +361,7 @@ func timestampSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = timestampIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(timestampErrParse)
+		return 0, errors.New(timestampE1)
 	}
 	return n, nil
 }
@@ -370,7 +370,7 @@ func timestampSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(timestampErrParse)
+			return 0, errors.New(timestampE1)
 		}
 		if n += k; t == uint64(num)<<timestampTagTypeBits|timestampWireEndGroup {
 			return n, nil
@@ -389,7 +389,7 @@ func timestampUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func timestampEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(timestampErrParse)
+		return errors.New(timestampE1)
 	}
 	return err
 }

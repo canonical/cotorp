@@ -21,23 +21,23 @@ import (
 )
 
 const (
-	commonWireVarint         = 0
-	commonWireFixed64        = 1
-	commonWireBytes          = 2
-	commonWireStartGroup     = 3
-	commonWireEndGroup       = 4
-	commonWireFixed32        = 5
-	commonTagTypeBits        = 3
-	commonTagTypeMask        = 1<<3 - 1
-	commonMaxFieldNumber     = 1<<29 - 1
-	commonFixed32Size        = 4
-	commonFixed64Size        = 8
-	commonVarintPayloadBits  = 7
-	commonVarintContBit      = 0x80
-	commonMaxDepth           = 10000
-	commonMaxJSONExponent    = 100
-	commonSharedLabelErrUTF8 = "proto: field cotorp.test.common.Shared.label contains invalid UTF-8"
-	commonErrParse           = "proto: cannot parse invalid wire-format data"
+	commonWireVarint        = 0
+	commonWireFixed64       = 1
+	commonWireBytes         = 2
+	commonWireStartGroup    = 3
+	commonWireEndGroup      = 4
+	commonWireFixed32       = 5
+	commonTagTypeBits       = 3
+	commonTagTypeMask       = 1<<3 - 1
+	commonMaxFieldNumber    = 1<<29 - 1
+	commonFixed32Size       = 4
+	commonFixed64Size       = 8
+	commonVarintPayloadBits = 7
+	commonVarintContBit     = 0x80
+	commonMaxDepth          = 10000
+	commonMaxJSONExponent   = 100
+	commonE1                = "proto: field cotorp.test.common.Shared.label contains invalid UTF-8"
+	commonE2                = "proto: cannot parse invalid wire-format data"
 )
 
 type Color int32
@@ -72,24 +72,24 @@ type Shared struct {
 	Label string
 	Value int64
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Shared) Reset()           { *m = Shared{} }
-func (m *Shared) z() *Shared       { return commonIf(m == nil, &commonZeroShared, m) }
+func (m *Shared) z() *Shared       { return commonIf(m == nil, &commonZShared, m) }
 func (m *Shared) GetLabel() string { return m.z().Label }
 func (m *Shared) GetValue() int64  { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Shared) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Shared) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Shared) ProtoSize() (n int) {
 	m = m.z()
 	n += commonSizeLenField(1, len(m.Label))
 	n += commonSizeVarint(1, uint64(m.Value))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -103,8 +103,8 @@ func (m *Shared) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Shared) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := commonCopyUnknown(b, len(b), m.unknownFields)
-	if err := commonCheckUTF8(m.Label, commonSharedLabelErrUTF8, nil); err != nil {
+	i := commonCopyUnknown(b, len(b), m.u)
+	if err := commonCheckUTF8(m.Label, commonE1, nil); err != nil {
 		return 0, err
 	}
 	i = commonPutVarintField(b, i, uint64(m.Value), 2<<commonTagTypeBits|commonWireVarint)
@@ -125,14 +125,14 @@ func (m *Shared) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<commonTagTypeBits | commonWireBytes:
-			n, err = commonString(b, &m.Label, commonSharedLabelErrUTF8)
+			n, err = commonString(b, &m.Label, commonE1)
 		case 2<<commonTagTypeBits | commonWireVarint:
 			n = commonVarint(b, &m.Value)
 		default:
-			n, err = commonUnknown(b, t, depth, &m.unknownFields)
+			n, err = commonUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(commonErrParse))
+			return cmp.Or(err, errors.New(commonE2))
 		}
 		b = b[n:]
 	}
@@ -197,7 +197,7 @@ func (m *Shared) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	commonZeroShared Shared
+	commonZShared Shared
 )
 
 func commonSizeLen(l int) int                { return l + commonVarintLen(l) }
@@ -293,7 +293,7 @@ func commonSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = commonIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(commonErrParse)
+		return 0, errors.New(commonE2)
 	}
 	return n, nil
 }
@@ -302,7 +302,7 @@ func commonSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(commonErrParse)
+			return 0, errors.New(commonE2)
 		}
 		if n += k; t == uint64(num)<<commonTagTypeBits|commonWireEndGroup {
 			return n, nil
@@ -321,7 +321,7 @@ func commonUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func commonEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(commonErrParse)
+		return errors.New(commonE2)
 	}
 	return err
 }

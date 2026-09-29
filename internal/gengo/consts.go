@@ -55,7 +55,6 @@ var constGroups = []constGroup{
 	}},
 	{"Decoding limits.", []constDef{
 		{"MaxDepth", "10000", "maximum message and group nesting"},
-		{"SkipStackSize", "16", "group nesting tracked without allocating"},
 	}},
 	{"ProtoJSON limits.", []constDef{
 		{"MaxJSONExponent", "100", "bounds exact integer parsing of exponent forms"},
@@ -119,14 +118,21 @@ func (fg *fileGen) constName(suffix string) string {
 }
 
 // c returns the name of the constant with the given suffix from
-// constGroups, declaring it in this file.
+// constGroups, declaring it in this file, or referring to the shared helper
+// package (see Options.Helpers) where it is exported under the suffix.
 func (fg *fileGen) c(suffix string) string {
 	if name, ok := fg.consts[suffix]; ok {
 		return name
 	}
-	name := fg.constName(suffix)
-	fg.consts[suffix] = name
-	return name
+	switch {
+	case fg.shared:
+		fg.consts[suffix] = suffix
+	case fg.g.helpers != nil:
+		return fg.helpersAlias() + "." + suffix
+	default:
+		fg.consts[suffix] = fg.constName(suffix)
+	}
+	return fg.consts[suffix]
 }
 
 // errConst is an error message used by generated code. It becomes a
@@ -143,8 +149,14 @@ const errPlaceholder = '\x00'
 
 // errString records a use of error message text and returns a placeholder
 // for its string expression. hint names the constant if one is declared;
-// it should start with "Err".
+// it should start with "Err". Messages the shared helper package declares
+// are referred to there.
 func (fg *fileGen) errString(hint, text string) string {
+	if fg.g.helpers != nil && !fg.shared {
+		if _, ok := fg.g.sharedErrs[hint]; ok {
+			return fg.helpersAlias() + "." + hint
+		}
+	}
 	i, ok := fg.errIdx[text]
 	if !ok {
 		i = len(fg.errs)
@@ -174,11 +186,17 @@ func (fg *fileGen) resolveErrs(src []byte) ([]byte, [][2]string) {
 	repl := make([]string, len(fg.errs))
 	var decls [][2]string
 	for i, e := range fg.errs {
-		if e.uses < 2 {
+		if e.uses < 2 && !fg.shared {
 			repl[i] = strconv.Quote(e.text)
 			continue
 		}
-		name := fg.constName(e.hint)
+		// Per-file error constants are numbered: their names are only
+		// read next to their text. The shared package exports them by
+		// hint.
+		name := fg.constName("E" + strconv.Itoa(len(decls)+1))
+		if fg.shared {
+			name = fg.constName(e.hint)
+		}
 		repl[i] = name
 		decls = append(decls, [2]string{name, strconv.Quote(e.text)})
 	}
@@ -196,16 +214,24 @@ func (fg *fileGen) resolveErrs(src []byte) ([]byte, [][2]string) {
 }
 
 // writeConsts writes the declarations of the constants this file uses, as
-// one block. Group docs and comments are for readers of constGroups and are
-// not emitted.
+// one block. Group docs are emitted only in the shared helper package, where
+// the constants are exported.
 func (fg *fileGen) writeConsts(w *bytes.Buffer, errs [][2]string) {
 	var lines []string
 	for _, g := range constGroups {
+		var group []string
 		for _, c := range g.consts {
 			if name, ok := fg.consts[c.suffix]; ok {
-				lines = append(lines, name+" = "+c.value)
+				group = append(group, name+" = "+c.value)
 			}
 		}
+		if len(group) > 0 && fg.shared {
+			group = append([]string{"// " + g.doc}, group...)
+		}
+		lines = append(lines, group...)
+	}
+	if len(errs) > 0 && fg.shared {
+		lines = append(lines, "// Error messages.")
 	}
 	for _, e := range errs {
 		lines = append(lines, e[0]+" = "+e[1])

@@ -4,54 +4,26 @@
 package otlppb
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"errors"
-	"io"
-	"math"
-	"math/big"
-	"math/bits"
 	"slices"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 
+	h "github.com/canonical/cotorp/internal/testprotos/otlp/internal/h"
 	wktpb "github.com/canonical/cotorp/internal/testprotos/wkt"
 )
 
 const (
-	traceWireVarint                 = 0
-	traceWireFixed64                = 1
-	traceWireBytes                  = 2
-	traceWireStartGroup             = 3
-	traceWireEndGroup               = 4
-	traceWireFixed32                = 5
-	traceTagTypeBits                = 3
-	traceTagTypeMask                = 1<<3 - 1
-	traceMaxFieldNumber             = 1<<29 - 1
-	traceMapKeyField                = 1
-	traceMapValueField              = 2
-	traceFixed32Size                = 4
-	traceFixed64Size                = 8
-	traceVarintPayloadBits          = 7
-	traceVarintContBit              = 0x80
-	traceMaxDepth                   = 10000
-	traceMaxJSONExponent            = 100
-	traceBase64Quantum              = 4
-	traceSpanTraceStateErrUTF8      = "proto: field cotorp.test.otlp.Span.trace_state contains invalid UTF-8"
-	traceSpanNameErrUTF8            = "proto: field cotorp.test.otlp.Span.name contains invalid UTF-8"
-	traceSpanCodesEntryKeyErrUTF8   = "proto: field cotorp.test.otlp.Span.CodesEntry.key contains invalid UTF-8"
-	traceErrParse                   = "proto: cannot parse invalid wire-format data"
-	traceStatusMessageErrUTF8       = "proto: field cotorp.test.otlp.Status.message contains invalid UTF-8"
-	traceAnyValueStringValueErrUTF8 = "proto: field cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8"
-	traceErrDuplicateField          = "duplicate field "
-	traceErrNullElement             = "null is not allowed in repeated fields or map values"
-	traceErrInvalidInteger          = "invalid integer "
+	traceE1 = "proto: field cotorp.test.otlp.Span.trace_state contains invalid UTF-8"
+	traceE2 = "proto: field cotorp.test.otlp.Span.name contains invalid UTF-8"
+	traceE3 = "proto: field cotorp.test.otlp.Span.CodesEntry.key contains invalid UTF-8"
+	traceE4 = "proto: field cotorp.test.otlp.Status.message contains invalid UTF-8"
+	traceE5 = "proto: field cotorp.test.otlp.AnyValue.string_value contains invalid UTF-8"
 )
 
 type Span_SpanKind int32
@@ -70,13 +42,13 @@ var Span_SpanKind_name = map[int32]string{
 	2: "SPAN_KIND_SERVER",
 	3: "SPAN_KIND_CLIENT",
 }
-var Span_SpanKind_value = traceInvert(Span_SpanKind_name)
+var Span_SpanKind_value = h.Invert(Span_SpanKind_name)
 
 // Enum returns a pointer to a copy of x.
 func (x Span_SpanKind) Enum() *Span_SpanKind { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x Span_SpanKind) String() string { return traceEnumString(Span_SpanKind_name, int32(x)) }
+func (x Span_SpanKind) String() string { return h.EnumString(Span_SpanKind_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of Span_SpanKind.
 func (x Span_SpanKind) IsValid() bool { return x >= 0 && x <= 3 }
@@ -95,13 +67,13 @@ var Status_StatusCode_name = map[int32]string{
 	1: "STATUS_CODE_OK",
 	2: "STATUS_CODE_ERROR",
 }
-var Status_StatusCode_value = traceInvert(Status_StatusCode_name)
+var Status_StatusCode_value = h.Invert(Status_StatusCode_name)
 
 // Enum returns a pointer to a copy of x.
 func (x Status_StatusCode) Enum() *Status_StatusCode { return &x }
 
 // String returns the name of x, or its number if it has no name.
-func (x Status_StatusCode) String() string { return traceEnumString(Status_StatusCode_name, int32(x)) }
+func (x Status_StatusCode) String() string { return h.EnumString(Status_StatusCode_name, int32(x)) }
 
 // IsValid reports whether x is a declared value of Status_StatusCode.
 func (x Status_StatusCode) IsValid() bool { return x >= 0 && x <= 2 }
@@ -123,12 +95,12 @@ type Span struct {
 	NullValue *wktpb.NullValue
 	Codes     map[string]Status_StatusCode
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Span) Reset()                       { *m = Span{} }
-func (m *Span) z() *Span                     { return traceIf(m == nil, &traceZeroSpan, m) }
+func (m *Span) z() *Span                     { return h.If(m == nil, &traceZSpan, m) }
 func (m *Span) GetTraceId() []byte           { return m.z().TraceId }
 func (m *Span) GetSpanId() []byte            { return m.z().SpanId }
 func (m *Span) GetTraceState() string        { return m.z().TraceState }
@@ -141,32 +113,32 @@ func (m *Span) GetStatus() *Status           { return m.z().Status }
 func (m *Span) GetHexList() [][]byte         { return m.z().HexList }
 func (m *Span) GetPlain() []byte             { return m.z().Plain }
 func (m *Span) GetNullValue() wktpb.NullValue {
-	return traceDeref(m.z().NullValue, wktpb.NullValue_NULL_VALUE)
+	return h.Deref(m.z().NullValue, wktpb.NullValue_NULL_VALUE)
 }
 func (m *Span) GetCodes() map[string]Status_StatusCode { return m.z().Codes }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Span) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Span) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Span) ProtoSize() (n int) {
 	m = m.z()
-	n += traceSizeLenField(1, len(m.TraceId))
-	n += traceSizeLenField(1, len(m.SpanId))
-	n += traceSizeLenField(1, len(m.TraceState))
-	n += traceSizeLenField(1, len(m.ParentSpanId))
-	n += traceSizeLenField(1, len(m.Name))
-	n += traceSizeVarint(1, uint64(int64(m.Kind)))
-	n += traceSizeFixed(1, traceFixed64Size, m.StartTimeUnixNano != 0)
-	n += traceSizeMsgs(1, m.Links, func(v *Span_Link) int { return v.ProtoSize() })
-	n += traceSizeMsg(1, m.Status, func(v *Status) int { return v.ProtoSize() })
-	n += traceSizeEach(2, m.HexList, traceBytesLen)
-	n += traceSizeLenField(2, len(m.Plain))
-	n += traceSizeOpt(2, m.NullValue, traceVarintLen)
+	n += h.SizeLenField(1, len(m.TraceId))
+	n += h.SizeLenField(1, len(m.SpanId))
+	n += h.SizeLenField(1, len(m.TraceState))
+	n += h.SizeLenField(1, len(m.ParentSpanId))
+	n += h.SizeLenField(1, len(m.Name))
+	n += h.SizeVarint(1, uint64(int64(m.Kind)))
+	n += h.SizeFixed(1, h.Fixed64Size, m.StartTimeUnixNano != 0)
+	n += h.SizeMsgs(1, m.Links, func(v *Span_Link) int { return v.ProtoSize() })
+	n += h.SizeMsg(1, m.Status, func(v *Status) int { return v.ProtoSize() })
+	n += h.SizeEach(2, m.HexList, h.BytesLen)
+	n += h.SizeLenField(2, len(m.Plain))
+	n += h.SizeOpt(2, m.NullValue, h.VarintLen)
 	for k, v := range m.Codes {
-		n += 2 + traceSizeLen(1+traceSizeLen(len(k))+1+(bits.Len64(uint64(int64(v))|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits)
+		n += 2 + h.SizeLen(1+h.SizeLen(len(k))+1+h.VarintLen(v))
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -174,58 +146,58 @@ func (m *Span) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Span) AppendBinary(b []byte) ([]byte, error) {
-	return traceAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
+	return h.AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Span) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := traceCopyUnknown(b, len(b), m.unknownFields)
-	if err := traceCheckUTF8(m.Name, traceSpanNameErrUTF8, traceCheckUTF8(m.TraceState, traceSpanTraceStateErrUTF8, nil)); err != nil {
+	i := h.CopyUnknown(b, len(b), m.u)
+	if err := h.CheckUTF8(m.Name, traceE2, h.CheckUTF8(m.TraceState, traceE1, nil)); err != nil {
 		return 0, err
 	}
 	if len(m.Codes) > 0 {
-		for _, k := range slices.Backward(traceSortedKeys(m.Codes, make([]string, 0, len(m.Codes)))) {
+		for _, k := range slices.Backward(h.SortedKeys(m.Codes, make([]string, 0, len(m.Codes)))) {
 			v := m.Codes[k]
 			start := i
-			i = tracePutVarint(b, tracePutVarint(b, i, uint64(int64(v))), traceMapValueField<<traceTagTypeBits|traceWireVarint)
+			i = h.PutVarint(b, h.PutVarint(b, i, uint64(int64(v))), h.MapValueField<<h.TagTypeBits|h.WireVarint)
 			if !utf8.ValidString(k) {
-				return 0, errors.New(traceSpanCodesEntryKeyErrUTF8)
+				return 0, errors.New(traceE3)
 			}
-			i = tracePutVarint(b, tracePutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), traceMapKeyField<<traceTagTypeBits|traceWireBytes)
-			i = tracePutVarint(b, tracePutVarint(b, i, uint64(start-i)), 103<<traceTagTypeBits|traceWireBytes)
+			i = h.PutVarint(b, h.PutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), h.MapKeyField<<h.TagTypeBits|h.WireBytes)
+			i = h.PutVarint(b, h.PutVarint(b, i, uint64(start-i)), 103<<h.TagTypeBits|h.WireBytes)
 		}
 	}
 	if m.NullValue != nil {
-		i = tracePutVarint(b, tracePutVarint(b, i, uint64(int64((*m.NullValue)))), 102<<traceTagTypeBits|traceWireVarint)
+		i = h.PutVarint(b, h.PutVarint(b, i, uint64(int64((*m.NullValue)))), 102<<h.TagTypeBits|h.WireVarint)
 	}
 	if len(m.Plain) > 0 {
-		i = tracePutVarint(b, tracePutVarint(b, i-copy(b[i-len(m.Plain):], m.Plain), uint64(len(m.Plain))), 101<<traceTagTypeBits|traceWireBytes)
+		i = h.PutVarint(b, h.PutVarint(b, i-copy(b[i-len(m.Plain):], m.Plain), uint64(len(m.Plain))), 101<<h.TagTypeBits|h.WireBytes)
 	}
 	for _, v := range slices.Backward(m.HexList) {
-		i = tracePutVarint(b, tracePutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 100<<traceTagTypeBits|traceWireBytes)
+		i = h.PutVarint(b, h.PutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 100<<h.TagTypeBits|h.WireBytes)
 	}
 	if m.Status != nil {
 		n, err := m.Status.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i = tracePutVarint(b, tracePutVarint(b, i-n, uint64(n)), 15<<traceTagTypeBits|traceWireBytes)
+		i = h.PutVarint(b, h.PutVarint(b, i-n, uint64(n)), 15<<h.TagTypeBits|h.WireBytes)
 	}
 	for _, v := range slices.Backward(m.Links) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
 			return 0, err
 		}
-		i = tracePutVarint(b, tracePutVarint(b, i-n, uint64(n)), 13<<traceTagTypeBits|traceWireBytes)
+		i = h.PutVarint(b, h.PutVarint(b, i-n, uint64(n)), 13<<h.TagTypeBits|h.WireBytes)
 	}
-	i = tracePutFixed64Field(b, i, uint64(m.StartTimeUnixNano), 7<<traceTagTypeBits|traceWireFixed64)
-	i = tracePutVarintField(b, i, uint64(int64(m.Kind)), 6<<traceTagTypeBits|traceWireVarint)
-	i = tracePutStringField(b, i, m.Name, 5<<traceTagTypeBits|traceWireBytes)
-	i = tracePutBytesField(b, i, m.ParentSpanId, 4<<traceTagTypeBits|traceWireBytes)
-	i = tracePutStringField(b, i, m.TraceState, 3<<traceTagTypeBits|traceWireBytes)
-	i = tracePutBytesField(b, i, m.SpanId, 2<<traceTagTypeBits|traceWireBytes)
-	i = tracePutBytesField(b, i, m.TraceId, 1<<traceTagTypeBits|traceWireBytes)
+	i = h.PutFixed64Field(b, i, uint64(m.StartTimeUnixNano), 7<<h.TagTypeBits|h.WireFixed64)
+	i = h.PutVarintField(b, i, uint64(int64(m.Kind)), 6<<h.TagTypeBits|h.WireVarint)
+	i = h.PutStringField(b, i, m.Name, 5<<h.TagTypeBits|h.WireBytes)
+	i = h.PutBytesField(b, i, m.ParentSpanId, 4<<h.TagTypeBits|h.WireBytes)
+	i = h.PutStringField(b, i, m.TraceState, 3<<h.TagTypeBits|h.WireBytes)
+	i = h.PutBytesField(b, i, m.SpanId, 2<<h.TagTypeBits|h.WireBytes)
+	i = h.PutBytesField(b, i, m.TraceId, 1<<h.TagTypeBits|h.WireBytes)
 	return len(b) - i, nil
 }
 
@@ -237,65 +209,65 @@ func (m *Span) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Span) ProtoMergeDepth(b []byte, depth int) error {
-	var x, err = []byte(nil), traceDepth(depth)
+	var x, err = []byte(nil), h.Depth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
-		case 1<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, &m.TraceId)
-		case 2<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, &m.SpanId)
-		case 3<<traceTagTypeBits | traceWireBytes:
-			n, err = traceString(b, &m.TraceState, traceSpanTraceStateErrUTF8)
-		case 4<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, &m.ParentSpanId)
-		case 5<<traceTagTypeBits | traceWireBytes:
-			n, err = traceString(b, &m.Name, traceSpanNameErrUTF8)
-		case 6<<traceTagTypeBits | traceWireVarint:
-			n = traceVarint(b, &m.Kind)
-		case 7<<traceTagTypeBits | traceWireFixed64:
-			n = traceFixed64(b, &m.StartTimeUnixNano)
-		case 13<<traceTagTypeBits | traceWireBytes:
-			x, n = traceReadBytes(b)
-			err = traceAlloc(traceGrow(&m.Links)).ProtoMergeDepth(x, depth+1)
-		case 15<<traceTagTypeBits | traceWireBytes:
-			x, n = traceReadBytes(b)
-			err = traceAlloc(&m.Status).ProtoMergeDepth(x, depth+1)
-		case 100<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, traceGrow(&m.HexList))
-		case 101<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, &m.Plain)
-		case 102<<traceTagTypeBits | traceWireVarint:
-			n = traceVarint(b, traceNew(&m.NullValue))
-		case 103<<traceTagTypeBits | traceWireBytes:
-			x, n = traceReadBytes(b)
+		case 1<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, &m.TraceId)
+		case 2<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, &m.SpanId)
+		case 3<<h.TagTypeBits | h.WireBytes:
+			n, err = h.String(b, &m.TraceState, traceE1)
+		case 4<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, &m.ParentSpanId)
+		case 5<<h.TagTypeBits | h.WireBytes:
+			n, err = h.String(b, &m.Name, traceE2)
+		case 6<<h.TagTypeBits | h.WireVarint:
+			n = h.Varint(b, &m.Kind)
+		case 7<<h.TagTypeBits | h.WireFixed64:
+			n = h.Fixed64(b, &m.StartTimeUnixNano)
+		case 13<<h.TagTypeBits | h.WireBytes:
+			x, n = h.ReadBytes(b)
+			err = h.Alloc(h.Grow(&m.Links)).ProtoMergeDepth(x, depth+1)
+		case 15<<h.TagTypeBits | h.WireBytes:
+			x, n = h.ReadBytes(b)
+			err = h.Alloc(&m.Status).ProtoMergeDepth(x, depth+1)
+		case 100<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, h.Grow(&m.HexList))
+		case 101<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, &m.Plain)
+		case 102<<h.TagTypeBits | h.WireVarint:
+			n = h.Varint(b, h.New(&m.NullValue))
+		case 103<<h.TagTypeBits | h.WireBytes:
+			x, n = h.ReadBytes(b)
 			mk, mv := "", Status_StatusCode(0)
 			for t, k := binary.Uvarint(x); k > 0; t, k = binary.Uvarint(x) {
 				x = x[k:]
 				switch t {
-				case traceMapKeyField<<traceTagTypeBits | traceWireBytes:
-					k, err = traceString(x, &mk, traceSpanCodesEntryKeyErrUTF8)
-				case traceMapValueField<<traceTagTypeBits | traceWireVarint:
-					k = traceVarint(x, &mv)
+				case h.MapKeyField<<h.TagTypeBits | h.WireBytes:
+					k, err = h.String(x, &mk, traceE3)
+				case h.MapValueField<<h.TagTypeBits | h.WireVarint:
+					k = h.Varint(x, &mv)
 				default:
-					k, err = traceSkipField(x, t, depth)
+					k, err = h.SkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(traceErrParse))
+					return cmp.Or(err, errors.New(h.ErrParse))
 				}
 				x = x[k:]
 			}
-			traceMapSet(&m.Codes, mk, mv)
-			err = traceEnd(x, err)
+			h.MapSet(&m.Codes, mk, mv)
+			err = h.End(x, err)
 		default:
-			n, err = traceUnknown(b, t, depth, &m.unknownFields)
+			n, err = h.Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(traceErrParse))
+			return cmp.Or(err, errors.New(h.ErrParse))
 		}
 		b = b[n:]
 	}
-	return traceEnd(b, err)
+	return h.End(b, err)
 }
 
 // ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
@@ -306,7 +278,7 @@ func (m *Span) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Span) MarshalJSONTo(e *jsontext.Encoder) error {
-	return traceMarshalTo(e, m.ProtoAppendJSON)
+	return h.MarshalTo(e, m.ProtoAppendJSON)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
@@ -320,13 +292,13 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 		b = append(hex.AppendEncode(append(b, ",\"spanId\":\""...), m.SpanId), '"')
 	}
 	if len(m.TraceState) > 0 {
-		b, err = traceQuote(append(b, ",\"traceState\":"...), m.TraceState, err)
+		b, err = h.Quote(append(b, ",\"traceState\":"...), m.TraceState, err)
 	}
 	if len(m.ParentSpanId) > 0 {
 		b = append(hex.AppendEncode(append(b, ",\"parentSpanId\":\""...), m.ParentSpanId), '"')
 	}
 	if len(m.Name) > 0 {
-		b, err = traceQuote(append(b, ",\"name\":"...), m.Name, err)
+		b, err = h.Quote(append(b, ",\"name\":"...), m.Name, err)
 	}
 	if m.Kind != 0 {
 		b = strconv.AppendInt(append(b, ",\"kind\":"...), int64(m.Kind), 10)
@@ -334,17 +306,17 @@ func (m *Span) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m.StartTimeUnixNano != 0 {
 		b = append(strconv.AppendUint(append(b, ",\"startTimeUnixNano\":\""...), m.StartTimeUnixNano, 10), '"')
 	}
-	b, err = traceAppendList(b, ",\"links\":[", m.Links, (*Span_Link).ProtoAppendJSON, err)
-	b, err = traceAppendMsg(b, ",\"status\":", m.Status, func(v *Status, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
-	b, err = traceAppendList(b, ",\"hexList\":[", m.HexList, func(v []byte, b []byte) ([]byte, error) { return append(hex.AppendEncode(append(b, '"'), v), '"'), nil }, err)
+	b, err = h.AppendList(b, ",\"links\":[", m.Links, (*Span_Link).ProtoAppendJSON, err)
+	b, err = h.AppendMsg(b, ",\"status\":", m.Status, func(v *Status, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
+	b, err = h.AppendList(b, ",\"hexList\":[", m.HexList, func(v []byte, b []byte) ([]byte, error) { return append(hex.AppendEncode(append(b, '"'), v), '"'), nil }, err)
 	if len(m.Plain) > 0 {
 		b = append(base64.StdEncoding.AppendEncode(append(b, ",\"plain\":\""...), m.Plain), '"')
 	}
 	if m.NullValue != nil {
 		b = append(b, ",\"nullValue\":null"...)
 	}
-	b, err = traceAppendMap(b, ",\"codes\":{", m.Codes, func(k string, b []byte) ([]byte, error) { return jsontext.AppendQuote(b, k) }, func(v Status_StatusCode, b []byte) ([]byte, error) { return strconv.AppendInt(b, int64(v), 10), nil }, err)
-	return traceCloseObject(b, start), err
+	b, err = h.AppendMap(b, ",\"codes\":{", m.Codes, func(k string, b []byte) ([]byte, error) { return jsontext.AppendQuote(b, k) }, func(v Status_StatusCode, b []byte) ([]byte, error) { return strconv.AppendInt(b, int64(v), 10), nil }, err)
+	return h.CloseObject(b, start), err
 }
 
 // UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
@@ -352,49 +324,49 @@ func (m *Span) UnmarshalJSON(b []byte) error { *m = Span{}; return m.ProtoMergeJ
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Span) ProtoMergeJSON(b []byte) error {
-	return traceMergeJSON(b, "cotorp.test.otlp.Span", m.ProtoMergeJSONFrom)
+	return h.MergeJSON(b, "cotorp.test.otlp.Span", m.ProtoMergeJSONFrom)
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Span) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 	*m = Span{}
-	return traceMergeFrom(d, m.ProtoMergeJSONFrom)
+	return h.MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Span) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	var seen [13]bool
-	for kt, err := traceOpenObject(d, "cotorp.test.otlp.Span"); kt.Kind() != jsontext.KindEndObject; kt, err = traceNextKey(d, err) {
+	for kt, err := h.OpenObject(d, "cotorp.test.otlp.Span"); kt.Kind() != jsontext.KindEndObject; kt, err = h.NextKey(d, err) {
 		if err != nil {
 			return err
 		}
 		switch key := kt.String(); key {
 		case "traceId", "trace_id":
-			err = traceField(d, &seen[0], key, "cotorp.test.otlp.Span", &m.TraceId, traceJSONHex)
+			err = h.Field(d, &seen[0], key, "cotorp.test.otlp.Span", &m.TraceId, h.JSONHex)
 		case "spanId", "span_id":
-			err = traceField(d, &seen[1], key, "cotorp.test.otlp.Span", &m.SpanId, traceJSONHex)
+			err = h.Field(d, &seen[1], key, "cotorp.test.otlp.Span", &m.SpanId, h.JSONHex)
 		case "traceState", "trace_state":
-			err = traceField(d, &seen[2], key, "cotorp.test.otlp.Span", &m.TraceState, traceJSONString)
+			err = h.Field(d, &seen[2], key, "cotorp.test.otlp.Span", &m.TraceState, h.JSONString)
 		case "parentSpanId", "parent_span_id":
-			err = traceField(d, &seen[3], key, "cotorp.test.otlp.Span", &m.ParentSpanId, traceJSONHex)
+			err = h.Field(d, &seen[3], key, "cotorp.test.otlp.Span", &m.ParentSpanId, h.JSONHex)
 		case "name":
-			err = traceField(d, &seen[4], key, "cotorp.test.otlp.Span", &m.Name, traceJSONString)
+			err = h.Field(d, &seen[4], key, "cotorp.test.otlp.Span", &m.Name, h.JSONString)
 		case "kind":
-			err = traceField(d, &seen[5], key, "cotorp.test.otlp.Span", &m.Kind, traceSpanSpanKindJSON)
+			err = h.Field(d, &seen[5], key, "cotorp.test.otlp.Span", &m.Kind, traceJSpanSpanKind)
 		case "startTimeUnixNano", "start_time_unix_nano":
-			err = traceField(d, &seen[6], key, "cotorp.test.otlp.Span", &m.StartTimeUnixNano, traceJSONUint)
+			err = h.Field(d, &seen[6], key, "cotorp.test.otlp.Span", &m.StartTimeUnixNano, h.JSONUint)
 		case "links":
-			err = traceRepField(d, &seen[7], key, "cotorp.test.otlp.Span", &m.Links, false, traceJSONMsg)
+			err = h.RepField(d, &seen[7], key, "cotorp.test.otlp.Span", &m.Links, false, h.JSONMsg)
 		case "status":
-			err = traceField(d, &seen[8], key, "cotorp.test.otlp.Span", &m.Status, traceJSONMsg)
+			err = h.Field(d, &seen[8], key, "cotorp.test.otlp.Span", &m.Status, h.JSONMsg)
 		case "hexList", "hex_list":
-			err = traceRepField(d, &seen[9], key, "cotorp.test.otlp.Span", &m.HexList, false, traceJSONHex)
+			err = h.RepField(d, &seen[9], key, "cotorp.test.otlp.Span", &m.HexList, false, h.JSONHex)
 		case "plain":
-			err = traceField(d, &seen[10], key, "cotorp.test.otlp.Span", &m.Plain, traceJSONBytes)
+			err = h.Field(d, &seen[10], key, "cotorp.test.otlp.Span", &m.Plain, h.JSONBytes)
 		case "nullValue", "null_value":
-			err = traceField(d, &seen[11], key, "cotorp.test.otlp.Span", traceNew(&m.NullValue), traceGoogleProtobufNullValueJSON)
+			err = h.Field(d, &seen[11], key, "cotorp.test.otlp.Span", h.New(&m.NullValue), traceJGoogleProtobufNullValue)
 		case "codes":
-			err = traceMapField(d, &seen[12], key, "cotorp.test.otlp.Span", "codes", &m.Codes, false, traceStringKey, traceStatusStatusCodeJSON)
+			err = h.MapField(d, &seen[12], key, "cotorp.test.otlp.Span", "codes", &m.Codes, false, h.StringKey, traceJStatusStatusCode)
 		default:
 			err = d.SkipValue()
 		}
@@ -402,40 +374,40 @@ func (m *Span) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func traceSpanSpanKindJSON(d *jsontext.Decoder, p *Span_SpanKind, name string) error {
-	return traceJSONEnum(d, p, Span_SpanKind_value, name, "cotorp.test.otlp.Span.SpanKind", false)
+func traceJSpanSpanKind(d *jsontext.Decoder, p *Span_SpanKind, name string) error {
+	return h.JSONEnum(d, p, Span_SpanKind_value, name, "cotorp.test.otlp.Span.SpanKind", false)
 }
 
-func traceGoogleProtobufNullValueJSON(d *jsontext.Decoder, p *wktpb.NullValue, name string) error {
-	return traceJSONEnum(d, p, wktpb.NullValue_value, name, "google.protobuf.NullValue", true)
+func traceJGoogleProtobufNullValue(d *jsontext.Decoder, p *wktpb.NullValue, name string) error {
+	return h.JSONEnum(d, p, wktpb.NullValue_value, name, "google.protobuf.NullValue", true)
 }
 
-func traceStatusStatusCodeJSON(d *jsontext.Decoder, p *Status_StatusCode, name string) error {
-	return traceJSONEnum(d, p, Status_StatusCode_value, name, "cotorp.test.otlp.Status.StatusCode", false)
+func traceJStatusStatusCode(d *jsontext.Decoder, p *Status_StatusCode, name string) error {
+	return h.JSONEnum(d, p, Status_StatusCode_value, name, "cotorp.test.otlp.Status.StatusCode", false)
 }
 
 type Span_Link struct {
 	TraceId []byte
 	SpanId  []byte
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Span_Link) Reset()             { *m = Span_Link{} }
-func (m *Span_Link) z() *Span_Link      { return traceIf(m == nil, &traceZeroSpan_Link, m) }
+func (m *Span_Link) z() *Span_Link      { return h.If(m == nil, &traceZSpan_Link, m) }
 func (m *Span_Link) GetTraceId() []byte { return m.z().TraceId }
 func (m *Span_Link) GetSpanId() []byte  { return m.z().SpanId }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Span_Link) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Span_Link) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Span_Link) ProtoSize() (n int) {
 	m = m.z()
-	n += traceSizeLenField(1, len(m.TraceId))
-	n += traceSizeLenField(1, len(m.SpanId))
-	return n + len(m.unknownFields)
+	n += h.SizeLenField(1, len(m.TraceId))
+	n += h.SizeLenField(1, len(m.SpanId))
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -443,15 +415,15 @@ func (m *Span_Link) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil)
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Span_Link) AppendBinary(b []byte) ([]byte, error) {
-	return traceAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
+	return h.AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Span_Link) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := traceCopyUnknown(b, len(b), m.unknownFields)
-	i = tracePutBytesField(b, i, m.SpanId, 2<<traceTagTypeBits|traceWireBytes)
-	i = tracePutBytesField(b, i, m.TraceId, 1<<traceTagTypeBits|traceWireBytes)
+	i := h.CopyUnknown(b, len(b), m.u)
+	i = h.PutBytesField(b, i, m.SpanId, 2<<h.TagTypeBits|h.WireBytes)
+	i = h.PutBytesField(b, i, m.TraceId, 1<<h.TagTypeBits|h.WireBytes)
 	return len(b) - i, nil
 }
 
@@ -463,23 +435,23 @@ func (m *Span_Link) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) 
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Span_Link) ProtoMergeDepth(b []byte, depth int) error {
-	err := traceDepth(depth)
+	err := h.Depth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
-		case 1<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, &m.TraceId)
-		case 2<<traceTagTypeBits | traceWireBytes:
-			n = traceBytes(b, &m.SpanId)
+		case 1<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, &m.TraceId)
+		case 2<<h.TagTypeBits | h.WireBytes:
+			n = h.Bytes(b, &m.SpanId)
 		default:
-			n, err = traceUnknown(b, t, depth, &m.unknownFields)
+			n, err = h.Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(traceErrParse))
+			return cmp.Or(err, errors.New(h.ErrParse))
 		}
 		b = b[n:]
 	}
-	return traceEnd(b, err)
+	return h.End(b, err)
 }
 
 // ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
@@ -490,7 +462,7 @@ func (m *Span_Link) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Span_Link) MarshalJSONTo(e *jsontext.Encoder) error {
-	return traceMarshalTo(e, m.ProtoAppendJSON)
+	return h.MarshalTo(e, m.ProtoAppendJSON)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
@@ -502,7 +474,7 @@ func (m *Span_Link) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if len(m.SpanId) > 0 {
 		b = append(hex.AppendEncode(append(b, ",\"spanId\":\""...), m.SpanId), '"')
 	}
-	return traceCloseObject(b, start), nil
+	return h.CloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
@@ -510,27 +482,27 @@ func (m *Span_Link) UnmarshalJSON(b []byte) error { *m = Span_Link{}; return m.P
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Span_Link) ProtoMergeJSON(b []byte) error {
-	return traceMergeJSON(b, "cotorp.test.otlp.Span.Link", m.ProtoMergeJSONFrom)
+	return h.MergeJSON(b, "cotorp.test.otlp.Span.Link", m.ProtoMergeJSONFrom)
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Span_Link) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 	*m = Span_Link{}
-	return traceMergeFrom(d, m.ProtoMergeJSONFrom)
+	return h.MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Span_Link) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	var seen [2]bool
-	for kt, err := traceOpenObject(d, "cotorp.test.otlp.Span.Link"); kt.Kind() != jsontext.KindEndObject; kt, err = traceNextKey(d, err) {
+	for kt, err := h.OpenObject(d, "cotorp.test.otlp.Span.Link"); kt.Kind() != jsontext.KindEndObject; kt, err = h.NextKey(d, err) {
 		if err != nil {
 			return err
 		}
 		switch key := kt.String(); key {
 		case "traceId", "trace_id":
-			err = traceField(d, &seen[0], key, "cotorp.test.otlp.Span.Link", &m.TraceId, traceJSONHex)
+			err = h.Field(d, &seen[0], key, "cotorp.test.otlp.Span.Link", &m.TraceId, h.JSONHex)
 		case "spanId", "span_id":
-			err = traceField(d, &seen[1], key, "cotorp.test.otlp.Span.Link", &m.SpanId, traceJSONHex)
+			err = h.Field(d, &seen[1], key, "cotorp.test.otlp.Span.Link", &m.SpanId, h.JSONHex)
 		default:
 			err = d.SkipValue()
 		}
@@ -542,24 +514,24 @@ type Status struct {
 	Message string
 	Code    Status_StatusCode
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Status) Reset()                     { *m = Status{} }
-func (m *Status) z() *Status                 { return traceIf(m == nil, &traceZeroStatus, m) }
+func (m *Status) z() *Status                 { return h.If(m == nil, &traceZStatus, m) }
 func (m *Status) GetMessage() string         { return m.z().Message }
 func (m *Status) GetCode() Status_StatusCode { return m.z().Code }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Status) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Status) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Status) ProtoSize() (n int) {
 	m = m.z()
-	n += traceSizeLenField(1, len(m.Message))
-	n += traceSizeVarint(1, uint64(int64(m.Code)))
-	return n + len(m.unknownFields)
+	n += h.SizeLenField(1, len(m.Message))
+	n += h.SizeVarint(1, uint64(int64(m.Code)))
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -567,18 +539,18 @@ func (m *Status) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Status) AppendBinary(b []byte) ([]byte, error) {
-	return traceAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
+	return h.AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Status) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := traceCopyUnknown(b, len(b), m.unknownFields)
-	if err := traceCheckUTF8(m.Message, traceStatusMessageErrUTF8, nil); err != nil {
+	i := h.CopyUnknown(b, len(b), m.u)
+	if err := h.CheckUTF8(m.Message, traceE4, nil); err != nil {
 		return 0, err
 	}
-	i = tracePutVarintField(b, i, uint64(int64(m.Code)), 3<<traceTagTypeBits|traceWireVarint)
-	i = tracePutStringField(b, i, m.Message, 2<<traceTagTypeBits|traceWireBytes)
+	i = h.PutVarintField(b, i, uint64(int64(m.Code)), 3<<h.TagTypeBits|h.WireVarint)
+	i = h.PutStringField(b, i, m.Message, 2<<h.TagTypeBits|h.WireBytes)
 	return len(b) - i, nil
 }
 
@@ -590,23 +562,23 @@ func (m *Status) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Status) ProtoMergeDepth(b []byte, depth int) error {
-	err := traceDepth(depth)
+	err := h.Depth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
-		case 2<<traceTagTypeBits | traceWireBytes:
-			n, err = traceString(b, &m.Message, traceStatusMessageErrUTF8)
-		case 3<<traceTagTypeBits | traceWireVarint:
-			n = traceVarint(b, &m.Code)
+		case 2<<h.TagTypeBits | h.WireBytes:
+			n, err = h.String(b, &m.Message, traceE4)
+		case 3<<h.TagTypeBits | h.WireVarint:
+			n = h.Varint(b, &m.Code)
 		default:
-			n, err = traceUnknown(b, t, depth, &m.unknownFields)
+			n, err = h.Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(traceErrParse))
+			return cmp.Or(err, errors.New(h.ErrParse))
 		}
 		b = b[n:]
 	}
-	return traceEnd(b, err)
+	return h.End(b, err)
 }
 
 // ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
@@ -617,7 +589,7 @@ func (m *Status) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Status) MarshalJSONTo(e *jsontext.Encoder) error {
-	return traceMarshalTo(e, m.ProtoAppendJSON)
+	return h.MarshalTo(e, m.ProtoAppendJSON)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
@@ -625,12 +597,12 @@ func (m *Status) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
 	m, start := m.z(), len(b)
 	if len(m.Message) > 0 {
-		b, err = traceQuote(append(b, ",\"message\":"...), m.Message, err)
+		b, err = h.Quote(append(b, ",\"message\":"...), m.Message, err)
 	}
 	if m.Code != 0 {
 		b = strconv.AppendInt(append(b, ",\"code\":"...), int64(m.Code), 10)
 	}
-	return traceCloseObject(b, start), err
+	return h.CloseObject(b, start), err
 }
 
 // UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
@@ -638,27 +610,27 @@ func (m *Status) UnmarshalJSON(b []byte) error { *m = Status{}; return m.ProtoMe
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Status) ProtoMergeJSON(b []byte) error {
-	return traceMergeJSON(b, "cotorp.test.otlp.Status", m.ProtoMergeJSONFrom)
+	return h.MergeJSON(b, "cotorp.test.otlp.Status", m.ProtoMergeJSONFrom)
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Status) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 	*m = Status{}
-	return traceMergeFrom(d, m.ProtoMergeJSONFrom)
+	return h.MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Status) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	var seen [2]bool
-	for kt, err := traceOpenObject(d, "cotorp.test.otlp.Status"); kt.Kind() != jsontext.KindEndObject; kt, err = traceNextKey(d, err) {
+	for kt, err := h.OpenObject(d, "cotorp.test.otlp.Status"); kt.Kind() != jsontext.KindEndObject; kt, err = h.NextKey(d, err) {
 		if err != nil {
 			return err
 		}
 		switch key := kt.String(); key {
 		case "message":
-			err = traceField(d, &seen[0], key, "cotorp.test.otlp.Status", &m.Message, traceJSONString)
+			err = h.Field(d, &seen[0], key, "cotorp.test.otlp.Status", &m.Message, h.JSONString)
 		case "code":
-			err = traceField(d, &seen[1], key, "cotorp.test.otlp.Status", &m.Code, traceStatusStatusCodeJSON)
+			err = h.Field(d, &seen[1], key, "cotorp.test.otlp.Status", &m.Code, traceJStatusStatusCode)
 		default:
 			err = d.SkipValue()
 		}
@@ -673,24 +645,24 @@ type AnyValue struct {
 	//	*AnyValue_BytesValue
 	Value isAnyValue_Value
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *AnyValue) Reset()                     { *m = AnyValue{} }
-func (m *AnyValue) z() *AnyValue               { return traceIf(m == nil, &traceZeroAnyValue, m) }
+func (m *AnyValue) z() *AnyValue               { return h.If(m == nil, &traceZAnyValue, m) }
 func (m *AnyValue) GetValue() isAnyValue_Value { return m.z().Value }
 func (m *AnyValue) GetStringValue() string {
 	x, _ := m.GetValue().(*AnyValue_StringValue)
-	return traceIf(x == nil, new(AnyValue_StringValue), x).StringValue
+	return h.If(x == nil, new(AnyValue_StringValue), x).StringValue
 }
 func (m *AnyValue) GetBytesValue() []byte {
 	x, _ := m.GetValue().(*AnyValue_BytesValue)
-	return traceIf(x == nil, new(AnyValue_BytesValue), x).BytesValue
+	return h.If(x == nil, new(AnyValue_BytesValue), x).BytesValue
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *AnyValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *AnyValue) ProtoUnknownFields() []byte { return m.z().u }
 
 type isAnyValue_Value interface{ isAnyValue_Value() }
 type AnyValue_StringValue struct{ StringValue string }
@@ -704,11 +676,11 @@ func (m *AnyValue) ProtoSize() (n int) {
 	m = m.z()
 	switch o := m.Value.(type) {
 	case *AnyValue_StringValue:
-		n += 1 + traceSizeLen(len(o.StringValue))
+		n += 1 + h.SizeLen(len(o.StringValue))
 	case *AnyValue_BytesValue:
-		n += 1 + traceSizeLen(len(o.BytesValue))
+		n += 1 + h.SizeLen(len(o.BytesValue))
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -716,21 +688,21 @@ func (m *AnyValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) 
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *AnyValue) AppendBinary(b []byte) ([]byte, error) {
-	return traceAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
+	return h.AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *AnyValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := traceCopyUnknown(b, len(b), m.unknownFields)
-	if err := traceCheckUTF8(m.GetStringValue(), traceAnyValueStringValueErrUTF8, nil); err != nil {
+	i := h.CopyUnknown(b, len(b), m.u)
+	if err := h.CheckUTF8(m.GetStringValue(), traceE5, nil); err != nil {
 		return 0, err
 	}
 	if o, ok := m.Value.(*AnyValue_BytesValue); ok {
-		i = tracePutVarint(b, tracePutVarint(b, i-copy(b[i-len(o.BytesValue):], o.BytesValue), uint64(len(o.BytesValue))), 7<<traceTagTypeBits|traceWireBytes)
+		i = h.PutVarint(b, h.PutVarint(b, i-copy(b[i-len(o.BytesValue):], o.BytesValue), uint64(len(o.BytesValue))), 7<<h.TagTypeBits|h.WireBytes)
 	}
 	if o, ok := m.Value.(*AnyValue_StringValue); ok {
-		i = tracePutVarint(b, tracePutVarint(b, i-copy(b[i-len(o.StringValue):], o.StringValue), uint64(len(o.StringValue))), 1<<traceTagTypeBits|traceWireBytes)
+		i = h.PutVarint(b, h.PutVarint(b, i-copy(b[i-len(o.StringValue):], o.StringValue), uint64(len(o.StringValue))), 1<<h.TagTypeBits|h.WireBytes)
 	}
 	return len(b) - i, nil
 }
@@ -743,26 +715,26 @@ func (m *AnyValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *AnyValue) ProtoMergeDepth(b []byte, depth int) error {
-	err := traceDepth(depth)
+	err := h.Depth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
-		case 1<<traceTagTypeBits | traceWireBytes:
+		case 1<<h.TagTypeBits | h.WireBytes:
 			o := new(AnyValue_StringValue)
-			n, err = traceString(b, &o.StringValue, traceAnyValueStringValueErrUTF8)
+			n, err = h.String(b, &o.StringValue, traceE5)
 			m.Value = o
-		case 7<<traceTagTypeBits | traceWireBytes:
+		case 7<<h.TagTypeBits | h.WireBytes:
 			o := new(AnyValue_BytesValue)
-			n, m.Value = traceBytes(b, &o.BytesValue), o
+			n, m.Value = h.Bytes(b, &o.BytesValue), o
 		default:
-			n, err = traceUnknown(b, t, depth, &m.unknownFields)
+			n, err = h.Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(traceErrParse))
+			return cmp.Or(err, errors.New(h.ErrParse))
 		}
 		b = b[n:]
 	}
-	return traceEnd(b, err)
+	return h.End(b, err)
 }
 
 // ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
@@ -773,7 +745,7 @@ func (m *AnyValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil)
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *AnyValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	return traceMarshalTo(e, m.ProtoAppendJSON)
+	return h.MarshalTo(e, m.ProtoAppendJSON)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
@@ -781,12 +753,12 @@ func (m *AnyValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
 	m, start := m.z(), len(b)
 	if o, ok := m.Value.(*AnyValue_StringValue); ok {
-		b, err = traceQuote(append(b, ",\"stringValue\":"...), o.StringValue, err)
+		b, err = h.Quote(append(b, ",\"stringValue\":"...), o.StringValue, err)
 	}
 	if o, ok := m.Value.(*AnyValue_BytesValue); ok {
 		b = append(base64.StdEncoding.AppendEncode(append(b, ",\"bytesValue\":\""...), o.BytesValue), '"')
 	}
-	return traceCloseObject(b, start), err
+	return h.CloseObject(b, start), err
 }
 
 // UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
@@ -794,29 +766,29 @@ func (m *AnyValue) UnmarshalJSON(b []byte) error { *m = AnyValue{}; return m.Pro
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *AnyValue) ProtoMergeJSON(b []byte) error {
-	return traceMergeJSON(b, "cotorp.test.otlp.AnyValue", m.ProtoMergeJSONFrom)
+	return h.MergeJSON(b, "cotorp.test.otlp.AnyValue", m.ProtoMergeJSONFrom)
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *AnyValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 	*m = AnyValue{}
-	return traceMergeFrom(d, m.ProtoMergeJSONFrom)
+	return h.MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *AnyValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	seen, oneofs := [2]bool{}, [1]bool{}
-	for kt, err := traceOpenObject(d, "cotorp.test.otlp.AnyValue"); kt.Kind() != jsontext.KindEndObject; kt, err = traceNextKey(d, err) {
+	for kt, err := h.OpenObject(d, "cotorp.test.otlp.AnyValue"); kt.Kind() != jsontext.KindEndObject; kt, err = h.NextKey(d, err) {
 		if err != nil {
 			return err
 		}
 		switch key := kt.String(); key {
 		case "stringValue", "string_value":
 			o := new(AnyValue_StringValue)
-			err = traceOneofField(d, &seen[0], &oneofs[0], key, "cotorp.test.otlp.AnyValue", "value", &m.Value, isAnyValue_Value(o), &o.StringValue, false, traceJSONString)
+			err = h.OneofField(d, &seen[0], &oneofs[0], key, "cotorp.test.otlp.AnyValue", "value", &m.Value, isAnyValue_Value(o), &o.StringValue, false, h.JSONString)
 		case "bytesValue", "bytes_value":
 			o := new(AnyValue_BytesValue)
-			err = traceOneofField(d, &seen[1], &oneofs[0], key, "cotorp.test.otlp.AnyValue", "value", &m.Value, isAnyValue_Value(o), &o.BytesValue, false, traceJSONBytes)
+			err = h.OneofField(d, &seen[1], &oneofs[0], key, "cotorp.test.otlp.AnyValue", "value", &m.Value, isAnyValue_Value(o), &o.BytesValue, false, h.JSONBytes)
 		default:
 			err = d.SkipValue()
 		}
@@ -825,20 +797,20 @@ func (m *AnyValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 type Nothing struct {
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Nothing) Reset()      { *m = Nothing{} }
-func (m *Nothing) z() *Nothing { return traceIf(m == nil, &traceZeroNothing, m) }
+func (m *Nothing) z() *Nothing { return h.If(m == nil, &traceZNothing, m) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Nothing) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Nothing) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Nothing) ProtoSize() (n int) {
 	m = m.z()
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -846,13 +818,13 @@ func (m *Nothing) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Nothing) AppendBinary(b []byte) ([]byte, error) {
-	return traceAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
+	return h.AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Nothing) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := traceCopyUnknown(b, len(b), m.unknownFields)
+	i := h.CopyUnknown(b, len(b), m.u)
 	return len(b) - i, nil
 }
 
@@ -864,16 +836,16 @@ func (m *Nothing) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Nothing) ProtoMergeDepth(b []byte, depth int) error {
-	err := traceDepth(depth)
+	err := h.Depth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err = traceUnknown(b, t, depth, &m.unknownFields)
+		n, err = h.Unknown(b, t, depth, &m.u)
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(traceErrParse))
+			return cmp.Or(err, errors.New(h.ErrParse))
 		}
 		b = b[n:]
 	}
-	return traceEnd(b, err)
+	return h.End(b, err)
 }
 
 // ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
@@ -884,13 +856,13 @@ func (m *Nothing) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) 
 
 // MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Nothing) MarshalJSONTo(e *jsontext.Encoder) error {
-	return traceMarshalTo(e, m.ProtoAppendJSON)
+	return h.MarshalTo(e, m.ProtoAppendJSON)
 }
 
 // ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Nothing) ProtoAppendJSON(b []byte) ([]byte, error) {
 	m, start := m.z(), len(b)
-	return traceCloseObject(b, start), nil
+	return h.CloseObject(b, start), nil
 }
 
 // UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
@@ -898,18 +870,18 @@ func (m *Nothing) UnmarshalJSON(b []byte) error { *m = Nothing{}; return m.Proto
 
 // ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Nothing) ProtoMergeJSON(b []byte) error {
-	return traceMergeJSON(b, "cotorp.test.otlp.Nothing", m.ProtoMergeJSONFrom)
+	return h.MergeJSON(b, "cotorp.test.otlp.Nothing", m.ProtoMergeJSONFrom)
 }
 
 // UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Nothing) UnmarshalJSONFrom(d *jsontext.Decoder) error {
 	*m = Nothing{}
-	return traceMergeFrom(d, m.ProtoMergeJSONFrom)
+	return h.MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
 // ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Nothing) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	for kt, err := traceOpenObject(d, "cotorp.test.otlp.Nothing"); kt.Kind() != jsontext.KindEndObject; kt, err = traceNextKey(d, err) {
+	for kt, err := h.OpenObject(d, "cotorp.test.otlp.Nothing"); kt.Kind() != jsontext.KindEndObject; kt, err = h.NextKey(d, err) {
 		if err != nil {
 			return err
 		}
@@ -919,589 +891,9 @@ func (m *Nothing) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	traceZeroSpan      Span
-	traceZeroSpan_Link Span_Link
-	traceZeroStatus    Status
-	traceZeroAnyValue  AnyValue
-	traceZeroNothing   Nothing
+	traceZSpan      Span
+	traceZSpan_Link Span_Link
+	traceZStatus    Status
+	traceZAnyValue  AnyValue
+	traceZNothing   Nothing
 )
-
-func traceSizeLen(l int) int                     { return l + traceVarintLen(l) }
-func traceSizeVarint(tag int, u uint64) int      { return traceIf(u == 0, 0, tag+traceVarintLen(u)) }
-func traceSizeFixed(tag, size int, set bool) int { return traceIf(set, tag+size, 0) }
-func traceSizeLenField(tag, l int) int           { return traceIf(l == 0, 0, tag+traceSizeLen(l)) }
-func traceSizeMsg[T any](tag int, p *T, size func(*T) int) int {
-	if p == nil {
-		return 0
-	}
-	return tag + traceSizeLen(size(p))
-}
-func traceSizeMsgs[T any](tag int, s []*T, size func(*T) int) (n int) {
-	for _, v := range s {
-		n += tag + traceSizeLen(size(v))
-	}
-	return n
-}
-func traceSizeOpt[T any](tag int, p *T, size func(T) int) int {
-	if p == nil {
-		return 0
-	}
-	return tag + size(*p)
-}
-func traceSizeEach[T any](tag int, s []T, size func(T) int) (n int) {
-	for _, v := range s {
-		n += tag + size(v)
-	}
-	return n
-}
-func traceVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
-	return (bits.Len64(uint64(int64(v))|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
-}
-func traceBytesLen[T ~string | ~[]byte](v T) int { return traceSizeLen(len(v)) }
-func traceCheckUTF8(s, msg string, err error) error {
-	if len(s) > 0 && !utf8.ValidString(s) {
-		return errors.New(msg)
-	}
-	return err
-}
-func traceCopyUnknown(b []byte, i int, u []byte) int {
-	if len(u) > 0 {
-		i -= copy(b[i-len(u):], u)
-	}
-	return i
-}
-func traceAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
-	b = slices.Grow(b, size)
-	n, err := marshal(b[len(b) : len(b)+size])
-	if err == nil && n != size {
-		err = errors.New("proto: message size changed during marshal")
-	}
-	if err != nil {
-		return b, err
-	}
-	return b[:len(b)+size], nil
-}
-func tracePutVarint(b []byte, i int, u uint64) int {
-	if u < traceVarintContBit {
-		b[i-1] = byte(u)
-		return i - 1
-	}
-	i -= (bits.Len64(u|1) + traceVarintPayloadBits - 1) / traceVarintPayloadBits
-	binary.PutUvarint(b[i:], u)
-	return i
-}
-func tracePutVarintField(b []byte, i int, u uint64, tag byte) int {
-	if u == 0 {
-		return i
-	}
-	i -= (bits.Len64(u|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits + 1
-	b[i] = tag
-	p := i + 1
-	for ; u >= traceVarintContBit; u >>= traceVarintPayloadBits {
-		b[p] = byte(u) | traceVarintContBit
-		p++
-	}
-	b[p] = byte(u)
-	return i
-}
-func tracePutStringField(b []byte, i int, v string, tag byte) int {
-	if len(v) == 0 {
-		return i
-	}
-	i -= copy(b[i-len(v):], v)
-	u := uint64(len(v))
-	i -= (bits.Len64(u|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits + 1
-	b[i] = tag
-	p := i + 1
-	for ; u >= traceVarintContBit; u >>= traceVarintPayloadBits {
-		b[p] = byte(u) | traceVarintContBit
-		p++
-	}
-	b[p] = byte(u)
-	return i
-}
-func tracePutBytesField(b []byte, i int, v []byte, tag byte) int {
-	if len(v) == 0 {
-		return i
-	}
-	i -= copy(b[i-len(v):], v)
-	u := uint64(len(v))
-	i -= (bits.Len64(u|1)+traceVarintPayloadBits-1)/traceVarintPayloadBits + 1
-	b[i] = tag
-	p := i + 1
-	for ; u >= traceVarintContBit; u >>= traceVarintPayloadBits {
-		b[p] = byte(u) | traceVarintContBit
-		p++
-	}
-	b[p] = byte(u)
-	return i
-}
-func tracePutFixed64Field(b []byte, i int, u uint64, tag byte) int {
-	if u == 0 {
-		return i
-	}
-	binary.LittleEndian.PutUint64(b[i-traceFixed64Size:], u)
-	i -= traceFixed64Size + 1
-	b[i] = tag
-	return i
-}
-func traceSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
-}
-func traceIf[T any](c bool, a, b T) T {
-	if c {
-		return a
-	}
-	return b
-}
-func traceDepth(depth int) error {
-	if depth >= traceMaxDepth {
-		return errors.New("proto: exceeded maximum recursion depth")
-	}
-	return nil
-}
-func traceReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-func traceSkipField(b []byte, t uint64, depth int) (int, error) {
-	n, num := 0, t>>traceTagTypeBits
-	switch wt := t & traceTagTypeMask; {
-	case num == 0 || num > traceMaxFieldNumber:
-	case wt == traceWireVarint:
-		_, n = binary.Uvarint(b)
-	case wt == traceWireBytes:
-		_, n = traceReadBytes(b)
-	case wt == traceWireStartGroup:
-		return traceSkipGroup(b, int32(num), depth+1)
-	case wt == traceWireFixed64 || wt == traceWireFixed32:
-		n = traceIf(wt == traceWireFixed64, traceFixed64Size, traceFixed32Size)
-		n = traceIf(len(b) >= n, n, 0)
-	}
-	if n <= 0 {
-		return 0, errors.New(traceErrParse)
-	}
-	return n, nil
-}
-func traceSkipGroup(b []byte, num int32, depth int) (int, error) {
-	n, err := 0, traceDepth(depth)
-	for err == nil {
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 {
-			return 0, errors.New(traceErrParse)
-		}
-		if n += k; t == uint64(num)<<traceTagTypeBits|traceWireEndGroup {
-			return n, nil
-		}
-		k, err = traceSkipField(b[n:], t, depth)
-		n += k
-	}
-	return 0, err
-}
-func traceUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
-	n, err := traceSkipField(b, t, depth)
-	if err == nil {
-		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
-	}
-	return n, err
-}
-func traceEnd(b []byte, err error) error {
-	if err == nil && len(b) > 0 {
-		return errors.New(traceErrParse)
-	}
-	return err
-}
-func traceVarint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
-	u, n := binary.Uvarint(b)
-	*p = T(u)
-	return n
-}
-func traceFixed64[T ~uint64 | ~int64](b []byte, p *T) int {
-	if len(b) < traceFixed64Size {
-		return -1
-	}
-	*p = T(binary.LittleEndian.Uint64(b))
-	return traceFixed64Size
-}
-func traceBytes(b []byte, p *[]byte) int {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return -1
-	}
-	*p = append([]byte{}, b[k:k+int(ln)]...)
-	return k + int(ln)
-}
-func traceString(b []byte, p *string, errUTF8 string) (int, error) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return -1, nil
-	}
-	x := b[k : k+int(ln)]
-	if errUTF8 != "" && !utf8.Valid(x) {
-		return 0, errors.New(errUTF8)
-	}
-	*p = string(x)
-	return k + int(ln), nil
-}
-func traceNew[T any](p **T) *T   { *p = new(T); return *p }
-func traceGrow[T any](s *[]T) *T { var z T; *s = append(*s, z); return &(*s)[len(*s)-1] }
-func traceAlloc[T any](p **T) *T {
-	if *p == nil {
-		*p = new(T)
-	}
-	return *p
-}
-func traceMapSet[K comparable, V any](m *map[K]V, k K, v V) {
-	if *m == nil {
-		*m = make(map[K]V)
-	}
-	(*m)[k] = v
-}
-func traceInvert[K, V comparable](m map[K]V) map[V]K {
-	r := make(map[V]K, len(m))
-	for k, v := range m {
-		r[v] = k
-	}
-	return r
-}
-func traceEnumString(names map[int32]string, v int32) string {
-	if s, ok := names[v]; ok {
-		return s
-	}
-	return strconv.Itoa(int(v))
-}
-func traceDeref[T any](p *T, def T) T {
-	if p != nil {
-		return *p
-	}
-	return def
-}
-func traceMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
-	b, err := f(e.AvailableBuffer())
-	if err != nil {
-		return err
-	}
-	return e.WriteValue(b)
-}
-func traceQuote(b []byte, s string, err error) ([]byte, error) {
-	if err != nil {
-		return b, err
-	}
-	return jsontext.AppendQuote(b, s)
-}
-func traceAppendMsg[T any](b []byte, lit string, p *T, f func(*T, []byte) ([]byte, error), err error) ([]byte, error) {
-	if err != nil || p == nil {
-		return b, err
-	}
-	return f(p, append(b, lit...))
-}
-func traceAppendList[T any](b []byte, lit string, s []T, f func(T, []byte) ([]byte, error), err error) ([]byte, error) {
-	if err != nil || len(s) == 0 {
-		return b, err
-	}
-	b = append(b, lit...)
-	for _, v := range s {
-		if b, err = f(v, b); err != nil {
-			return b, err
-		}
-		b = append(b, ',')
-	}
-	b[len(b)-1] = ']'
-	return b, nil
-}
-func traceAppendMap[K cmp.Ordered, V any](b []byte, lit string, m map[K]V, fk func(K, []byte) ([]byte, error), fv func(V, []byte) ([]byte, error), err error) ([]byte, error) {
-	if err != nil || len(m) == 0 {
-		return b, err
-	}
-	b = append(b, lit...)
-	for _, k := range traceSortedKeys(m, make([]K, 0, len(m))) {
-		if b, err = fk(k, b); err != nil {
-			return b, err
-		}
-		if b, err = fv(m[k], append(b, ':')); err != nil {
-			return b, err
-		}
-		b = append(b, ',')
-	}
-	b[len(b)-1] = '}'
-	return b, nil
-}
-func traceCloseObject(b []byte, start int) []byte {
-	if len(b) == start {
-		return append(b, "{}"...)
-	}
-	b[start] = '{'
-	return append(b, '}')
-}
-func traceMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	if err := merge(d); err != nil {
-		return err
-	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		return traceJSONError(name, "unexpected data after JSON value")
-	}
-	return nil
-}
-func traceMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
-	d, err := traceStrictDecoder(d)
-	return cmp.Or(err, merge(d))
-}
-func traceStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
-	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
-		return d, nil
-	}
-	v, err := d.ReadValue()
-	if err != nil {
-		return d, err
-	}
-	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
-}
-func traceExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	if tok.Kind() != kind {
-		return traceJSONError(name, "expected a JSON "+what)
-	}
-	return nil
-}
-func traceOpenObject(d *jsontext.Decoder, name string) (jsontext.Token, error) {
-	if d.PeekKind() == jsontext.KindNull {
-		return jsontext.EndObject, d.SkipValue()
-	}
-	return traceNextKey(d, traceExpectJSON(d, jsontext.KindBeginObject, name, "object"))
-}
-func traceNextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
-	if err != nil {
-		return jsontext.Token{}, err
-	}
-	return d.ReadToken()
-}
-func traceField[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
-	if *seen {
-		return traceJSONError(name, traceErrDuplicateField+strconv.Quote(key))
-	}
-	*seen = true
-	return parse(d, p, name)
-}
-func traceRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
-	if *seen {
-		return traceJSONError(name, traceErrDuplicateField+strconv.Quote(key))
-	}
-	*seen = true
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	return traceJSONArray(d, s, name, nullOK, parse)
-}
-func traceMapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, name, field string, m *map[K]V, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
-	if *seen {
-		return traceJSONError(name, traceErrDuplicateField+strconv.Quote(key))
-	}
-	*seen = true
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	return traceJSONMap(d, m, name, field, nullOK, pk, pv)
-}
-func traceOneofField[I, T any](d *jsontext.Decoder, seen, oneof *bool, key, name, oneofName string, p *I, w I, v *T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
-	if *seen {
-		return traceJSONError(name, traceErrDuplicateField+strconv.Quote(key))
-	}
-	*seen = true
-	if !nullOK && d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	if *oneof {
-		return traceJSONError(name, "multiple fields set for oneof "+oneofName)
-	}
-	*oneof, *p = true, w
-	return parse(d, v, name)
-}
-func traceJSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
-	if err := traceExpectJSON(d, jsontext.KindBeginArray, name, "array"); err != nil {
-		return err
-	}
-	for d.PeekKind() != jsontext.KindEndArray {
-		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return traceJSONError(name, traceErrNullElement)
-		}
-		if err := parse(d, traceGrow(s), name); err != nil {
-			return err
-		}
-	}
-	_, err := d.ReadToken()
-	return err
-}
-func traceJSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, field string, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
-	if err := traceExpectJSON(d, jsontext.KindBeginObject, name, "object"); err != nil {
-		return err
-	}
-	for d.PeekKind() != jsontext.KindEndObject {
-		kt, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		k, err := pk(kt.String(), name, field)
-		if err != nil {
-			return err
-		}
-		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return traceJSONError(name, traceErrNullElement)
-		}
-		var v V
-		if err := pv(d, &v, name); err != nil {
-			return err
-		}
-		traceMapSet(m, k, v)
-	}
-	_, err := d.ReadToken()
-	return err
-}
-func traceJSONUint[T ~uint32 | ~uint64](d *jsontext.Decoder, p *T, name string) error {
-	tok, err := d.ReadToken()
-	if err != nil || tok.Kind() == jsontext.KindNull {
-		return err
-	}
-	bits := 64
-	if ^T(0)>>31 == 1 {
-		bits = 32
-	}
-	v, err := traceParseUint(tok, bits, name)
-	*p = T(v)
-	return err
-}
-func traceJSONString(d *jsontext.Decoder, p *string, name string) error {
-	tok, err := d.ReadToken()
-	if err != nil || tok.Kind() == jsontext.KindNull {
-		return err
-	}
-	if tok.Kind() != jsontext.KindString {
-		return traceJSONError(name, "invalid string "+tok.String())
-	}
-	*p = tok.String()
-	return nil
-}
-func traceJSONBytes(d *jsontext.Decoder, p *[]byte, name string) error {
-	tok, err := d.ReadToken()
-	if err != nil || tok.Kind() == jsontext.KindNull {
-		return err
-	}
-	s := tok.String()
-	if tok.Kind() == jsontext.KindString {
-		enc := base64.StdEncoding
-		if strings.ContainsAny(s, "-_") {
-			enc = base64.URLEncoding
-		}
-		if len(s)%traceBase64Quantum != 0 {
-			enc = enc.WithPadding(base64.NoPadding)
-		}
-		if *p, err = enc.DecodeString(s); err == nil {
-			return nil
-		}
-	}
-	return traceJSONError(name, "invalid bytes "+s)
-}
-func traceJSONHex(d *jsontext.Decoder, p *[]byte, name string) error {
-	tok, err := d.ReadToken()
-	if err != nil || tok.Kind() == jsontext.KindNull {
-		return err
-	}
-	s := tok.String()
-	if tok.Kind() == jsontext.KindString {
-		if *p, err = hex.DecodeString(s); err == nil {
-			return nil
-		}
-	}
-	return traceJSONError(name, "invalid hex bytes "+s)
-}
-func traceJSONEnum[E ~int32](d *jsontext.Decoder, p *E, values map[string]int32, name, enum string, nullOK bool) error {
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch tok.Kind() {
-	case jsontext.KindNull:
-		if nullOK {
-			*p = 0
-		}
-		return nil
-	case jsontext.KindString:
-		s := tok.String()
-		if n, ok := values[s]; ok {
-			*p = E(n)
-			return nil
-		}
-		return traceJSONError(name, "invalid value for enum "+enum+": "+strconv.Quote(s))
-	}
-	v, err := traceParseInt(tok, 32, name)
-	*p = E(v)
-	return err
-}
-func traceJSONMsg[T any, PT interface {
-	*T
-	ProtoMergeJSONFrom(*jsontext.Decoder) error
-}](d *jsontext.Decoder, p **T, _ string) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	return PT(traceAlloc(p)).ProtoMergeJSONFrom(d)
-}
-func traceParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
-	s, err := traceJSONNumber(tok, name)
-	if err != nil {
-		return 0, err
-	}
-	if v, err := strconv.ParseInt(s, 10, bits); err == nil {
-		return v, nil
-	}
-	n := traceExactInt(s)
-	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-		return 0, traceJSONError(name, traceErrInvalidInteger+s)
-	}
-	return n.Int64(), nil
-}
-func traceParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
-	s, err := traceJSONNumber(tok, name)
-	if err != nil {
-		return 0, err
-	}
-	if v, err := strconv.ParseUint(s, 10, bits); err == nil {
-		return v, nil
-	}
-	n := traceExactInt(s)
-	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-		return 0, traceJSONError(name, traceErrInvalidInteger+s)
-	}
-	return n.Uint64(), nil
-}
-func traceExactInt(s string) *big.Int {
-	if i := strings.IndexAny(s, "eE"); i >= 0 {
-		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > traceMaxJSONExponent || e < -traceMaxJSONExponent {
-			return nil
-		}
-	}
-	r, ok := new(big.Rat).SetString(s)
-	if !ok || !r.IsInt() {
-		return nil
-	}
-	return r.Num()
-}
-func traceJSONNumber(tok jsontext.Token, name string) (string, error) {
-	s := tok.String()
-	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-		return "", traceJSONError(name, "invalid number "+s)
-	}
-	return s, nil
-}
-func traceStringKey(s, _, _ string) (string, error) { return s, nil }
-func traceJSONError(name, msg string) error         { return errors.New("proto: " + name + ": " + msg) }

@@ -19,26 +19,26 @@ import (
 )
 
 const (
-	structWireVarint                  = 0
-	structWireFixed64                 = 1
-	structWireBytes                   = 2
-	structWireStartGroup              = 3
-	structWireEndGroup                = 4
-	structWireFixed32                 = 5
-	structTagTypeBits                 = 3
-	structTagTypeMask                 = 1<<3 - 1
-	structMaxFieldNumber              = 1<<29 - 1
-	structMapKeyField                 = 1
-	structMapValueField               = 2
-	structFixed32Size                 = 4
-	structFixed64Size                 = 8
-	structVarintPayloadBits           = 7
-	structVarintContBit               = 0x80
-	structMaxDepth                    = 10000
-	structStructFieldsEntryKeyErrUTF8 = "proto: field google.protobuf.Struct.FieldsEntry.key contains invalid UTF-8"
-	structErrParse                    = "proto: cannot parse invalid wire-format data"
-	structValueStringValueErrUTF8     = "proto: field google.protobuf.Value.string_value contains invalid UTF-8"
-	structErrNullElement              = "null is not allowed in repeated fields or map values"
+	structWireVarint        = 0
+	structWireFixed64       = 1
+	structWireBytes         = 2
+	structWireStartGroup    = 3
+	structWireEndGroup      = 4
+	structWireFixed32       = 5
+	structTagTypeBits       = 3
+	structTagTypeMask       = 1<<3 - 1
+	structMaxFieldNumber    = 1<<29 - 1
+	structMapKeyField       = 1
+	structMapValueField     = 2
+	structFixed32Size       = 4
+	structFixed64Size       = 8
+	structVarintPayloadBits = 7
+	structVarintContBit     = 0x80
+	structMaxDepth          = 10000
+	structE1                = "proto: field google.protobuf.Struct.FieldsEntry.key contains invalid UTF-8"
+	structE2                = "proto: cannot parse invalid wire-format data"
+	structE3                = "proto: field google.protobuf.Value.string_value contains invalid UTF-8"
+	structE4                = "null is not allowed in repeated fields or map values"
 )
 
 // Represents a JSON `null`.
@@ -89,16 +89,16 @@ type Struct struct {
 	// Unordered map of dynamically typed values.
 	Fields map[string]*Value
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Struct) Reset()                       { *m = Struct{} }
-func (m *Struct) z() *Struct                   { return structIf(m == nil, &structZeroStruct, m) }
+func (m *Struct) z() *Struct                   { return structIf(m == nil, &structZStruct, m) }
 func (m *Struct) GetFields() map[string]*Value { return m.z().Fields }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Struct) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Struct) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Struct) ProtoSize() (n int) {
@@ -106,7 +106,7 @@ func (m *Struct) ProtoSize() (n int) {
 	for k, v := range m.Fields {
 		n += 1 + structSizeLen(1+structSizeLen(len(k))+1+structSizeLen(v.ProtoSize()))
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -120,7 +120,7 @@ func (m *Struct) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := structCopyUnknown(b, len(b), m.unknownFields)
+	i := structCopyUnknown(b, len(b), m.u)
 	if len(m.Fields) > 0 {
 		for _, k := range slices.Backward(structSortedKeys(m.Fields, make([]string, 0, len(m.Fields)))) {
 			v := m.Fields[k]
@@ -131,7 +131,7 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			i = structPutVarint(b, structPutVarint(b, i-n, uint64(n)), structMapValueField<<structTagTypeBits|structWireBytes)
 			if !utf8.ValidString(k) {
-				return 0, errors.New(structStructFieldsEntryKeyErrUTF8)
+				return 0, errors.New(structE1)
 			}
 			i = structPutVarint(b, structPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), structMapKeyField<<structTagTypeBits|structWireBytes)
 			i = structPutVarint(b, structPutVarint(b, i, uint64(start-i)), 1<<structTagTypeBits|structWireBytes)
@@ -160,7 +160,7 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 				x = x[k:]
 				switch t {
 				case structMapKeyField<<structTagTypeBits | structWireBytes:
-					k, err = structString(x, &mk, structStructFieldsEntryKeyErrUTF8)
+					k, err = structString(x, &mk, structE1)
 				case structMapValueField<<structTagTypeBits | structWireBytes:
 					v, k = structReadBytes(x)
 					err = structAlloc(&mv).ProtoMergeDepth(v, depth+1)
@@ -168,7 +168,7 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = structSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(structErrParse))
+					return cmp.Or(err, errors.New(structE2))
 				}
 				x = x[k:]
 			}
@@ -176,10 +176,10 @@ func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
 			structMapSet(&m.Fields, mk, mv)
 			err = structEnd(x, err)
 		default:
-			n, err = structUnknown(b, t, depth, &m.unknownFields)
+			n, err = structUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(structErrParse))
+			return cmp.Or(err, errors.New(structE2))
 		}
 		b = b[n:]
 	}
@@ -246,12 +246,12 @@ type Value struct {
 	//	*Value_ListValue
 	Kind isValue_Kind
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Value) Reset()                { *m = Value{} }
-func (m *Value) z() *Value             { return structIf(m == nil, &structZeroValue, m) }
+func (m *Value) z() *Value             { return structIf(m == nil, &structZValue, m) }
 func (m *Value) GetKind() isValue_Kind { return m.z().Kind }
 func (m *Value) GetNullValue() NullValue {
 	x, _ := m.GetKind().(*Value_NullValue)
@@ -279,7 +279,7 @@ func (m *Value) GetListValue() *ListValue {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Value) ProtoUnknownFields() []byte { return m.z().u }
 
 type isValue_Kind interface{ isValue_Kind() }
 
@@ -316,7 +316,7 @@ func (m *Value) ProtoSize() (n int) {
 	m = m.z()
 	switch o := m.Kind.(type) {
 	case *Value_NullValue:
-		n += 1 + (bits.Len64(uint64(int64(o.NullValue))|1)+structVarintPayloadBits-1)/structVarintPayloadBits
+		n += 1 + structVarintLen(o.NullValue)
 	case *Value_NumberValue:
 		n += 1 + structFixed64Size
 	case *Value_StringValue:
@@ -328,7 +328,7 @@ func (m *Value) ProtoSize() (n int) {
 	case *Value_ListValue:
 		n += 1 + structSizeLen(o.ListValue.ProtoSize())
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -342,8 +342,8 @@ func (m *Value) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := structCopyUnknown(b, len(b), m.unknownFields)
-	if err := structCheckUTF8(m.GetStringValue(), structValueStringValueErrUTF8, nil); err != nil {
+	i := structCopyUnknown(b, len(b), m.u)
+	if err := structCheckUTF8(m.GetStringValue(), structE3, nil); err != nil {
 		return 0, err
 	}
 	if o, ok := m.Kind.(*Value_ListValue); ok {
@@ -395,7 +395,7 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			n, m.Kind = structDouble(b, &o.NumberValue), o
 		case 3<<structTagTypeBits | structWireBytes:
 			o := new(Value_StringValue)
-			n, err = structString(b, &o.StringValue, structValueStringValueErrUTF8)
+			n, err = structString(b, &o.StringValue, structE3)
 			m.Kind = o
 		case 4<<structTagTypeBits | structWireVarint:
 			o := new(Value_BoolValue)
@@ -421,10 +421,10 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			err = mv.ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = structUnknown(b, t, depth, &m.unknownFields)
+			n, err = structUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(structErrParse))
+			return cmp.Or(err, errors.New(structE2))
 		}
 		b = b[n:]
 	}
@@ -540,22 +540,22 @@ type ListValue struct {
 	// Repeated field of dynamically typed values.
 	Values []*Value
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *ListValue) Reset()              { *m = ListValue{} }
-func (m *ListValue) z() *ListValue       { return structIf(m == nil, &structZeroListValue, m) }
+func (m *ListValue) z() *ListValue       { return structIf(m == nil, &structZListValue, m) }
 func (m *ListValue) GetValues() []*Value { return m.z().Values }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ListValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ListValue) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ListValue) ProtoSize() (n int) {
 	m = m.z()
 	n += structSizeMsgs(1, m.Values, func(v *Value) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -569,7 +569,7 @@ func (m *ListValue) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := structCopyUnknown(b, len(b), m.unknownFields)
+	i := structCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.Values) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -596,10 +596,10 @@ func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = structReadBytes(b)
 			err = structAlloc(structGrow(&m.Values)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = structUnknown(b, t, depth, &m.unknownFields)
+			n, err = structUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(structErrParse))
+			return cmp.Or(err, errors.New(structE2))
 		}
 		b = b[n:]
 	}
@@ -648,9 +648,9 @@ func (m *ListValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	structZeroStruct    Struct
-	structZeroValue     Value
-	structZeroListValue ListValue
+	structZStruct    Struct
+	structZValue     Value
+	structZListValue ListValue
 )
 
 func structSizeLen(l int) int { return l + structVarintLen(l) }
@@ -747,7 +747,7 @@ func structSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = structIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(structErrParse)
+		return 0, errors.New(structE2)
 	}
 	return n, nil
 }
@@ -756,7 +756,7 @@ func structSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(structErrParse)
+			return 0, errors.New(structE2)
 		}
 		if n += k; t == uint64(num)<<structTagTypeBits|structWireEndGroup {
 			return n, nil
@@ -775,7 +775,7 @@ func structUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func structEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(structErrParse)
+		return errors.New(structE2)
 	}
 	return err
 }
@@ -920,7 +920,7 @@ func structJSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK boo
 	}
 	for d.PeekKind() != jsontext.KindEndArray {
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return structJSONError(name, structErrNullElement)
+			return structJSONError(name, structE4)
 		}
 		if err := parse(d, structGrow(s), name); err != nil {
 			return err
@@ -943,7 +943,7 @@ func structJSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, f
 			return err
 		}
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return structJSONError(name, structErrNullElement)
+			return structJSONError(name, structE4)
 		}
 		var v V
 		if err := pv(d, &v, name); err != nil {

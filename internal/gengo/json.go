@@ -363,7 +363,7 @@ func (fg *fileGen) enumJSONFunc(e *desc.Enum) string {
 	if name, ok := fg.enumJSON[e]; ok {
 		return name
 	}
-	name := fg.constName(fg.owner(e.FullName) + "JSON")
+	name := fg.constName("J" + fg.owner(e.FullName))
 	fg.enumJSON[e] = name
 	values := fg.qualify(e.File, fg.g.enmNames[e]+"_value")
 	fg.decls = append(fg.decls, "func "+name+"(d *"+fg.jt()+".Decoder, p *"+fg.enumType(e)+", name string) error {\nreturn "+fg.fn("JSONEnum")+"(d, p, "+values+", name, "+strconv.Quote(e.FullName)+", "+strconv.FormatBool(e.FullName == "google.protobuf.NullValue")+")\n}")

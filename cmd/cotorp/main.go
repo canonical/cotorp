@@ -48,6 +48,7 @@ func run(args []string) error {
 		jsonNumbers = fs.Bool("json_enum_numbers", false, "write enum values as numbers instead of names in JSON output")
 		jsonDiscard = fs.Bool("json_discard_unknown", false, "ignore unknown keys when decoding JSON instead of rejecting them")
 		jsonHex     listFlag
+		helpers     = fs.String("helpers", "", "generate the helper functions once as this Go package (import/path[;name]) and import it, instead of declaring them in every file")
 	)
 	fs.Var(&jsonHex, "json_hex", "encode this bytes field as hex instead of base64 in JSON, e.g. -json_hex pkg.Msg.trace_id (repeatable)")
 	fs.Var(&importPaths, "I", "directory to search for imports (repeatable; default \".\")")
@@ -105,6 +106,7 @@ func run(args []string) error {
 		JSONEnumNumbers:    *jsonNumbers,
 		JSONHex:            jsonHex,
 		JSONDiscardUnknown: *jsonDiscard,
+		Helpers:            *helpers,
 	})
 	outs, err := g.Generate(files)
 	if err != nil {

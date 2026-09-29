@@ -25,31 +25,31 @@ import (
 )
 
 const (
-	jsonWireVarint                     = 0
-	jsonWireFixed64                    = 1
-	jsonWireBytes                      = 2
-	jsonWireStartGroup                 = 3
-	jsonWireEndGroup                   = 4
-	jsonWireFixed32                    = 5
-	jsonTagTypeBits                    = 3
-	jsonTagTypeMask                    = 1<<3 - 1
-	jsonMaxFieldNumber                 = 1<<29 - 1
-	jsonMapKeyField                    = 1
-	jsonMapValueField                  = 2
-	jsonFixed32Size                    = 4
-	jsonFixed64Size                    = 8
-	jsonVarintPayloadBits              = 7
-	jsonVarintContBit                  = 0x80
-	jsonMaxDepth                       = 10000
-	jsonMaxJSONExponent                = 100
-	jsonBase64Quantum                  = 4
-	jsonWellKnownOStrErrUTF8           = "proto: field cotorp.test.json.WellKnown.o_str contains invalid UTF-8"
-	jsonWellKnownValMapEntryKeyErrUTF8 = "proto: field cotorp.test.json.WellKnown.ValMapEntry.key contains invalid UTF-8"
-	jsonErrParse                       = "proto: cannot parse invalid wire-format data"
-	jsonNamesByBoolEntryValueErrUTF8   = "proto: field cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8"
-	jsonErrDuplicateField              = "duplicate field "
-	jsonErrNullElement                 = "null is not allowed in repeated fields or map values"
-	jsonErrInvalidKey                  = "invalid map key for field "
+	jsonWireVarint        = 0
+	jsonWireFixed64       = 1
+	jsonWireBytes         = 2
+	jsonWireStartGroup    = 3
+	jsonWireEndGroup      = 4
+	jsonWireFixed32       = 5
+	jsonTagTypeBits       = 3
+	jsonTagTypeMask       = 1<<3 - 1
+	jsonMaxFieldNumber    = 1<<29 - 1
+	jsonMapKeyField       = 1
+	jsonMapValueField     = 2
+	jsonFixed32Size       = 4
+	jsonFixed64Size       = 8
+	jsonVarintPayloadBits = 7
+	jsonVarintContBit     = 0x80
+	jsonMaxDepth          = 10000
+	jsonMaxJSONExponent   = 100
+	jsonBase64Quantum     = 4
+	jsonE1                = "proto: field cotorp.test.json.WellKnown.o_str contains invalid UTF-8"
+	jsonE2                = "proto: field cotorp.test.json.WellKnown.ValMapEntry.key contains invalid UTF-8"
+	jsonE3                = "proto: cannot parse invalid wire-format data"
+	jsonE4                = "proto: field cotorp.test.json.Names.ByBoolEntry.value contains invalid UTF-8"
+	jsonE5                = "duplicate field "
+	jsonE6                = "null is not allowed in repeated fields or map values"
+	jsonE7                = "invalid map key for field "
 )
 
 type WellKnown struct {
@@ -83,12 +83,12 @@ type WellKnown struct {
 	Tss  []*wktpb.Timestamp
 	Durs map[int32]*wktpb.Duration
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *WellKnown) Reset()                             { *m = WellKnown{} }
-func (m *WellKnown) z() *WellKnown                      { return jsonIf(m == nil, &jsonZeroWellKnown, m) }
+func (m *WellKnown) z() *WellKnown                      { return jsonIf(m == nil, &jsonZWellKnown, m) }
 func (m *WellKnown) GetTs() *wktpb.Timestamp            { return m.z().Ts }
 func (m *WellKnown) GetDur() *wktpb.Duration            { return m.z().Dur }
 func (m *WellKnown) GetDbl() *wktpb.DoubleValue         { return m.z().Dbl }
@@ -129,7 +129,7 @@ func (m *WellKnown) GetTss() []*wktpb.Timestamp         { return m.z().Tss }
 func (m *WellKnown) GetDurs() map[int32]*wktpb.Duration { return m.z().Durs }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *WellKnown) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *WellKnown) ProtoUnknownFields() []byte { return m.z().u }
 
 type isWellKnown_O interface{ isWellKnown_O() }
 type WellKnown_OVal struct{ OVal *wktpb.Value }
@@ -169,16 +169,16 @@ func (m *WellKnown) ProtoSize() (n int) {
 	case *WellKnown_OVal:
 		n += 2 + jsonSizeLen(o.OVal.ProtoSize())
 	case *WellKnown_ONull:
-		n += 2 + (bits.Len64(uint64(int64(o.ONull))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits
+		n += 2 + jsonVarintLen(o.ONull)
 	case *WellKnown_OStr:
 		n += 2 + jsonSizeLen(len(o.OStr))
 	}
 	n += jsonSizeMsg(2, m.Any, func(v *wktpb.Any) int { return v.ProtoSize() })
 	n += jsonSizeMsgs(2, m.Tss, func(v *wktpb.Timestamp) int { return v.ProtoSize() })
 	for k, v := range m.Durs {
-		n += 2 + jsonSizeLen(1+(bits.Len64(uint64(int64(k))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits+1+jsonSizeLen(v.ProtoSize()))
+		n += 2 + jsonSizeLen(1+jsonVarintLen(k)+1+jsonSizeLen(v.ProtoSize()))
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -192,8 +192,8 @@ func (m *WellKnown) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := jsonCopyUnknown(b, len(b), m.unknownFields)
-	if err := jsonCheckUTF8(m.GetOStr(), jsonWellKnownOStrErrUTF8, nil); err != nil {
+	i := jsonCopyUnknown(b, len(b), m.u)
+	if err := jsonCheckUTF8(m.GetOStr(), jsonE1, nil); err != nil {
 		return 0, err
 	}
 	if len(m.Durs) > 0 {
@@ -249,7 +249,7 @@ func (m *WellKnown) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			i = jsonPutVarint(b, jsonPutVarint(b, i-n, uint64(n)), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			if !utf8.ValidString(k) {
-				return 0, errors.New(jsonWellKnownValMapEntryKeyErrUTF8)
+				return 0, errors.New(jsonE2)
 			}
 			i = jsonPutVarint(b, jsonPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), jsonMapKeyField<<jsonTagTypeBits|jsonWireBytes)
 			i = jsonPutVarint(b, jsonPutVarint(b, i, uint64(start-i)), 19<<jsonTagTypeBits|jsonWireBytes)
@@ -451,7 +451,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 				x = x[k:]
 				switch t {
 				case jsonMapKeyField<<jsonTagTypeBits | jsonWireBytes:
-					k, err = jsonString(x, &mk, jsonWellKnownValMapEntryKeyErrUTF8)
+					k, err = jsonString(x, &mk, jsonE2)
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
 					v, k = jsonReadBytes(x)
 					err = jsonAlloc(&mv).ProtoMergeDepth(v, depth+1)
@@ -459,7 +459,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = jsonSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(jsonErrParse))
+					return cmp.Or(err, errors.New(jsonE3))
 				}
 				x = x[k:]
 			}
@@ -483,7 +483,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			n, m.O = jsonVarint(b, &o.ONull), o
 		case 23<<jsonTagTypeBits | jsonWireBytes:
 			o := new(WellKnown_OStr)
-			n, err = jsonString(b, &o.OStr, jsonWellKnownOStrErrUTF8)
+			n, err = jsonString(b, &o.OStr, jsonE1)
 			m.O = o
 		case 24<<jsonTagTypeBits | jsonWireBytes:
 			x, n = jsonReadBytes(b)
@@ -507,7 +507,7 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = jsonSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(jsonErrParse))
+					return cmp.Or(err, errors.New(jsonE3))
 				}
 				x = x[k:]
 			}
@@ -515,10 +515,10 @@ func (m *WellKnown) ProtoMergeDepth(b []byte, depth int) error {
 			jsonMapSet(&m.Durs, mk, mv)
 			err = jsonEnd(x, err)
 		default:
-			n, err = jsonUnknown(b, t, depth, &m.unknownFields)
+			n, err = jsonUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(jsonErrParse))
+			return cmp.Or(err, errors.New(jsonE3))
 		}
 		b = b[n:]
 	}
@@ -636,19 +636,19 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "empty":
 			err = jsonField(d, &seen[15], key, "cotorp.test.json.WellKnown", &m.Empty, jsonJSONMsg)
 		case "nullValue", "null_value":
-			err = jsonField(d, &seen[16], key, "cotorp.test.json.WellKnown", &m.NullValue, jsonGoogleProtobufNullValueJSON)
+			err = jsonField(d, &seen[16], key, "cotorp.test.json.WellKnown", &m.NullValue, jsonJGoogleProtobufNullValue)
 		case "vals":
 			err = jsonRepField(d, &seen[17], key, "cotorp.test.json.WellKnown", &m.Vals, true, jsonJSONMsgNull)
 		case "valMap", "val_map":
 			err = jsonMapField(d, &seen[18], key, "cotorp.test.json.WellKnown", "val_map", &m.ValMap, true, jsonStringKey, jsonJSONMsgNull)
 		case "optNull", "opt_null":
-			err = jsonField(d, &seen[19], key, "cotorp.test.json.WellKnown", jsonNew(&m.OptNull), jsonGoogleProtobufNullValueJSON)
+			err = jsonField(d, &seen[19], key, "cotorp.test.json.WellKnown", jsonNew(&m.OptNull), jsonJGoogleProtobufNullValue)
 		case "oVal", "o_val":
 			o := new(WellKnown_OVal)
 			err = jsonOneofField(d, &seen[20], &oneofs[0], key, "cotorp.test.json.WellKnown", "o", &m.O, isWellKnown_O(o), &o.OVal, true, jsonJSONMsgNull)
 		case "oNull", "o_null":
 			o := new(WellKnown_ONull)
-			err = jsonOneofField(d, &seen[21], &oneofs[0], key, "cotorp.test.json.WellKnown", "o", &m.O, isWellKnown_O(o), &o.ONull, true, jsonGoogleProtobufNullValueJSON)
+			err = jsonOneofField(d, &seen[21], &oneofs[0], key, "cotorp.test.json.WellKnown", "o", &m.O, isWellKnown_O(o), &o.ONull, true, jsonJGoogleProtobufNullValue)
 		case "oStr", "o_str":
 			o := new(WellKnown_OStr)
 			err = jsonOneofField(d, &seen[22], &oneofs[0], key, "cotorp.test.json.WellKnown", "o", &m.O, isWellKnown_O(o), &o.OStr, false, jsonJSONString)
@@ -665,7 +665,7 @@ func (m *WellKnown) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func jsonGoogleProtobufNullValueJSON(d *jsontext.Decoder, p *wktpb.NullValue, name string) error {
+func jsonJGoogleProtobufNullValue(d *jsontext.Decoder, p *wktpb.NullValue, name string) error {
 	return jsonJSONEnum(d, p, wktpb.NullValue_value, name, "google.protobuf.NullValue", true)
 }
 
@@ -679,12 +679,12 @@ type Names struct {
 	ByU64          map[uint64]int32
 	ByS32          map[int32][]byte
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Names) Reset()                     { *m = Names{} }
-func (m *Names) z() *Names                  { return jsonIf(m == nil, &jsonZeroNames, m) }
+func (m *Names) z() *Names                  { return jsonIf(m == nil, &jsonZNames, m) }
 func (m *Names) GetCustom() int32           { return m.z().Custom }
 func (m *Names) GetSnakeCaseField() int32   { return m.z().SnakeCaseField }
 func (m *Names) GetXLeading() int32         { return m.z().XLeading }
@@ -695,7 +695,7 @@ func (m *Names) GetByU64() map[uint64]int32 { return m.z().ByU64 }
 func (m *Names) GetByS32() map[int32][]byte { return m.z().ByS32 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Names) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Names) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Names) ProtoSize() (n int) {
@@ -709,12 +709,12 @@ func (m *Names) ProtoSize() (n int) {
 		n += 1 + jsonSizeLen(1+1+1+jsonSizeLen(len(v)))
 	}
 	for k, v := range m.ByU64 {
-		n += 1 + jsonSizeLen(1+(bits.Len64(k|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits+1+(bits.Len64(uint64(int64(v))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits)
+		n += 1 + jsonSizeLen(1+jsonVarintLen(k)+1+jsonVarintLen(v))
 	}
 	for k, v := range m.ByS32 {
-		n += 1 + jsonSizeLen(1+(bits.Len64(uint64(uint32((k)<<1)^uint32((k)>>31))|1)+jsonVarintPayloadBits-1)/jsonVarintPayloadBits+1+jsonSizeLen(len(v)))
+		n += 1 + jsonSizeLen(1+jsonSint32Len(k)+1+jsonSizeLen(len(v)))
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -728,7 +728,7 @@ func (m *Names) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := jsonCopyUnknown(b, len(b), m.unknownFields)
+	i := jsonCopyUnknown(b, len(b), m.u)
 	if len(m.ByS32) > 0 {
 		for _, k := range slices.Backward(jsonSortedKeys(m.ByS32, make([]int32, 0, len(m.ByS32)))) {
 			v := m.ByS32[k]
@@ -755,7 +755,7 @@ func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			start := i
 			if !utf8.ValidString(v) {
-				return 0, errors.New(jsonNamesByBoolEntryValueErrUTF8)
+				return 0, errors.New(jsonE4)
 			}
 			i = jsonPutVarint(b, jsonPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), jsonMapValueField<<jsonTagTypeBits|jsonWireBytes)
 			i = jsonPutVarint(b, jsonPutBool(b, i, k), jsonMapKeyField<<jsonTagTypeBits|jsonWireVarint)
@@ -801,12 +801,12 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 				case jsonMapKeyField<<jsonTagTypeBits | jsonWireVarint:
 					k = jsonBool(x, &mk)
 				case jsonMapValueField<<jsonTagTypeBits | jsonWireBytes:
-					k, err = jsonString(x, &mv, jsonNamesByBoolEntryValueErrUTF8)
+					k, err = jsonString(x, &mv, jsonE4)
 				default:
 					k, err = jsonSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(jsonErrParse))
+					return cmp.Or(err, errors.New(jsonE3))
 				}
 				x = x[k:]
 			}
@@ -826,7 +826,7 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = jsonSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(jsonErrParse))
+					return cmp.Or(err, errors.New(jsonE3))
 				}
 				x = x[k:]
 			}
@@ -846,17 +846,17 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = jsonSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(jsonErrParse))
+					return cmp.Or(err, errors.New(jsonE3))
 				}
 				x = x[k:]
 			}
 			jsonMapSet(&m.ByS32, mk, mv)
 			err = jsonEnd(x, err)
 		default:
-			n, err = jsonUnknown(b, t, depth, &m.unknownFields)
+			n, err = jsonUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(jsonErrParse))
+			return cmp.Or(err, errors.New(jsonE3))
 		}
 		b = b[n:]
 	}
@@ -948,7 +948,7 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "with2Digits", "with_2_digits":
 			err = jsonField(d, &seen[3], key, "cotorp.test.json.Names", &m.With_2Digits, jsonJSONInt)
 		case "color":
-			err = jsonField(d, &seen[4], key, "cotorp.test.json.Names", &m.Color, jsonCotorpTestCommonColorJSON)
+			err = jsonField(d, &seen[4], key, "cotorp.test.json.Names", &m.Color, jsonJCotorpTestCommonColor)
 		case "byBool", "by_bool":
 			err = jsonMapField(d, &seen[5], key, "cotorp.test.json.Names", "by_bool", &m.ByBool, false, jsonBoolKey, jsonJSONString)
 		case "byU64", "by_u64":
@@ -962,13 +962,13 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func jsonCotorpTestCommonColorJSON(d *jsontext.Decoder, p *commonpb.Color, name string) error {
+func jsonJCotorpTestCommonColor(d *jsontext.Decoder, p *commonpb.Color, name string) error {
 	return jsonJSONEnum(d, p, commonpb.Color_value, name, "cotorp.test.common.Color", false)
 }
 
 var (
-	jsonZeroWellKnown WellKnown
-	jsonZeroNames     Names
+	jsonZWellKnown WellKnown
+	jsonZNames     Names
 )
 
 func jsonSizeLen(l int) int                { return l + jsonVarintLen(l) }
@@ -993,6 +993,9 @@ func jsonSizeOpt[T any](tag int, p *T, size func(T) int) int {
 }
 func jsonVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
 	return (bits.Len64(uint64(int64(v))|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
+}
+func jsonSint32Len(v int32) int {
+	return (bits.Len64(uint64(uint32((v)<<1)^uint32((v)>>31))|1) + jsonVarintPayloadBits - 1) / jsonVarintPayloadBits
 }
 func jsonCheckUTF8(s, msg string, err error) error {
 	if len(s) > 0 && !utf8.ValidString(s) {
@@ -1102,7 +1105,7 @@ func jsonSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = jsonIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(jsonErrParse)
+		return 0, errors.New(jsonE3)
 	}
 	return n, nil
 }
@@ -1111,7 +1114,7 @@ func jsonSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(jsonErrParse)
+			return 0, errors.New(jsonE3)
 		}
 		if n += k; t == uint64(num)<<jsonTagTypeBits|jsonWireEndGroup {
 			return n, nil
@@ -1130,7 +1133,7 @@ func jsonUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func jsonEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(jsonErrParse)
+		return errors.New(jsonE3)
 	}
 	return err
 }
@@ -1298,14 +1301,14 @@ func jsonNextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
 }
 func jsonField[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return jsonJSONError(name, jsonErrDuplicateField+strconv.Quote(key))
+		return jsonJSONError(name, jsonE5+strconv.Quote(key))
 	}
 	*seen = true
 	return parse(d, p, name)
 }
 func jsonRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return jsonJSONError(name, jsonErrDuplicateField+strconv.Quote(key))
+		return jsonJSONError(name, jsonE5+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -1315,7 +1318,7 @@ func jsonRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[
 }
 func jsonMapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, name, field string, m *map[K]V, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
 	if *seen {
-		return jsonJSONError(name, jsonErrDuplicateField+strconv.Quote(key))
+		return jsonJSONError(name, jsonE5+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -1325,7 +1328,7 @@ func jsonMapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, nam
 }
 func jsonOneofField[I, T any](d *jsontext.Decoder, seen, oneof *bool, key, name, oneofName string, p *I, w I, v *T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return jsonJSONError(name, jsonErrDuplicateField+strconv.Quote(key))
+		return jsonJSONError(name, jsonE5+strconv.Quote(key))
 	}
 	*seen = true
 	if !nullOK && d.PeekKind() == jsontext.KindNull {
@@ -1343,7 +1346,7 @@ func jsonJSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK bool,
 	}
 	for d.PeekKind() != jsontext.KindEndArray {
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return jsonJSONError(name, jsonErrNullElement)
+			return jsonJSONError(name, jsonE6)
 		}
 		if err := parse(d, jsonGrow(s), name); err != nil {
 			return err
@@ -1366,7 +1369,7 @@ func jsonJSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, fie
 			return err
 		}
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return jsonJSONError(name, jsonErrNullElement)
+			return jsonJSONError(name, jsonE6)
 		}
 		var v V
 		if err := pv(d, &v, name); err != nil {
@@ -1499,7 +1502,7 @@ func jsonIntKey[K ~int32 | ~int64](s, name, field string) (K, error) {
 	}
 	k, err := strconv.ParseInt(s, 10, bits)
 	if err != nil {
-		return 0, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
+		return 0, jsonJSONError(name, jsonE7+field+": "+strconv.Quote(s))
 	}
 	return K(k), nil
 }
@@ -1510,7 +1513,7 @@ func jsonUintKey[K ~uint32 | ~uint64](s, name, field string) (K, error) {
 	}
 	k, err := strconv.ParseUint(s, 10, bits)
 	if err != nil {
-		return 0, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
+		return 0, jsonJSONError(name, jsonE7+field+": "+strconv.Quote(s))
 	}
 	return K(k), nil
 }
@@ -1521,7 +1524,7 @@ func jsonBoolKey(s, name, field string) (bool, error) {
 	case "false":
 		return false, nil
 	}
-	return false, jsonJSONError(name, jsonErrInvalidKey+field+": "+strconv.Quote(s))
+	return false, jsonJSONError(name, jsonE7+field+": "+strconv.Quote(s))
 }
 func jsonStringKey(s, _, _ string) (string, error) { return s, nil }
 func jsonJSONError(name, msg string) error         { return errors.New("proto: " + name + ": " + msg) }

@@ -42,11 +42,11 @@ const (
 	proto2MaxDepth          = 10000
 	proto2MaxJSONExponent   = 100
 	proto2Base64Quantum     = 4
-	proto2ErrParse          = "proto: cannot parse invalid wire-format data"
-	proto2ErrDuplicateField = "duplicate field "
-	proto2ErrNullElement    = "null is not allowed in repeated fields or map values"
-	proto2ErrInvalidInteger = "invalid integer "
-	proto2ErrInvalidNumber  = "invalid number "
+	proto2E1                = "proto: cannot parse invalid wire-format data"
+	proto2E2                = "duplicate field "
+	proto2E3                = "null is not allowed in repeated fields or map values"
+	proto2E4                = "invalid integer "
+	proto2E5                = "invalid number "
 )
 
 type Closed int32
@@ -119,7 +119,7 @@ type Defaults struct {
 	DFloatNegZero  *float32
 	DDoubleInt     *float64
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for Defaults fields.
@@ -151,7 +151,7 @@ var (
 
 // Reset clears all fields of m.
 func (m *Defaults) Reset()             { *m = Defaults{} }
-func (m *Defaults) z() *Defaults       { return proto2If(m == nil, &proto2ZeroDefaults, m) }
+func (m *Defaults) z() *Defaults       { return proto2If(m == nil, &proto2ZDefaults, m) }
 func (m *Defaults) GetDInt32() int32   { return proto2Deref(m.z().DInt32, Default_Defaults_DInt32) }
 func (m *Defaults) GetDInt64() int64   { return proto2Deref(m.z().DInt64, Default_Defaults_DInt64) }
 func (m *Defaults) GetDUint32() uint32 { return proto2Deref(m.z().DUint32, Default_Defaults_DUint32) }
@@ -188,7 +188,7 @@ func (m *Defaults) GetDDoubleInt() float64 {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Defaults) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Defaults) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Defaults) ProtoSize() (n int) {
@@ -213,7 +213,7 @@ func (m *Defaults) ProtoSize() (n int) {
 	n += proto2SizeOpt(2, m.DEnumNodefault, proto2VarintLen)
 	n += proto2SizeOptFixed(2, proto2Fixed32Size, m.DFloatNegZero)
 	n += proto2SizeOptFixed(2, proto2Fixed64Size, m.DDoubleInt)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -227,7 +227,7 @@ func (m *Defaults) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.DDoubleInt != nil {
 		i = proto2PutVarint(b, proto2PutFixed64(b, i, math.Float64bits((*m.DDoubleInt))), 20<<proto2TagTypeBits|proto2WireFixed64)
 	}
@@ -336,18 +336,18 @@ func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
 		case 16<<proto2TagTypeBits | proto2WireBytes:
 			n = proto2Bytes(b, &m.DBytes)
 		case 17<<proto2TagTypeBits | proto2WireVarint:
-			n = proto2ClosedEnum(b, &m.unknownFields, 17<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.DEnum = new(e) })
+			n = proto2ClosedEnum(b, &m.u, 17<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.DEnum = new(e) })
 		case 18<<proto2TagTypeBits | proto2WireVarint:
-			n = proto2ClosedEnum(b, &m.unknownFields, 18<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.DEnumNodefault = new(e) })
+			n = proto2ClosedEnum(b, &m.u, 18<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.DEnumNodefault = new(e) })
 		case 19<<proto2TagTypeBits | proto2WireFixed32:
 			n = proto2Float(b, proto2New(&m.DFloatNegZero))
 		case 20<<proto2TagTypeBits | proto2WireFixed64:
 			n = proto2Double(b, proto2New(&m.DDoubleInt))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -487,9 +487,9 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "dBytes", "d_bytes":
 			err = proto2Field(d, &seen[15], key, "cotorp.test.proto2.Defaults", &m.DBytes, proto2JSONBytes)
 		case "dEnum", "d_enum":
-			err = proto2OptField(d, &seen[16], key, "cotorp.test.proto2.Defaults", &m.DEnum, proto2ClosedJSON)
+			err = proto2OptField(d, &seen[16], key, "cotorp.test.proto2.Defaults", &m.DEnum, proto2JClosed)
 		case "dEnumNodefault", "d_enum_nodefault":
-			err = proto2OptField(d, &seen[17], key, "cotorp.test.proto2.Defaults", &m.DEnumNodefault, proto2ClosedJSON)
+			err = proto2OptField(d, &seen[17], key, "cotorp.test.proto2.Defaults", &m.DEnumNodefault, proto2JClosed)
 		case "dFloatNegZero", "d_float_neg_zero":
 			err = proto2OptField(d, &seen[18], key, "cotorp.test.proto2.Defaults", &m.DFloatNegZero, proto2JSONFloat)
 		case "dDoubleInt", "d_double_int":
@@ -501,7 +501,7 @@ func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func proto2ClosedJSON(d *jsontext.Decoder, p *Closed, name string) error {
+func proto2JClosed(d *jsontext.Decoder, p *Closed, name string) error {
 	return proto2JSONEnum(d, p, Closed_value, name, "cotorp.test.proto2.Closed", false)
 }
 
@@ -516,12 +516,12 @@ type Required struct {
 	//	*Required_InnerOneof
 	O isRequired_O
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Required) Reset()                                  { *m = Required{} }
-func (m *Required) z() *Required                            { return proto2If(m == nil, &proto2ZeroRequired, m) }
+func (m *Required) z() *Required                            { return proto2If(m == nil, &proto2ZRequired, m) }
 func (m *Required) GetReqInt32() int32                      { return proto2Deref(m.z().ReqInt32, 0) }
 func (m *Required) GetReqString() string                    { return proto2Deref(m.z().ReqString, "") }
 func (m *Required) GetInner() *Required_Inner               { return m.z().Inner }
@@ -534,7 +534,7 @@ func (m *Required) GetInnerOneof() *Required_Inner {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Required) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Required) ProtoUnknownFields() []byte { return m.z().u }
 
 type isRequired_O interface{ isRequired_O() }
 type Required_InnerOneof struct{ InnerOneof *Required_Inner }
@@ -555,7 +555,7 @@ func (m *Required) ProtoSize() (n int) {
 	case *Required_InnerOneof:
 		n += 1 + proto2SizeLen(o.InnerOneof.ProtoSize())
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -572,7 +572,7 @@ func (m *Required) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if o, ok := m.O.(*Required_InnerOneof); ok {
 		n, err := o.InnerOneof.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -657,7 +657,7 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = proto2SkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(proto2ErrParse))
+					return cmp.Or(err, errors.New(proto2E1))
 				}
 				x = x[k:]
 			}
@@ -675,10 +675,10 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 			}
 			err = mv.ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -800,22 +800,22 @@ func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 type Required_Inner struct {
 	Flag *bool
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Required_Inner) Reset()             { *m = Required_Inner{} }
-func (m *Required_Inner) z() *Required_Inner { return proto2If(m == nil, &proto2ZeroRequired_Inner, m) }
+func (m *Required_Inner) z() *Required_Inner { return proto2If(m == nil, &proto2ZRequired_Inner, m) }
 func (m *Required_Inner) GetFlag() bool      { return proto2Deref(m.z().Flag, false) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Required_Inner) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Required_Inner) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Required_Inner) ProtoSize() (n int) {
 	m = m.z()
 	n += proto2SizeOptFixed(1, 1, m.Flag)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -832,7 +832,7 @@ func (m *Required_Inner) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Required_Inner) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.Flag != nil {
 		i = proto2PutVarint(b, proto2PutBool(b, i, (*m.Flag)), 1<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -857,10 +857,10 @@ func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
 			n = proto2Bool(b, proto2New(&m.Flag))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -942,18 +942,18 @@ type Groups struct {
 	Repgroup []*Groups_RepGroup
 	After    *int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Groups) Reset()                          { *m = Groups{} }
-func (m *Groups) z() *Groups                      { return proto2If(m == nil, &proto2ZeroGroups, m) }
+func (m *Groups) z() *Groups                      { return proto2If(m == nil, &proto2ZGroups, m) }
 func (m *Groups) GetOptgroup() *Groups_OptGroup   { return m.z().Optgroup }
 func (m *Groups) GetRepgroup() []*Groups_RepGroup { return m.z().Repgroup }
 func (m *Groups) GetAfter() int32                 { return proto2Deref(m.z().After, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Groups) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Groups) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups) ProtoSize() (n int) {
@@ -965,7 +965,7 @@ func (m *Groups) ProtoSize() (n int) {
 		n += 2 + v.ProtoSize()
 	}
 	n += proto2SizeOpt(1, m.After, proto2VarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -979,7 +979,7 @@ func (m *Groups) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.After != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.After)))), 8<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -1023,10 +1023,10 @@ func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
 		case 8<<proto2TagTypeBits | proto2WireVarint:
 			n = proto2Varint(b, proto2New(&m.After))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -1095,26 +1095,24 @@ type Groups_OptGroup struct {
 	A *int32
 	B *string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
-func (m *Groups_OptGroup) Reset() { *m = Groups_OptGroup{} }
-func (m *Groups_OptGroup) z() *Groups_OptGroup {
-	return proto2If(m == nil, &proto2ZeroGroups_OptGroup, m)
-}
-func (m *Groups_OptGroup) GetA() int32  { return proto2Deref(m.z().A, 0) }
-func (m *Groups_OptGroup) GetB() string { return proto2Deref(m.z().B, "") }
+func (m *Groups_OptGroup) Reset()              { *m = Groups_OptGroup{} }
+func (m *Groups_OptGroup) z() *Groups_OptGroup { return proto2If(m == nil, &proto2ZGroups_OptGroup, m) }
+func (m *Groups_OptGroup) GetA() int32         { return proto2Deref(m.z().A, 0) }
+func (m *Groups_OptGroup) GetB() string        { return proto2Deref(m.z().B, "") }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Groups_OptGroup) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Groups_OptGroup) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups_OptGroup) ProtoSize() (n int) {
 	m = m.z()
 	n += proto2SizeOpt(1, m.A, proto2VarintLen)
 	n += proto2SizeOpt(1, m.B, proto2BytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1128,7 +1126,7 @@ func (m *Groups_OptGroup) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.B != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len((*m.B)):], (*m.B)), uint64(len((*m.B)))), 3<<proto2TagTypeBits|proto2WireBytes)
 	}
@@ -1158,10 +1156,10 @@ func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
 		case 3<<proto2TagTypeBits | proto2WireBytes:
 			n, err = proto2String(b, proto2New(&m.B), "")
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -1232,19 +1230,17 @@ type Groups_RepGroup struct {
 	C    *int32
 	Deep *Groups_RepGroup_Deep
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
-func (m *Groups_RepGroup) Reset() { *m = Groups_RepGroup{} }
-func (m *Groups_RepGroup) z() *Groups_RepGroup {
-	return proto2If(m == nil, &proto2ZeroGroups_RepGroup, m)
-}
+func (m *Groups_RepGroup) Reset()                         { *m = Groups_RepGroup{} }
+func (m *Groups_RepGroup) z() *Groups_RepGroup            { return proto2If(m == nil, &proto2ZGroups_RepGroup, m) }
 func (m *Groups_RepGroup) GetC() int32                    { return proto2Deref(m.z().C, 0) }
 func (m *Groups_RepGroup) GetDeep() *Groups_RepGroup_Deep { return m.z().Deep }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Groups_RepGroup) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Groups_RepGroup) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups_RepGroup) ProtoSize() (n int) {
@@ -1253,7 +1249,7 @@ func (m *Groups_RepGroup) ProtoSize() (n int) {
 	if m.Deep != nil {
 		n += 2 + m.Deep.ProtoSize()
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1267,7 +1263,7 @@ func (m *Groups_RepGroup) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups_RepGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.Deep != nil {
 		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireEndGroup)
 		n, err := m.Deep.ProtoMarshalToSizedBuffer(b[:i])
@@ -1303,10 +1299,10 @@ func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
 			x, n, err = proto2Group(b, 6, depth)
 			err = cmp.Or(err, proto2Alloc(&m.Deep).ProtoMergeDepth(x, depth+1))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -1374,24 +1370,24 @@ func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 type Groups_RepGroup_Deep struct {
 	D *int64
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Groups_RepGroup_Deep) Reset() { *m = Groups_RepGroup_Deep{} }
 func (m *Groups_RepGroup_Deep) z() *Groups_RepGroup_Deep {
-	return proto2If(m == nil, &proto2ZeroGroups_RepGroup_Deep, m)
+	return proto2If(m == nil, &proto2ZGroups_RepGroup_Deep, m)
 }
 func (m *Groups_RepGroup_Deep) GetD() int64 { return proto2Deref(m.z().D, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Groups_RepGroup_Deep) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Groups_RepGroup_Deep) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups_RepGroup_Deep) ProtoSize() (n int) {
 	m = m.z()
 	n += proto2SizeOpt(1, m.D, proto2VarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1405,7 +1401,7 @@ func (m *Groups_RepGroup_Deep) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups_RepGroup_Deep) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.D != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64((*m.D))), 7<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -1430,10 +1426,10 @@ func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
 		case 7<<proto2TagTypeBits | proto2WireVarint:
 			n = proto2Varint(b, proto2New(&m.D))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -1504,12 +1500,12 @@ type ClosedEnums struct {
 	//	*ClosedEnums_InOneof
 	O isClosedEnums_O
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *ClosedEnums) Reset()                         { *m = ClosedEnums{} }
-func (m *ClosedEnums) z() *ClosedEnums                { return proto2If(m == nil, &proto2ZeroClosedEnums, m) }
+func (m *ClosedEnums) z() *ClosedEnums                { return proto2If(m == nil, &proto2ZClosedEnums, m) }
 func (m *ClosedEnums) GetSingle() Closed              { return proto2Deref(m.z().Single, Closed_CLOSED_ONE) }
 func (m *ClosedEnums) GetRep() []Closed               { return m.z().Rep }
 func (m *ClosedEnums) GetPacked() []Closed            { return m.z().Packed }
@@ -1521,7 +1517,7 @@ func (m *ClosedEnums) GetInOneof() Closed {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ClosedEnums) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ClosedEnums) ProtoUnknownFields() []byte { return m.z().u }
 
 type isClosedEnums_O interface{ isClosedEnums_O() }
 type ClosedEnums_InOneof struct{ InOneof Closed }
@@ -1535,13 +1531,13 @@ func (m *ClosedEnums) ProtoSize() (n int) {
 	n += proto2SizeEach(1, m.Rep, proto2VarintLen)
 	n += proto2SizePacked(1, m.Packed, proto2VarintLen)
 	for k, v := range m.ByKey {
-		n += 1 + proto2SizeLen(1+(bits.Len64(uint64(int64(k))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits+1+(bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits)
+		n += 1 + proto2SizeLen(1+proto2VarintLen(k)+1+proto2VarintLen(v))
 	}
 	switch o := m.O.(type) {
 	case *ClosedEnums_InOneof:
-		n += 1 + (bits.Len64(uint64(int64(o.InOneof))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
+		n += 1 + proto2VarintLen(o.InOneof)
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1555,7 +1551,7 @@ func (m *ClosedEnums) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64(o.InOneof))), 5<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -1600,15 +1596,15 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			n = proto2ClosedEnum(b, &m.unknownFields, 1<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Single = new(e) })
+			n = proto2ClosedEnum(b, &m.u, 1<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Single = new(e) })
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			n = proto2PackedClosedEnum(b, &m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Rep = append(m.Rep, e) })
+			n = proto2PackedClosedEnum(b, &m.u, 2<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Rep = append(m.Rep, e) })
 		case 2<<proto2TagTypeBits | proto2WireVarint:
-			n = proto2ClosedEnum(b, &m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Rep = append(m.Rep, e) })
+			n = proto2ClosedEnum(b, &m.u, 2<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Rep = append(m.Rep, e) })
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			n = proto2PackedClosedEnum(b, &m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Packed = append(m.Packed, e) })
+			n = proto2PackedClosedEnum(b, &m.u, 3<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Packed = append(m.Packed, e) })
 		case 3<<proto2TagTypeBits | proto2WireVarint:
-			n = proto2ClosedEnum(b, &m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Packed = append(m.Packed, e) })
+			n = proto2ClosedEnum(b, &m.u, 3<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Packed = append(m.Packed, e) })
 		case 4<<proto2TagTypeBits | proto2WireBytes:
 			x, n = proto2ReadBytes(b)
 			mk, mv := int32(0), ClosedZero(0)
@@ -1623,23 +1619,23 @@ func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = proto2SkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(proto2ErrParse))
+					return cmp.Or(err, errors.New(proto2E1))
 				}
 				x = x[k:]
 			}
 			if mv.IsValid() {
 				proto2MapSet(&m.ByKey, mk, mv)
 			} else {
-				m.unknownFields = append(binary.AppendUvarint(m.unknownFields, t), b[:n]...)
+				m.u = append(binary.AppendUvarint(m.u, t), b[:n]...)
 			}
 			err = proto2End(x, err)
 		case 5<<proto2TagTypeBits | proto2WireVarint:
-			n = proto2ClosedEnum(b, &m.unknownFields, 5<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.O = &ClosedEnums_InOneof{InOneof: e} })
+			n = proto2ClosedEnum(b, &m.u, 5<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.O = &ClosedEnums_InOneof{InOneof: e} })
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -1700,16 +1696,16 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch key := kt.String(); key {
 		case "single":
-			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.ClosedEnums", &m.Single, proto2ClosedJSON)
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.ClosedEnums", &m.Single, proto2JClosed)
 		case "rep":
-			err = proto2RepField(d, &seen[1], key, "cotorp.test.proto2.ClosedEnums", &m.Rep, false, proto2ClosedJSON)
+			err = proto2RepField(d, &seen[1], key, "cotorp.test.proto2.ClosedEnums", &m.Rep, false, proto2JClosed)
 		case "packed":
-			err = proto2RepField(d, &seen[2], key, "cotorp.test.proto2.ClosedEnums", &m.Packed, false, proto2ClosedJSON)
+			err = proto2RepField(d, &seen[2], key, "cotorp.test.proto2.ClosedEnums", &m.Packed, false, proto2JClosed)
 		case "byKey", "by_key":
-			err = proto2MapField(d, &seen[3], key, "cotorp.test.proto2.ClosedEnums", "by_key", &m.ByKey, false, proto2IntKey, proto2ClosedZeroJSON)
+			err = proto2MapField(d, &seen[3], key, "cotorp.test.proto2.ClosedEnums", "by_key", &m.ByKey, false, proto2IntKey, proto2JClosedZero)
 		case "inOneof", "in_oneof":
 			o := new(ClosedEnums_InOneof)
-			err = proto2OneofField(d, &seen[4], &oneofs[0], key, "cotorp.test.proto2.ClosedEnums", "o", &m.O, isClosedEnums_O(o), &o.InOneof, false, proto2ClosedJSON)
+			err = proto2OneofField(d, &seen[4], &oneofs[0], key, "cotorp.test.proto2.ClosedEnums", "o", &m.O, isClosedEnums_O(o), &o.InOneof, false, proto2JClosed)
 		default:
 			return errors.New("proto: cotorp.test.proto2.ClosedEnums: unknown field " + strconv.Quote(key))
 		}
@@ -1717,7 +1713,7 @@ func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func proto2ClosedZeroJSON(d *jsontext.Decoder, p *ClosedZero, name string) error {
+func proto2JClosedZero(d *jsontext.Decoder, p *ClosedZero, name string) error {
 	return proto2JSONEnum(d, p, ClosedZero_value, name, "cotorp.test.proto2.ClosedZero", false)
 }
 
@@ -1729,12 +1725,12 @@ type Packed struct {
 	PBool    []bool
 	UInt32   []int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Packed) Reset()                { *m = Packed{} }
-func (m *Packed) z() *Packed            { return proto2If(m == nil, &proto2ZeroPacked, m) }
+func (m *Packed) z() *Packed            { return proto2If(m == nil, &proto2ZPacked, m) }
 func (m *Packed) GetPInt32() []int32    { return m.z().PInt32 }
 func (m *Packed) GetPSint64() []int64   { return m.z().PSint64 }
 func (m *Packed) GetPFixed32() []uint32 { return m.z().PFixed32 }
@@ -1743,7 +1739,7 @@ func (m *Packed) GetPBool() []bool      { return m.z().PBool }
 func (m *Packed) GetUInt32() []int32    { return m.z().UInt32 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Packed) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Packed) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Packed) ProtoSize() (n int) {
@@ -1754,7 +1750,7 @@ func (m *Packed) ProtoSize() (n int) {
 	n += proto2SizeLenField(1, len(m.PDouble)*proto2Fixed64Size)
 	n += proto2SizeLenField(1, len(m.PBool))
 	n += proto2SizeEach(1, m.UInt32, proto2VarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1768,7 +1764,7 @@ func (m *Packed) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UInt32) {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64(v))), 6<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -1847,10 +1843,10 @@ func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
 		case 6<<proto2TagTypeBits | proto2WireVarint:
 			n = proto2Varint(b, proto2Grow(&m.UInt32))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -1927,22 +1923,22 @@ func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 type Extendable struct {
 	Known *int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Extendable) Reset()          { *m = Extendable{} }
-func (m *Extendable) z() *Extendable  { return proto2If(m == nil, &proto2ZeroExtendable, m) }
+func (m *Extendable) z() *Extendable  { return proto2If(m == nil, &proto2ZExtendable, m) }
 func (m *Extendable) GetKnown() int32 { return proto2Deref(m.z().Known, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Extendable) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Extendable) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Extendable) ProtoSize() (n int) {
 	m = m.z()
 	n += proto2SizeOpt(1, m.Known, proto2VarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1956,7 +1952,7 @@ func (m *Extendable) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Extendable) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.Known != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.Known)))), 1<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -1981,10 +1977,10 @@ func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
 			n = proto2Varint(b, proto2New(&m.Known))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -2043,20 +2039,20 @@ func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 type Scope struct {
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Scope) Reset()    { *m = Scope{} }
-func (m *Scope) z() *Scope { return proto2If(m == nil, &proto2ZeroScope, m) }
+func (m *Scope) z() *Scope { return proto2If(m == nil, &proto2ZScope, m) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Scope) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Scope) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Scope) ProtoSize() (n int) {
 	m = m.z()
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2070,7 +2066,7 @@ func (m *Scope) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Scope) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	return len(b) - i, nil
 }
 
@@ -2085,9 +2081,9 @@ func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
 	err := proto2Depth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+		n, err = proto2Unknown(b, t, depth, &m.u)
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -2142,18 +2138,18 @@ type Proto2Strings struct {
 	Rs     []string
 	Shared *commonpb.Shared
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Proto2Strings) Reset()                      { *m = Proto2Strings{} }
-func (m *Proto2Strings) z() *Proto2Strings           { return proto2If(m == nil, &proto2ZeroProto2Strings, m) }
+func (m *Proto2Strings) z() *Proto2Strings           { return proto2If(m == nil, &proto2ZProto2Strings, m) }
 func (m *Proto2Strings) GetS() string                { return proto2Deref(m.z().S, "") }
 func (m *Proto2Strings) GetRs() []string             { return m.z().Rs }
 func (m *Proto2Strings) GetShared() *commonpb.Shared { return m.z().Shared }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Proto2Strings) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Proto2Strings) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Proto2Strings) ProtoSize() (n int) {
@@ -2161,7 +2157,7 @@ func (m *Proto2Strings) ProtoSize() (n int) {
 	n += proto2SizeOpt(1, m.S, proto2BytesLen)
 	n += proto2SizeEach(1, m.Rs, proto2BytesLen)
 	n += proto2SizeMsg(1, m.Shared, func(v *commonpb.Shared) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2175,7 +2171,7 @@ func (m *Proto2Strings) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.Shared != nil {
 		n, err := m.Shared.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -2215,10 +2211,10 @@ func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = proto2ReadBytes(b)
 			err = proto2Alloc(&m.Shared).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -2289,22 +2285,22 @@ func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 type ExtGroup struct {
 	G *int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *ExtGroup) Reset()       { *m = ExtGroup{} }
-func (m *ExtGroup) z() *ExtGroup { return proto2If(m == nil, &proto2ZeroExtGroup, m) }
+func (m *ExtGroup) z() *ExtGroup { return proto2If(m == nil, &proto2ZExtGroup, m) }
 func (m *ExtGroup) GetG() int32  { return proto2Deref(m.z().G, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ExtGroup) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ExtGroup) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ExtGroup) ProtoSize() (n int) {
 	m = m.z()
 	n += proto2SizeOpt(1, m.G, proto2VarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2318,7 +2314,7 @@ func (m *ExtGroup) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ExtGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := proto2CopyUnknown(b, len(b), m.unknownFields)
+	i := proto2CopyUnknown(b, len(b), m.u)
 	if m.G != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.G)))), 1<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -2340,10 +2336,10 @@ func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
 			n = proto2Varint(b, proto2New(&m.G))
 		default:
-			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+			n, err = proto2Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(proto2ErrParse))
+			return cmp.Or(err, errors.New(proto2E1))
 		}
 		b = b[n:]
 	}
@@ -2402,19 +2398,19 @@ func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	proto2ZeroDefaults             Defaults
-	proto2ZeroRequired             Required
-	proto2ZeroRequired_Inner       Required_Inner
-	proto2ZeroGroups               Groups
-	proto2ZeroGroups_OptGroup      Groups_OptGroup
-	proto2ZeroGroups_RepGroup      Groups_RepGroup
-	proto2ZeroGroups_RepGroup_Deep Groups_RepGroup_Deep
-	proto2ZeroClosedEnums          ClosedEnums
-	proto2ZeroPacked               Packed
-	proto2ZeroExtendable           Extendable
-	proto2ZeroScope                Scope
-	proto2ZeroProto2Strings        Proto2Strings
-	proto2ZeroExtGroup             ExtGroup
+	proto2ZDefaults             Defaults
+	proto2ZRequired             Required
+	proto2ZRequired_Inner       Required_Inner
+	proto2ZGroups               Groups
+	proto2ZGroups_OptGroup      Groups_OptGroup
+	proto2ZGroups_RepGroup      Groups_RepGroup
+	proto2ZGroups_RepGroup_Deep Groups_RepGroup_Deep
+	proto2ZClosedEnums          ClosedEnums
+	proto2ZPacked               Packed
+	proto2ZExtendable           Extendable
+	proto2ZScope                Scope
+	proto2ZProto2Strings        Proto2Strings
+	proto2ZExtGroup             ExtGroup
 )
 
 func proto2SizeLen(l int) int           { return l + proto2VarintLen(l) }
@@ -2549,7 +2545,7 @@ func proto2SkipField(b []byte, t uint64, depth int) (int, error) {
 		n = proto2If(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(proto2ErrParse)
+		return 0, errors.New(proto2E1)
 	}
 	return n, nil
 }
@@ -2558,7 +2554,7 @@ func proto2SkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(proto2ErrParse)
+			return 0, errors.New(proto2E1)
 		}
 		if n += k; t == uint64(num)<<proto2TagTypeBits|proto2WireEndGroup {
 			return n, nil
@@ -2577,7 +2573,7 @@ func proto2Unknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func proto2End(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(proto2ErrParse)
+		return errors.New(proto2E1)
 	}
 	return err
 }
@@ -2915,14 +2911,14 @@ func proto2NextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
 }
 func proto2Field[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+		return proto2JSONError(name, proto2E2+strconv.Quote(key))
 	}
 	*seen = true
 	return parse(d, p, name)
 }
 func proto2OptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p **T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+		return proto2JSONError(name, proto2E2+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -2932,7 +2928,7 @@ func proto2OptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p 
 }
 func proto2RepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+		return proto2JSONError(name, proto2E2+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -2942,7 +2938,7 @@ func proto2RepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s 
 }
 func proto2MapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, name, field string, m *map[K]V, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
 	if *seen {
-		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+		return proto2JSONError(name, proto2E2+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -2952,7 +2948,7 @@ func proto2MapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, n
 }
 func proto2OneofField[I, T any](d *jsontext.Decoder, seen, oneof *bool, key, name, oneofName string, p *I, w I, v *T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+		return proto2JSONError(name, proto2E2+strconv.Quote(key))
 	}
 	*seen = true
 	if !nullOK && d.PeekKind() == jsontext.KindNull {
@@ -2970,7 +2966,7 @@ func proto2JSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK boo
 	}
 	for d.PeekKind() != jsontext.KindEndArray {
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return proto2JSONError(name, proto2ErrNullElement)
+			return proto2JSONError(name, proto2E3)
 		}
 		if err := parse(d, proto2Grow(s), name); err != nil {
 			return err
@@ -2993,7 +2989,7 @@ func proto2JSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, f
 			return err
 		}
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return proto2JSONError(name, proto2ErrNullElement)
+			return proto2JSONError(name, proto2E3)
 		}
 		var v V
 		if err := pv(d, &v, name); err != nil {
@@ -3131,7 +3127,7 @@ func proto2ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	}
 	n := proto2ExactInt(s)
 	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-		return 0, proto2JSONError(name, proto2ErrInvalidInteger+s)
+		return 0, proto2JSONError(name, proto2E4+s)
 	}
 	return n.Int64(), nil
 }
@@ -3145,7 +3141,7 @@ func proto2ParseUint(tok jsontext.Token, bits int, name string) (uint64, error) 
 	}
 	n := proto2ExactInt(s)
 	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-		return 0, proto2JSONError(name, proto2ErrInvalidInteger+s)
+		return 0, proto2JSONError(name, proto2E4+s)
 	}
 	return n.Uint64(), nil
 }
@@ -3178,14 +3174,14 @@ func proto2ParseFloat(tok jsontext.Token, bits int, name string) (float64, error
 	}
 	v, err := strconv.ParseFloat(s, bits)
 	if err != nil {
-		return 0, proto2JSONError(name, proto2ErrInvalidNumber+s)
+		return 0, proto2JSONError(name, proto2E5+s)
 	}
 	return v, nil
 }
 func proto2JSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-		return "", proto2JSONError(name, proto2ErrInvalidNumber+s)
+		return "", proto2JSONError(name, proto2E5+s)
 	}
 	return s, nil
 }

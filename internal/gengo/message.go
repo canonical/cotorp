@@ -82,6 +82,10 @@ func validExpr(numbers []int32) string {
 	return strings.Join(terms, " || ")
 }
 
+// unknownField is the name of the struct field holding unknown fields; it
+// is unexported, so it is short.
+const unknownField = "u"
+
 // fieldType returns the Go type of a struct field (or oneof wrapper field).
 func (fg *fileGen) fieldType(fi *fieldInfo) string {
 	f := fi.f
@@ -130,12 +134,12 @@ func (fg *fileGen) genMessage(mi *messageInfo) {
 		fg.P(fi.goName, " ", fg.fieldType(fi))
 	}
 	fg.P()
-	fg.P("unknownFields []byte")
+	fg.P(unknownField, " []byte")
 	fg.P("}")
 	fg.P()
 	// Getters read through z, which substitutes this zero value for a nil
 	// receiver. If is a plain branch after inlining; cmp.Or builds a slice.
-	zero := fg.constName("Zero" + name)
+	zero := fg.constName("Z" + name)
 	fg.zeros = append(fg.zeros, zero+" "+name)
 
 	// Default values.
@@ -156,7 +160,7 @@ func (fg *fileGen) genMessage(mi *messageInfo) {
 	fg.P()
 
 	fg.P("// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.")
-	fg.P("func (m *", name, ") ProtoUnknownFields() []byte { return m.z().unknownFields }")
+	fg.P("func (m *", name, ") ProtoUnknownFields() []byte { return m.z().", unknownField, " }")
 	fg.P()
 
 	// Oneof types, then their marker methods: gofmt separates declarations

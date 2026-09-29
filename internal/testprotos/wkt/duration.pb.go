@@ -18,29 +18,29 @@ import (
 )
 
 const (
-	durationWireVarint            = 0
-	durationWireFixed64           = 1
-	durationWireBytes             = 2
-	durationWireStartGroup        = 3
-	durationWireEndGroup          = 4
-	durationWireFixed32           = 5
-	durationTagTypeBits           = 3
-	durationTagTypeMask           = 1<<3 - 1
-	durationMaxFieldNumber        = 1<<29 - 1
-	durationFixed32Size           = 4
-	durationFixed64Size           = 8
-	durationVarintPayloadBits     = 7
-	durationVarintContBit         = 0x80
-	durationMaxDepth              = 10000
-	durationMaxFracDigits         = 9
-	durationMaxDurationSeconds    = 315576000000
-	durationNanosPerSecond        = 1000000000
-	durationNanosPerMilli         = 1000000
-	durationNanosPerMicro         = 1000
-	durationMicrosPerSecond       = 1000000
-	durationMillisPerSecond       = 1000
-	durationErrParse              = "proto: cannot parse invalid wire-format data"
-	durationDurationErrOutOfRange = "proto: google.protobuf.Duration: duration out of range"
+	durationWireVarint         = 0
+	durationWireFixed64        = 1
+	durationWireBytes          = 2
+	durationWireStartGroup     = 3
+	durationWireEndGroup       = 4
+	durationWireFixed32        = 5
+	durationTagTypeBits        = 3
+	durationTagTypeMask        = 1<<3 - 1
+	durationMaxFieldNumber     = 1<<29 - 1
+	durationFixed32Size        = 4
+	durationFixed64Size        = 8
+	durationVarintPayloadBits  = 7
+	durationVarintContBit      = 0x80
+	durationMaxDepth           = 10000
+	durationMaxFracDigits      = 9
+	durationMaxDurationSeconds = 315576000000
+	durationNanosPerSecond     = 1000000000
+	durationNanosPerMilli      = 1000000
+	durationNanosPerMicro      = 1000
+	durationMicrosPerSecond    = 1000000
+	durationMillisPerSecond    = 1000
+	durationE1                 = "proto: cannot parse invalid wire-format data"
+	durationE2                 = "proto: google.protobuf.Duration: duration out of range"
 )
 
 // A Duration represents a signed, fixed-length span of time represented
@@ -114,24 +114,24 @@ type Duration struct {
 	// to +999,999,999 inclusive.
 	Nanos int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Duration) Reset()            { *m = Duration{} }
-func (m *Duration) z() *Duration      { return durationIf(m == nil, &durationZeroDuration, m) }
+func (m *Duration) z() *Duration      { return durationIf(m == nil, &durationZDuration, m) }
 func (m *Duration) GetSeconds() int64 { return m.z().Seconds }
 func (m *Duration) GetNanos() int32   { return m.z().Nanos }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Duration) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Duration) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Duration) ProtoSize() (n int) {
 	m = m.z()
 	n += durationSizeVarint(1, uint64(m.Seconds))
 	n += durationSizeVarint(1, uint64(int64(m.Nanos)))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -145,7 +145,7 @@ func (m *Duration) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Duration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := durationCopyUnknown(b, len(b), m.unknownFields)
+	i := durationCopyUnknown(b, len(b), m.u)
 	i = durationPutVarintField(b, i, uint64(int64(m.Nanos)), 2<<durationTagTypeBits|durationWireVarint)
 	i = durationPutVarintField(b, i, uint64(m.Seconds), 1<<durationTagTypeBits|durationWireVarint)
 	return len(b) - i, nil
@@ -168,10 +168,10 @@ func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
 		case 2<<durationTagTypeBits | durationWireVarint:
 			n = durationVarint(b, &m.Nanos)
 		default:
-			n, err = durationUnknown(b, t, depth, &m.unknownFields)
+			n, err = durationUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(durationErrParse))
+			return cmp.Or(err, errors.New(durationE1))
 		}
 		b = b[n:]
 	}
@@ -197,7 +197,7 @@ func (m *Duration) ProtoAppendJSON(b []byte) ([]byte, error) {
 		s, ns = m.Seconds, m.Nanos
 	}
 	if s < -durationMaxDurationSeconds || s > durationMaxDurationSeconds || ns <= -durationNanosPerSecond || ns >= durationNanosPerSecond || (s > 0 && ns < 0) || (s < 0 && ns > 0) {
-		return nil, errors.New(durationDurationErrOutOfRange)
+		return nil, errors.New(durationE2)
 	}
 	b = append(b, '"')
 	if s < 0 || ns < 0 {
@@ -260,7 +260,7 @@ func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	}
 	secs, err := strconv.ParseInt(whole, 10, 64)
 	if err != nil || secs > durationMaxDurationSeconds {
-		return errors.New(durationDurationErrOutOfRange)
+		return errors.New(durationE2)
 	}
 	var nanos int64
 	if dot {
@@ -277,7 +277,7 @@ func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	durationZeroDuration Duration
+	durationZDuration Duration
 )
 
 func durationSizeVarint(tag int, u uint64) int {
@@ -351,7 +351,7 @@ func durationSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = durationIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(durationErrParse)
+		return 0, errors.New(durationE1)
 	}
 	return n, nil
 }
@@ -360,7 +360,7 @@ func durationSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(durationErrParse)
+			return 0, errors.New(durationE1)
 		}
 		if n += k; t == uint64(num)<<durationTagTypeBits|durationWireEndGroup {
 			return n, nil
@@ -379,7 +379,7 @@ func durationUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func durationEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(durationErrParse)
+		return errors.New(durationE1)
 	}
 	return err
 }

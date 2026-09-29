@@ -21,48 +21,48 @@ import (
 )
 
 const (
-	editions2024WireVarint            = 0
-	editions2024WireFixed64           = 1
-	editions2024WireBytes             = 2
-	editions2024WireStartGroup        = 3
-	editions2024WireEndGroup          = 4
-	editions2024WireFixed32           = 5
-	editions2024TagTypeBits           = 3
-	editions2024TagTypeMask           = 1<<3 - 1
-	editions2024MaxFieldNumber        = 1<<29 - 1
-	editions2024Fixed32Size           = 4
-	editions2024Fixed64Size           = 8
-	editions2024VarintPayloadBits     = 7
-	editions2024VarintContBit         = 0x80
-	editions2024MaxDepth              = 10000
-	editions2024MaxJSONExponent       = 100
-	editions2024ErrParse              = "proto: cannot parse invalid wire-format data"
-	editions2024VisibleHiddenSErrUTF8 = "proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8"
-	editions2024ErrDuplicateField     = "duplicate field "
+	editions2024WireVarint        = 0
+	editions2024WireFixed64       = 1
+	editions2024WireBytes         = 2
+	editions2024WireStartGroup    = 3
+	editions2024WireEndGroup      = 4
+	editions2024WireFixed32       = 5
+	editions2024TagTypeBits       = 3
+	editions2024TagTypeMask       = 1<<3 - 1
+	editions2024MaxFieldNumber    = 1<<29 - 1
+	editions2024Fixed32Size       = 4
+	editions2024Fixed64Size       = 8
+	editions2024VarintPayloadBits = 7
+	editions2024VarintContBit     = 0x80
+	editions2024MaxDepth          = 10000
+	editions2024MaxJSONExponent   = 100
+	editions2024E1                = "proto: cannot parse invalid wire-format data"
+	editions2024E2                = "proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8"
+	editions2024E3                = "duplicate field "
 )
 
 type Visible struct {
 	A      *int32
 	Hidden *Visible_Hidden
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Visible) Reset()                     { *m = Visible{} }
-func (m *Visible) z() *Visible                { return editions2024If(m == nil, &editions2024ZeroVisible, m) }
+func (m *Visible) z() *Visible                { return editions2024If(m == nil, &editions2024ZVisible, m) }
 func (m *Visible) GetA() int32                { return editions2024Deref(m.z().A, 0) }
 func (m *Visible) GetHidden() *Visible_Hidden { return m.z().Hidden }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Visible) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Visible) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Visible) ProtoSize() (n int) {
 	m = m.z()
 	n += editions2024SizeOpt(1, m.A, editions2024VarintLen)
 	n += editions2024SizeMsg(1, m.Hidden, func(v *Visible_Hidden) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -76,7 +76,7 @@ func (m *Visible) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Visible) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := editions2024CopyUnknown(b, len(b), m.unknownFields)
+	i := editions2024CopyUnknown(b, len(b), m.u)
 	if m.Hidden != nil {
 		n, err := m.Hidden.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -108,10 +108,10 @@ func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = editions2024ReadBytes(b)
 			err = editions2024Alloc(&m.Hidden).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = editions2024Unknown(b, t, depth, &m.unknownFields)
+			n, err = editions2024Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(editions2024ErrParse))
+			return cmp.Or(err, errors.New(editions2024E1))
 		}
 		b = b[n:]
 	}
@@ -176,24 +176,24 @@ func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 type Visible_Hidden struct {
 	S *string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Visible_Hidden) Reset() { *m = Visible_Hidden{} }
 func (m *Visible_Hidden) z() *Visible_Hidden {
-	return editions2024If(m == nil, &editions2024ZeroVisible_Hidden, m)
+	return editions2024If(m == nil, &editions2024ZVisible_Hidden, m)
 }
 func (m *Visible_Hidden) GetS() string { return editions2024Deref(m.z().S, "") }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Visible_Hidden) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Visible_Hidden) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Visible_Hidden) ProtoSize() (n int) {
 	m = m.z()
 	n += editions2024SizeOpt(1, m.S, editions2024BytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -207,8 +207,8 @@ func (m *Visible_Hidden) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Visible_Hidden) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := editions2024CopyUnknown(b, len(b), m.unknownFields)
-	if err := editions2024CheckUTF8(m.GetS(), editions2024VisibleHiddenSErrUTF8, nil); err != nil {
+	i := editions2024CopyUnknown(b, len(b), m.u)
+	if err := editions2024CheckUTF8(m.GetS(), editions2024E2, nil); err != nil {
 		return 0, err
 	}
 	if m.S != nil {
@@ -233,12 +233,12 @@ func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<editions2024TagTypeBits | editions2024WireBytes:
-			n, err = editions2024String(b, editions2024New(&m.S), editions2024VisibleHiddenSErrUTF8)
+			n, err = editions2024String(b, editions2024New(&m.S), editions2024E2)
 		default:
-			n, err = editions2024Unknown(b, t, depth, &m.unknownFields)
+			n, err = editions2024Unknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(editions2024ErrParse))
+			return cmp.Or(err, errors.New(editions2024E1))
 		}
 		b = b[n:]
 	}
@@ -301,8 +301,8 @@ func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	editions2024ZeroVisible        Visible
-	editions2024ZeroVisible_Hidden Visible_Hidden
+	editions2024ZVisible        Visible
+	editions2024ZVisible_Hidden Visible_Hidden
 )
 
 func editions2024SizeLen(l int) int { return l + editions2024VarintLen(l) }
@@ -388,7 +388,7 @@ func editions2024SkipField(b []byte, t uint64, depth int) (int, error) {
 		n = editions2024If(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(editions2024ErrParse)
+		return 0, errors.New(editions2024E1)
 	}
 	return n, nil
 }
@@ -397,7 +397,7 @@ func editions2024SkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(editions2024ErrParse)
+			return 0, errors.New(editions2024E1)
 		}
 		if n += k; t == uint64(num)<<editions2024TagTypeBits|editions2024WireEndGroup {
 			return n, nil
@@ -416,7 +416,7 @@ func editions2024Unknown(b []byte, t uint64, depth int, unk *[]byte) (int, error
 }
 func editions2024End(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(editions2024ErrParse)
+		return errors.New(editions2024E1)
 	}
 	return err
 }
@@ -524,14 +524,14 @@ func editions2024NextKey(d *jsontext.Decoder, err error) (jsontext.Token, error)
 }
 func editions2024Field[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return editions2024JSONError(name, editions2024ErrDuplicateField+strconv.Quote(key))
+		return editions2024JSONError(name, editions2024E3+strconv.Quote(key))
 	}
 	*seen = true
 	return parse(d, p, name)
 }
 func editions2024OptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p **T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return editions2024JSONError(name, editions2024ErrDuplicateField+strconv.Quote(key))
+		return editions2024JSONError(name, editions2024E3+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {

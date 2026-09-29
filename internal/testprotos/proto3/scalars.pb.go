@@ -24,38 +24,38 @@ import (
 )
 
 const (
-	scalarsWireVarint                         = 0
-	scalarsWireFixed64                        = 1
-	scalarsWireBytes                          = 2
-	scalarsWireStartGroup                     = 3
-	scalarsWireEndGroup                       = 4
-	scalarsWireFixed32                        = 5
-	scalarsTagTypeBits                        = 3
-	scalarsTagTypeMask                        = 1<<3 - 1
-	scalarsMaxFieldNumber                     = 1<<29 - 1
-	scalarsMapKeyField                        = 1
-	scalarsMapValueField                      = 2
-	scalarsFixed32Size                        = 4
-	scalarsFixed64Size                        = 8
-	scalarsVarintPayloadBits                  = 7
-	scalarsVarintContBit                      = 0x80
-	scalarsMaxDepth                           = 10000
-	scalarsMaxJSONExponent                    = 100
-	scalarsBase64Quantum                      = 4
-	scalarsScalarsFStringErrUTF8              = "proto: field cotorp.test.proto3.Scalars.f_string contains invalid UTF-8"
-	scalarsErrParse                           = "proto: cannot parse invalid wire-format data"
-	scalarsOptionalsOStringErrUTF8            = "proto: field cotorp.test.proto3.Optionals.o_string contains invalid UTF-8"
-	scalarsRepeatedsRStringErrUTF8            = "proto: field cotorp.test.proto3.Repeateds.r_string contains invalid UTF-8"
-	scalarsMapsMStringSharedEntryKeyErrUTF8   = "proto: field cotorp.test.proto3.Maps.MStringSharedEntry.key contains invalid UTF-8"
-	scalarsMapsMStringStringEntryValueErrUTF8 = "proto: field cotorp.test.proto3.Maps.MStringStringEntry.value contains invalid UTF-8"
-	scalarsMapsMStringStringEntryKeyErrUTF8   = "proto: field cotorp.test.proto3.Maps.MStringStringEntry.key contains invalid UTF-8"
-	scalarsOneofsCStringErrUTF8               = "proto: field cotorp.test.proto3.Oneofs.c_string contains invalid UTF-8"
-	scalarsNamesMarshalBinaryErrUTF8          = "proto: field cotorp.test.proto3.Names.marshal_binary contains invalid UTF-8"
-	scalarsErrDuplicateField                  = "duplicate field "
-	scalarsErrNullElement                     = "null is not allowed in repeated fields or map values"
-	scalarsErrInvalidInteger                  = "invalid integer "
-	scalarsErrInvalidNumber                   = "invalid number "
-	scalarsErrInvalidKey                      = "invalid map key for field "
+	scalarsWireVarint        = 0
+	scalarsWireFixed64       = 1
+	scalarsWireBytes         = 2
+	scalarsWireStartGroup    = 3
+	scalarsWireEndGroup      = 4
+	scalarsWireFixed32       = 5
+	scalarsTagTypeBits       = 3
+	scalarsTagTypeMask       = 1<<3 - 1
+	scalarsMaxFieldNumber    = 1<<29 - 1
+	scalarsMapKeyField       = 1
+	scalarsMapValueField     = 2
+	scalarsFixed32Size       = 4
+	scalarsFixed64Size       = 8
+	scalarsVarintPayloadBits = 7
+	scalarsVarintContBit     = 0x80
+	scalarsMaxDepth          = 10000
+	scalarsMaxJSONExponent   = 100
+	scalarsBase64Quantum     = 4
+	scalarsE1                = "proto: field cotorp.test.proto3.Scalars.f_string contains invalid UTF-8"
+	scalarsE2                = "proto: cannot parse invalid wire-format data"
+	scalarsE3                = "proto: field cotorp.test.proto3.Optionals.o_string contains invalid UTF-8"
+	scalarsE4                = "proto: field cotorp.test.proto3.Repeateds.r_string contains invalid UTF-8"
+	scalarsE5                = "proto: field cotorp.test.proto3.Maps.MStringSharedEntry.key contains invalid UTF-8"
+	scalarsE6                = "proto: field cotorp.test.proto3.Maps.MStringStringEntry.value contains invalid UTF-8"
+	scalarsE7                = "proto: field cotorp.test.proto3.Maps.MStringStringEntry.key contains invalid UTF-8"
+	scalarsE8                = "proto: field cotorp.test.proto3.Oneofs.c_string contains invalid UTF-8"
+	scalarsE9                = "proto: field cotorp.test.proto3.Names.marshal_binary contains invalid UTF-8"
+	scalarsE10               = "duplicate field "
+	scalarsE11               = "null is not allowed in repeated fields or map values"
+	scalarsE12               = "invalid integer "
+	scalarsE13               = "invalid number "
+	scalarsE14               = "invalid map key for field "
 )
 
 // Scalars exercises every scalar type with implicit presence.
@@ -79,12 +79,12 @@ type Scalars struct {
 	FNested   *Scalars_Nested
 	FShared   *commonpb.Shared
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Scalars) Reset()                       { *m = Scalars{} }
-func (m *Scalars) z() *Scalars                  { return scalarsIf(m == nil, &scalarsZeroScalars, m) }
+func (m *Scalars) z() *Scalars                  { return scalarsIf(m == nil, &scalarsZScalars, m) }
 func (m *Scalars) GetFDouble() float64          { return m.z().FDouble }
 func (m *Scalars) GetFFloat() float32           { return m.z().FFloat }
 func (m *Scalars) GetFInt64() int64             { return m.z().FInt64 }
@@ -105,7 +105,7 @@ func (m *Scalars) GetFNested() *Scalars_Nested  { return m.z().FNested }
 func (m *Scalars) GetFShared() *commonpb.Shared { return m.z().FShared }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Scalars) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Scalars) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Scalars) ProtoSize() (n int) {
@@ -128,7 +128,7 @@ func (m *Scalars) ProtoSize() (n int) {
 	n += scalarsSizeVarint(2, uint64(int64(m.FEnum)))
 	n += scalarsSizeMsg(2, m.FNested, func(v *Scalars_Nested) int { return v.ProtoSize() })
 	n += scalarsSizeMsg(2, m.FShared, func(v *commonpb.Shared) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -142,8 +142,8 @@ func (m *Scalars) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Scalars) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
-	if err := scalarsCheckUTF8(m.FString, scalarsScalarsFStringErrUTF8, nil); err != nil {
+	i := scalarsCopyUnknown(b, len(b), m.u)
+	if err := scalarsCheckUTF8(m.FString, scalarsE1, nil); err != nil {
 		return 0, err
 	}
 	if m.FShared != nil {
@@ -208,7 +208,7 @@ func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
 		case 8<<scalarsTagTypeBits | scalarsWireVarint:
 			n = scalarsBool(b, &m.FBool)
 		case 9<<scalarsTagTypeBits | scalarsWireBytes:
-			n, err = scalarsString(b, &m.FString, scalarsScalarsFStringErrUTF8)
+			n, err = scalarsString(b, &m.FString, scalarsE1)
 		case 10<<scalarsTagTypeBits | scalarsWireBytes:
 			n = scalarsBytes(b, &m.FBytes)
 		case 11<<scalarsTagTypeBits | scalarsWireVarint:
@@ -230,10 +230,10 @@ func (m *Scalars) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = scalarsReadBytes(b)
 			err = scalarsAlloc(&m.FShared).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -361,7 +361,7 @@ func (m *Scalars) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "fSint64", "f_sint64":
 			err = scalarsField(d, &seen[14], key, "cotorp.test.proto3.Scalars", &m.FSint64, scalarsJSONInt)
 		case "fEnum", "f_enum":
-			err = scalarsField(d, &seen[15], key, "cotorp.test.proto3.Scalars", &m.FEnum, scalarsCotorpTestCommonColorJSON)
+			err = scalarsField(d, &seen[15], key, "cotorp.test.proto3.Scalars", &m.FEnum, scalarsJCotorpTestCommonColor)
 		case "fNested", "f_nested":
 			err = scalarsField(d, &seen[16], key, "cotorp.test.proto3.Scalars", &m.FNested, scalarsJSONMsg)
 		case "fShared", "f_shared":
@@ -373,7 +373,7 @@ func (m *Scalars) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func scalarsCotorpTestCommonColorJSON(d *jsontext.Decoder, p *commonpb.Color, name string) error {
+func scalarsJCotorpTestCommonColor(d *jsontext.Decoder, p *commonpb.Color, name string) error {
 	return scalarsJSONEnum(d, p, commonpb.Color_value, name, "cotorp.test.common.Color", false)
 }
 
@@ -381,26 +381,24 @@ type Scalars_Nested struct {
 	A         int32
 	Recursive *Scalars_Nested
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
-func (m *Scalars_Nested) Reset() { *m = Scalars_Nested{} }
-func (m *Scalars_Nested) z() *Scalars_Nested {
-	return scalarsIf(m == nil, &scalarsZeroScalars_Nested, m)
-}
+func (m *Scalars_Nested) Reset()                        { *m = Scalars_Nested{} }
+func (m *Scalars_Nested) z() *Scalars_Nested            { return scalarsIf(m == nil, &scalarsZScalars_Nested, m) }
 func (m *Scalars_Nested) GetA() int32                   { return m.z().A }
 func (m *Scalars_Nested) GetRecursive() *Scalars_Nested { return m.z().Recursive }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Scalars_Nested) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Scalars_Nested) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Scalars_Nested) ProtoSize() (n int) {
 	m = m.z()
 	n += scalarsSizeVarint(1, uint64(int64(m.A)))
 	n += scalarsSizeMsg(1, m.Recursive, func(v *Scalars_Nested) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -414,7 +412,7 @@ func (m *Scalars_Nested) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Scalars_Nested) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
+	i := scalarsCopyUnknown(b, len(b), m.u)
 	if m.Recursive != nil {
 		n, err := m.Recursive.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -447,10 +445,10 @@ func (m *Scalars_Nested) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = scalarsReadBytes(b)
 			err = scalarsAlloc(&m.Recursive).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -533,12 +531,12 @@ type Optionals struct {
 	OSint64   *int64
 	OEnum     *commonpb.Color
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Optionals) Reset()              { *m = Optionals{} }
-func (m *Optionals) z() *Optionals       { return scalarsIf(m == nil, &scalarsZeroOptionals, m) }
+func (m *Optionals) z() *Optionals       { return scalarsIf(m == nil, &scalarsZOptionals, m) }
 func (m *Optionals) GetODouble() float64 { return scalarsDeref(m.z().ODouble, 0) }
 func (m *Optionals) GetOFloat() float32  { return scalarsDeref(m.z().OFloat, 0) }
 func (m *Optionals) GetOInt64() int64    { return scalarsDeref(m.z().OInt64, 0) }
@@ -559,7 +557,7 @@ func (m *Optionals) GetOEnum() commonpb.Color {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Optionals) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Optionals) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Optionals) ProtoSize() (n int) {
@@ -580,7 +578,7 @@ func (m *Optionals) ProtoSize() (n int) {
 	n += scalarsSizeOpt(1, m.OSint32, scalarsSint32Len)
 	n += scalarsSizeOpt(1, m.OSint64, scalarsSint64Len)
 	n += scalarsSizeOpt(2, m.OEnum, scalarsVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -594,8 +592,8 @@ func (m *Optionals) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Optionals) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
-	if err := scalarsCheckUTF8(m.GetOString(), scalarsOptionalsOStringErrUTF8, nil); err != nil {
+	i := scalarsCopyUnknown(b, len(b), m.u)
+	if err := scalarsCheckUTF8(m.GetOString(), scalarsE3, nil); err != nil {
 		return 0, err
 	}
 	if m.OEnum != nil {
@@ -678,7 +676,7 @@ func (m *Optionals) ProtoMergeDepth(b []byte, depth int) error {
 		case 8<<scalarsTagTypeBits | scalarsWireVarint:
 			n = scalarsBool(b, scalarsNew(&m.OBool))
 		case 9<<scalarsTagTypeBits | scalarsWireBytes:
-			n, err = scalarsString(b, scalarsNew(&m.OString), scalarsOptionalsOStringErrUTF8)
+			n, err = scalarsString(b, scalarsNew(&m.OString), scalarsE3)
 		case 10<<scalarsTagTypeBits | scalarsWireBytes:
 			n = scalarsBytes(b, &m.OBytes)
 		case 11<<scalarsTagTypeBits | scalarsWireVarint:
@@ -694,10 +692,10 @@ func (m *Optionals) ProtoMergeDepth(b []byte, depth int) error {
 		case 16<<scalarsTagTypeBits | scalarsWireVarint:
 			n = scalarsVarint(b, scalarsNew(&m.OEnum))
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -823,7 +821,7 @@ func (m *Optionals) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "oSint64", "o_sint64":
 			err = scalarsOptField(d, &seen[14], key, "cotorp.test.proto3.Optionals", &m.OSint64, scalarsJSONInt)
 		case "oEnum", "o_enum":
-			err = scalarsOptField(d, &seen[15], key, "cotorp.test.proto3.Optionals", &m.OEnum, scalarsCotorpTestCommonColorJSON)
+			err = scalarsOptField(d, &seen[15], key, "cotorp.test.proto3.Optionals", &m.OEnum, scalarsJCotorpTestCommonColor)
 		default:
 			return errors.New("proto: cotorp.test.proto3.Optionals: unknown field " + strconv.Quote(key))
 		}
@@ -851,12 +849,12 @@ type Repeateds struct {
 	RNested   []*Scalars_Nested
 	RUnpacked []int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Repeateds) Reset()                        { *m = Repeateds{} }
-func (m *Repeateds) z() *Repeateds                 { return scalarsIf(m == nil, &scalarsZeroRepeateds, m) }
+func (m *Repeateds) z() *Repeateds                 { return scalarsIf(m == nil, &scalarsZRepeateds, m) }
 func (m *Repeateds) GetRDouble() []float64         { return m.z().RDouble }
 func (m *Repeateds) GetRFloat() []float32          { return m.z().RFloat }
 func (m *Repeateds) GetRInt64() []int64            { return m.z().RInt64 }
@@ -877,7 +875,7 @@ func (m *Repeateds) GetRNested() []*Scalars_Nested { return m.z().RNested }
 func (m *Repeateds) GetRUnpacked() []int32         { return m.z().RUnpacked }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Repeateds) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Repeateds) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Repeateds) ProtoSize() (n int) {
@@ -900,7 +898,7 @@ func (m *Repeateds) ProtoSize() (n int) {
 	n += scalarsSizePacked(2, m.REnum, scalarsVarintLen)
 	n += scalarsSizeMsgs(2, m.RNested, func(v *Scalars_Nested) int { return v.ProtoSize() })
 	n += scalarsSizeEach(2, m.RUnpacked, scalarsVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -914,7 +912,7 @@ func (m *Repeateds) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Repeateds) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
+	i := scalarsCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.RUnpacked) {
 		i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(int64(v))), 18<<scalarsTagTypeBits|scalarsWireVarint)
 	}
@@ -972,7 +970,7 @@ func (m *Repeateds) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	}
 	for _, v := range slices.Backward(m.RString) {
 		if !utf8.ValidString(v) {
-			return 0, errors.New(scalarsRepeatedsRStringErrUTF8)
+			return 0, errors.New(scalarsE4)
 		}
 		i = scalarsPutVarint(b, scalarsPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 9<<scalarsTagTypeBits|scalarsWireBytes)
 	}
@@ -1080,7 +1078,7 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 		case 8<<scalarsTagTypeBits | scalarsWireVarint:
 			n = scalarsBool(b, scalarsGrow(&m.RBool))
 		case 9<<scalarsTagTypeBits | scalarsWireBytes:
-			n, err = scalarsString(b, scalarsGrow(&m.RString), scalarsRepeatedsRStringErrUTF8)
+			n, err = scalarsString(b, scalarsGrow(&m.RString), scalarsE4)
 		case 10<<scalarsTagTypeBits | scalarsWireBytes:
 			n = scalarsBytes(b, scalarsGrow(&m.RBytes))
 		case 11<<scalarsTagTypeBits | scalarsWireBytes:
@@ -1115,10 +1113,10 @@ func (m *Repeateds) ProtoMergeDepth(b []byte, depth int) error {
 		case 18<<scalarsTagTypeBits | scalarsWireVarint:
 			n = scalarsVarint(b, scalarsGrow(&m.RUnpacked))
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -1228,7 +1226,7 @@ func (m *Repeateds) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "rSint64", "r_sint64":
 			err = scalarsRepField(d, &seen[14], key, "cotorp.test.proto3.Repeateds", &m.RSint64, false, scalarsJSONInt)
 		case "rEnum", "r_enum":
-			err = scalarsRepField(d, &seen[15], key, "cotorp.test.proto3.Repeateds", &m.REnum, false, scalarsCotorpTestCommonColorJSON)
+			err = scalarsRepField(d, &seen[15], key, "cotorp.test.proto3.Repeateds", &m.REnum, false, scalarsJCotorpTestCommonColor)
 		case "rNested", "r_nested":
 			err = scalarsRepField(d, &seen[16], key, "cotorp.test.proto3.Repeateds", &m.RNested, false, scalarsJSONMsg)
 		case "rUnpacked", "r_unpacked":
@@ -1249,12 +1247,12 @@ type Maps struct {
 	MUint64Double map[uint64]float64
 	MStringShared map[string]*commonpb.Shared
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Maps) Reset()                                        { *m = Maps{} }
-func (m *Maps) z() *Maps                                      { return scalarsIf(m == nil, &scalarsZeroMaps, m) }
+func (m *Maps) z() *Maps                                      { return scalarsIf(m == nil, &scalarsZMaps, m) }
 func (m *Maps) GetMStringString() map[string]string           { return m.z().MStringString }
 func (m *Maps) GetMInt32Int64() map[int32]int64               { return m.z().MInt32Int64 }
 func (m *Maps) GetMBoolBytes() map[bool][]byte                { return m.z().MBoolBytes }
@@ -1264,7 +1262,7 @@ func (m *Maps) GetMUint64Double() map[uint64]float64          { return m.z().MUi
 func (m *Maps) GetMStringShared() map[string]*commonpb.Shared { return m.z().MStringShared }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Maps) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Maps) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Maps) ProtoSize() (n int) {
@@ -1273,24 +1271,24 @@ func (m *Maps) ProtoSize() (n int) {
 		n += 1 + scalarsSizeLen(1+scalarsSizeLen(len(k))+1+scalarsSizeLen(len(v)))
 	}
 	for k, v := range m.MInt32Int64 {
-		n += 1 + scalarsSizeLen(1+(bits.Len64(uint64(int64(k))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits+1+(bits.Len64(uint64(v)|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits)
+		n += 1 + scalarsSizeLen(1+scalarsVarintLen(k)+1+scalarsVarintLen(v))
 	}
 	for _, v := range m.MBoolBytes {
 		n += 1 + scalarsSizeLen(1+1+1+scalarsSizeLen(len(v)))
 	}
 	for k, v := range m.MSint64Nested {
-		n += 1 + scalarsSizeLen(1+(bits.Len64((uint64((k)<<1)^uint64((k)>>63))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits+1+scalarsSizeLen(v.ProtoSize()))
+		n += 1 + scalarsSizeLen(1+scalarsSint64Len(k)+1+scalarsSizeLen(v.ProtoSize()))
 	}
 	for _, v := range m.MFixed32Enum {
-		n += 1 + scalarsSizeLen(1+scalarsFixed32Size+1+(bits.Len64(uint64(int64(v))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits)
+		n += 1 + scalarsSizeLen(1+scalarsFixed32Size+1+scalarsVarintLen(v))
 	}
 	for k := range m.MUint64Double {
-		n += 1 + scalarsSizeLen(1+(bits.Len64(k|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits+1+scalarsFixed64Size)
+		n += 1 + scalarsSizeLen(1+scalarsVarintLen(k)+1+scalarsFixed64Size)
 	}
 	for k, v := range m.MStringShared {
 		n += 1 + scalarsSizeLen(1+scalarsSizeLen(len(k))+1+scalarsSizeLen(v.ProtoSize()))
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1304,7 +1302,7 @@ func (m *Maps) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
+	i := scalarsCopyUnknown(b, len(b), m.u)
 	if len(m.MStringShared) > 0 {
 		for _, k := range slices.Backward(scalarsSortedKeys(m.MStringShared, make([]string, 0, len(m.MStringShared)))) {
 			v := m.MStringShared[k]
@@ -1315,7 +1313,7 @@ func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			}
 			i = scalarsPutVarint(b, scalarsPutVarint(b, i-n, uint64(n)), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
 			if !utf8.ValidString(k) {
-				return 0, errors.New(scalarsMapsMStringSharedEntryKeyErrUTF8)
+				return 0, errors.New(scalarsE5)
 			}
 			i = scalarsPutVarint(b, scalarsPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireBytes)
 			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 7<<scalarsTagTypeBits|scalarsWireBytes)
@@ -1378,11 +1376,11 @@ func (m *Maps) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 			v := m.MStringString[k]
 			start := i
 			if !utf8.ValidString(v) {
-				return 0, errors.New(scalarsMapsMStringStringEntryValueErrUTF8)
+				return 0, errors.New(scalarsE6)
 			}
 			i = scalarsPutVarint(b, scalarsPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), scalarsMapValueField<<scalarsTagTypeBits|scalarsWireBytes)
 			if !utf8.ValidString(k) {
-				return 0, errors.New(scalarsMapsMStringStringEntryKeyErrUTF8)
+				return 0, errors.New(scalarsE7)
 			}
 			i = scalarsPutVarint(b, scalarsPutVarint(b, i-copy(b[i-len(k):], k), uint64(len(k))), scalarsMapKeyField<<scalarsTagTypeBits|scalarsWireBytes)
 			i = scalarsPutVarint(b, scalarsPutVarint(b, i, uint64(start-i)), 1<<scalarsTagTypeBits|scalarsWireBytes)
@@ -1410,14 +1408,14 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 				x = x[k:]
 				switch t {
 				case scalarsMapKeyField<<scalarsTagTypeBits | scalarsWireBytes:
-					k, err = scalarsString(x, &mk, scalarsMapsMStringStringEntryKeyErrUTF8)
+					k, err = scalarsString(x, &mk, scalarsE7)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireBytes:
-					k, err = scalarsString(x, &mv, scalarsMapsMStringStringEntryValueErrUTF8)
+					k, err = scalarsString(x, &mv, scalarsE6)
 				default:
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1437,7 +1435,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1457,7 +1455,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1479,7 +1477,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1500,7 +1498,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1520,7 +1518,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1534,7 +1532,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 				x = x[k:]
 				switch t {
 				case scalarsMapKeyField<<scalarsTagTypeBits | scalarsWireBytes:
-					k, err = scalarsString(x, &mk, scalarsMapsMStringSharedEntryKeyErrUTF8)
+					k, err = scalarsString(x, &mk, scalarsE5)
 				case scalarsMapValueField<<scalarsTagTypeBits | scalarsWireBytes:
 					v, k = scalarsReadBytes(x)
 					err = scalarsAlloc(&mv).ProtoMergeDepth(v, depth+1)
@@ -1542,7 +1540,7 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 					k, err = scalarsSkipField(x, t, depth)
 				}
 				if k <= 0 || err != nil {
-					return cmp.Or(err, errors.New(scalarsErrParse))
+					return cmp.Or(err, errors.New(scalarsE2))
 				}
 				x = x[k:]
 			}
@@ -1550,10 +1548,10 @@ func (m *Maps) ProtoMergeDepth(b []byte, depth int) error {
 			scalarsMapSet(&m.MStringShared, mk, mv)
 			err = scalarsEnd(x, err)
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -1640,7 +1638,7 @@ func (m *Maps) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "mSint64Nested", "m_sint64_nested":
 			err = scalarsMapField(d, &seen[3], key, "cotorp.test.proto3.Maps", "m_sint64_nested", &m.MSint64Nested, false, scalarsIntKey, scalarsJSONMsg)
 		case "mFixed32Enum", "m_fixed32_enum":
-			err = scalarsMapField(d, &seen[4], key, "cotorp.test.proto3.Maps", "m_fixed32_enum", &m.MFixed32Enum, false, scalarsUintKey, scalarsCotorpTestCommonColorJSON)
+			err = scalarsMapField(d, &seen[4], key, "cotorp.test.proto3.Maps", "m_fixed32_enum", &m.MFixed32Enum, false, scalarsUintKey, scalarsJCotorpTestCommonColor)
 		case "mUint64Double", "m_uint64_double":
 			err = scalarsMapField(d, &seen[5], key, "cotorp.test.proto3.Maps", "m_uint64_double", &m.MUint64Double, false, scalarsUintKey, scalarsJSONFloat)
 		case "mStringShared", "m_string_shared":
@@ -1669,12 +1667,12 @@ type Oneofs struct {
 	//	*Oneofs_OFixed32
 	Other isOneofs_Other
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Oneofs) Reset()                     { *m = Oneofs{} }
-func (m *Oneofs) z() *Oneofs                 { return scalarsIf(m == nil, &scalarsZeroOneofs, m) }
+func (m *Oneofs) z() *Oneofs                 { return scalarsIf(m == nil, &scalarsZOneofs, m) }
 func (m *Oneofs) GetChoice() isOneofs_Choice { return m.z().Choice }
 func (m *Oneofs) GetCInt32() int32 {
 	x, _ := m.GetChoice().(*Oneofs_CInt32)
@@ -1712,7 +1710,7 @@ func (m *Oneofs) GetOFixed32() uint32 {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Oneofs) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Oneofs) ProtoUnknownFields() []byte { return m.z().u }
 
 type isOneofs_Choice interface{ isOneofs_Choice() }
 type Oneofs_CInt32 struct{ CInt32 int32 }
@@ -1739,7 +1737,7 @@ func (m *Oneofs) ProtoSize() (n int) {
 	m = m.z()
 	switch o := m.Choice.(type) {
 	case *Oneofs_CInt32:
-		n += 1 + (bits.Len64(uint64(int64(o.CInt32))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsVarintLen(o.CInt32)
 	case *Oneofs_CString:
 		n += 1 + scalarsSizeLen(len(o.CString))
 	case *Oneofs_CBytes:
@@ -1747,18 +1745,18 @@ func (m *Oneofs) ProtoSize() (n int) {
 	case *Oneofs_CNested:
 		n += 1 + scalarsSizeLen(o.CNested.ProtoSize())
 	case *Oneofs_CEnum:
-		n += 1 + (bits.Len64(uint64(int64(o.CEnum))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 1 + scalarsVarintLen(o.CEnum)
 	case *Oneofs_CDouble:
 		n += 1 + scalarsFixed64Size
 	}
 	n += scalarsSizeVarint(1, uint64(int64(m.After)))
 	switch o := m.Other.(type) {
 	case *Oneofs_OSint64:
-		n += 2 + (bits.Len64((uint64((o.OSint64)<<1)^uint64((o.OSint64)>>63))|1)+scalarsVarintPayloadBits-1)/scalarsVarintPayloadBits
+		n += 2 + scalarsSint64Len(o.OSint64)
 	case *Oneofs_OFixed32:
 		n += 3 + scalarsFixed32Size
 	}
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1772,8 +1770,8 @@ func (m *Oneofs) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Oneofs) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
-	if err := scalarsCheckUTF8(m.GetCString(), scalarsOneofsCStringErrUTF8, nil); err != nil {
+	i := scalarsCopyUnknown(b, len(b), m.u)
+	if err := scalarsCheckUTF8(m.GetCString(), scalarsE8, nil); err != nil {
 		return 0, err
 	}
 	if o, ok := m.Other.(*Oneofs_OFixed32); ok {
@@ -1825,7 +1823,7 @@ func (m *Oneofs) ProtoMergeDepth(b []byte, depth int) error {
 			n, m.Choice = scalarsVarint(b, &o.CInt32), o
 		case 2<<scalarsTagTypeBits | scalarsWireBytes:
 			o := new(Oneofs_CString)
-			n, err = scalarsString(b, &o.CString, scalarsOneofsCStringErrUTF8)
+			n, err = scalarsString(b, &o.CString, scalarsE8)
 			m.Choice = o
 		case 3<<scalarsTagTypeBits | scalarsWireBytes:
 			o := new(Oneofs_CBytes)
@@ -1855,10 +1853,10 @@ func (m *Oneofs) ProtoMergeDepth(b []byte, depth int) error {
 			o := new(Oneofs_OFixed32)
 			n, m.Other = scalarsFixed32(b, &o.OFixed32), o
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -1946,7 +1944,7 @@ func (m *Oneofs) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 			err = scalarsOneofField(d, &seen[3], &oneofs[0], key, "cotorp.test.proto3.Oneofs", "choice", &m.Choice, isOneofs_Choice(o), &o.CNested, false, scalarsJSONMsg)
 		case "cEnum", "c_enum":
 			o := new(Oneofs_CEnum)
-			err = scalarsOneofField(d, &seen[4], &oneofs[0], key, "cotorp.test.proto3.Oneofs", "choice", &m.Choice, isOneofs_Choice(o), &o.CEnum, false, scalarsCotorpTestCommonColorJSON)
+			err = scalarsOneofField(d, &seen[4], &oneofs[0], key, "cotorp.test.proto3.Oneofs", "choice", &m.Choice, isOneofs_Choice(o), &o.CEnum, false, scalarsJCotorpTestCommonColor)
 		case "cDouble", "c_double":
 			o := new(Oneofs_CDouble)
 			err = scalarsOneofField(d, &seen[5], &oneofs[0], key, "cotorp.test.proto3.Oneofs", "choice", &m.Choice, isOneofs_Choice(o), &o.CDouble, false, scalarsJSONFloat)
@@ -1973,12 +1971,12 @@ type Names struct {
 	Foo_           int32
 	MarshalBinary_ string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Names) Reset()                    { *m = Names{} }
-func (m *Names) z() *Names                 { return scalarsIf(m == nil, &scalarsZeroNames, m) }
+func (m *Names) z() *Names                 { return scalarsIf(m == nil, &scalarsZNames, m) }
 func (m *Names) GetReset_() int32          { return m.z().Reset_ }
 func (m *Names) GetProtoSize_() int32      { return m.z().ProtoSize_ }
 func (m *Names) GetGetFoo() int32          { return m.z().GetFoo }
@@ -1986,7 +1984,7 @@ func (m *Names) GetFoo_() int32            { return m.z().Foo_ }
 func (m *Names) GetMarshalBinary_() string { return m.z().MarshalBinary_ }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Names) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Names) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Names) ProtoSize() (n int) {
@@ -1996,7 +1994,7 @@ func (m *Names) ProtoSize() (n int) {
 	n += scalarsSizeVarint(1, uint64(int64(m.GetFoo)))
 	n += scalarsSizeVarint(1, uint64(int64(m.Foo_)))
 	n += scalarsSizeLenField(1, len(m.MarshalBinary_))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2010,8 +2008,8 @@ func (m *Names) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Names) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := scalarsCopyUnknown(b, len(b), m.unknownFields)
-	if err := scalarsCheckUTF8(m.MarshalBinary_, scalarsNamesMarshalBinaryErrUTF8, nil); err != nil {
+	i := scalarsCopyUnknown(b, len(b), m.u)
+	if err := scalarsCheckUTF8(m.MarshalBinary_, scalarsE9, nil); err != nil {
 		return 0, err
 	}
 	i = scalarsPutStringField(b, i, m.MarshalBinary_, 5<<scalarsTagTypeBits|scalarsWireBytes)
@@ -2043,12 +2041,12 @@ func (m *Names) ProtoMergeDepth(b []byte, depth int) error {
 		case 4<<scalarsTagTypeBits | scalarsWireVarint:
 			n = scalarsVarint(b, &m.Foo_)
 		case 5<<scalarsTagTypeBits | scalarsWireBytes:
-			n, err = scalarsString(b, &m.MarshalBinary_, scalarsNamesMarshalBinaryErrUTF8)
+			n, err = scalarsString(b, &m.MarshalBinary_, scalarsE9)
 		default:
-			n, err = scalarsUnknown(b, t, depth, &m.unknownFields)
+			n, err = scalarsUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(scalarsErrParse))
+			return cmp.Or(err, errors.New(scalarsE2))
 		}
 		b = b[n:]
 	}
@@ -2128,13 +2126,13 @@ func (m *Names) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	scalarsZeroScalars        Scalars
-	scalarsZeroScalars_Nested Scalars_Nested
-	scalarsZeroOptionals      Optionals
-	scalarsZeroRepeateds      Repeateds
-	scalarsZeroMaps           Maps
-	scalarsZeroOneofs         Oneofs
-	scalarsZeroNames          Names
+	scalarsZScalars        Scalars
+	scalarsZScalars_Nested Scalars_Nested
+	scalarsZOptionals      Optionals
+	scalarsZRepeateds      Repeateds
+	scalarsZMaps           Maps
+	scalarsZOneofs         Oneofs
+	scalarsZNames          Names
 )
 
 func scalarsSizeLen(l int) int                     { return l + scalarsVarintLen(l) }
@@ -2365,7 +2363,7 @@ func scalarsSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = scalarsIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(scalarsErrParse)
+		return 0, errors.New(scalarsE2)
 	}
 	return n, nil
 }
@@ -2374,7 +2372,7 @@ func scalarsSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(scalarsErrParse)
+			return 0, errors.New(scalarsE2)
 		}
 		if n += k; t == uint64(num)<<scalarsTagTypeBits|scalarsWireEndGroup {
 			return n, nil
@@ -2393,7 +2391,7 @@ func scalarsUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func scalarsEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(scalarsErrParse)
+		return errors.New(scalarsE2)
 	}
 	return err
 }
@@ -2713,14 +2711,14 @@ func scalarsNextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
 }
 func scalarsField[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return scalarsJSONError(name, scalarsErrDuplicateField+strconv.Quote(key))
+		return scalarsJSONError(name, scalarsE10+strconv.Quote(key))
 	}
 	*seen = true
 	return parse(d, p, name)
 }
 func scalarsOptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p **T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return scalarsJSONError(name, scalarsErrDuplicateField+strconv.Quote(key))
+		return scalarsJSONError(name, scalarsE10+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -2730,7 +2728,7 @@ func scalarsOptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p
 }
 func scalarsRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return scalarsJSONError(name, scalarsErrDuplicateField+strconv.Quote(key))
+		return scalarsJSONError(name, scalarsE10+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -2740,7 +2738,7 @@ func scalarsRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s
 }
 func scalarsMapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, name, field string, m *map[K]V, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
 	if *seen {
-		return scalarsJSONError(name, scalarsErrDuplicateField+strconv.Quote(key))
+		return scalarsJSONError(name, scalarsE10+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -2750,7 +2748,7 @@ func scalarsMapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, 
 }
 func scalarsOneofField[I, T any](d *jsontext.Decoder, seen, oneof *bool, key, name, oneofName string, p *I, w I, v *T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return scalarsJSONError(name, scalarsErrDuplicateField+strconv.Quote(key))
+		return scalarsJSONError(name, scalarsE10+strconv.Quote(key))
 	}
 	*seen = true
 	if !nullOK && d.PeekKind() == jsontext.KindNull {
@@ -2768,7 +2766,7 @@ func scalarsJSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK bo
 	}
 	for d.PeekKind() != jsontext.KindEndArray {
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return scalarsJSONError(name, scalarsErrNullElement)
+			return scalarsJSONError(name, scalarsE11)
 		}
 		if err := parse(d, scalarsGrow(s), name); err != nil {
 			return err
@@ -2791,7 +2789,7 @@ func scalarsJSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, 
 			return err
 		}
 		if !nullOK && d.PeekKind() == jsontext.KindNull {
-			return scalarsJSONError(name, scalarsErrNullElement)
+			return scalarsJSONError(name, scalarsE11)
 		}
 		var v V
 		if err := pv(d, &v, name); err != nil {
@@ -2929,7 +2927,7 @@ func scalarsParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	}
 	n := scalarsExactInt(s)
 	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-		return 0, scalarsJSONError(name, scalarsErrInvalidInteger+s)
+		return 0, scalarsJSONError(name, scalarsE12+s)
 	}
 	return n.Int64(), nil
 }
@@ -2943,7 +2941,7 @@ func scalarsParseUint(tok jsontext.Token, bits int, name string) (uint64, error)
 	}
 	n := scalarsExactInt(s)
 	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-		return 0, scalarsJSONError(name, scalarsErrInvalidInteger+s)
+		return 0, scalarsJSONError(name, scalarsE12+s)
 	}
 	return n.Uint64(), nil
 }
@@ -2976,14 +2974,14 @@ func scalarsParseFloat(tok jsontext.Token, bits int, name string) (float64, erro
 	}
 	v, err := strconv.ParseFloat(s, bits)
 	if err != nil {
-		return 0, scalarsJSONError(name, scalarsErrInvalidNumber+s)
+		return 0, scalarsJSONError(name, scalarsE13+s)
 	}
 	return v, nil
 }
 func scalarsJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-		return "", scalarsJSONError(name, scalarsErrInvalidNumber+s)
+		return "", scalarsJSONError(name, scalarsE13+s)
 	}
 	return s, nil
 }
@@ -2994,7 +2992,7 @@ func scalarsIntKey[K ~int32 | ~int64](s, name, field string) (K, error) {
 	}
 	k, err := strconv.ParseInt(s, 10, bits)
 	if err != nil {
-		return 0, scalarsJSONError(name, scalarsErrInvalidKey+field+": "+strconv.Quote(s))
+		return 0, scalarsJSONError(name, scalarsE14+field+": "+strconv.Quote(s))
 	}
 	return K(k), nil
 }
@@ -3005,7 +3003,7 @@ func scalarsUintKey[K ~uint32 | ~uint64](s, name, field string) (K, error) {
 	}
 	k, err := strconv.ParseUint(s, 10, bits)
 	if err != nil {
-		return 0, scalarsJSONError(name, scalarsErrInvalidKey+field+": "+strconv.Quote(s))
+		return 0, scalarsJSONError(name, scalarsE14+field+": "+strconv.Quote(s))
 	}
 	return K(k), nil
 }
@@ -3016,7 +3014,7 @@ func scalarsBoolKey(s, name, field string) (bool, error) {
 	case "false":
 		return false, nil
 	}
-	return false, scalarsJSONError(name, scalarsErrInvalidKey+field+": "+strconv.Quote(s))
+	return false, scalarsJSONError(name, scalarsE14+field+": "+strconv.Quote(s))
 }
 func scalarsStringKey(s, _, _ string) (string, error) { return s, nil }
 func scalarsJSONError(name, msg string) error         { return errors.New("proto: " + name + ": " + msg) }

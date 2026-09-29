@@ -22,26 +22,26 @@ import (
 )
 
 const (
-	wrappersWireVarint              = 0
-	wrappersWireFixed64             = 1
-	wrappersWireBytes               = 2
-	wrappersWireStartGroup          = 3
-	wrappersWireEndGroup            = 4
-	wrappersWireFixed32             = 5
-	wrappersTagTypeBits             = 3
-	wrappersTagTypeMask             = 1<<3 - 1
-	wrappersMaxFieldNumber          = 1<<29 - 1
-	wrappersFixed32Size             = 4
-	wrappersFixed64Size             = 8
-	wrappersVarintPayloadBits       = 7
-	wrappersVarintContBit           = 0x80
-	wrappersMaxDepth                = 10000
-	wrappersMaxJSONExponent         = 100
-	wrappersBase64Quantum           = 4
-	wrappersErrParse                = "proto: cannot parse invalid wire-format data"
-	wrappersStringValueValueErrUTF8 = "proto: field google.protobuf.StringValue.value contains invalid UTF-8"
-	wrappersErrInvalidInteger       = "invalid integer "
-	wrappersErrInvalidNumber        = "invalid number "
+	wrappersWireVarint        = 0
+	wrappersWireFixed64       = 1
+	wrappersWireBytes         = 2
+	wrappersWireStartGroup    = 3
+	wrappersWireEndGroup      = 4
+	wrappersWireFixed32       = 5
+	wrappersTagTypeBits       = 3
+	wrappersTagTypeMask       = 1<<3 - 1
+	wrappersMaxFieldNumber    = 1<<29 - 1
+	wrappersFixed32Size       = 4
+	wrappersFixed64Size       = 8
+	wrappersVarintPayloadBits = 7
+	wrappersVarintContBit     = 0x80
+	wrappersMaxDepth          = 10000
+	wrappersMaxJSONExponent   = 100
+	wrappersBase64Quantum     = 4
+	wrappersE1                = "proto: cannot parse invalid wire-format data"
+	wrappersE2                = "proto: field google.protobuf.StringValue.value contains invalid UTF-8"
+	wrappersE3                = "invalid integer "
+	wrappersE4                = "invalid number "
 )
 
 // Wrapper message for `double`.
@@ -54,22 +54,22 @@ type DoubleValue struct {
 	// The double value.
 	Value float64
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *DoubleValue) Reset()            { *m = DoubleValue{} }
-func (m *DoubleValue) z() *DoubleValue   { return wrappersIf(m == nil, &wrappersZeroDoubleValue, m) }
+func (m *DoubleValue) z() *DoubleValue   { return wrappersIf(m == nil, &wrappersZDoubleValue, m) }
 func (m *DoubleValue) GetValue() float64 { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *DoubleValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *DoubleValue) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *DoubleValue) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeFixed(1, wrappersFixed64Size, math.Float64bits(m.Value) != 0)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -83,7 +83,7 @@ func (m *DoubleValue) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *DoubleValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutFixed64Field(b, i, math.Float64bits(m.Value), 1<<wrappersTagTypeBits|wrappersWireFixed64)
 	return len(b) - i, nil
 }
@@ -106,10 +106,10 @@ func (m *DoubleValue) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireFixed64:
 			n = wrappersDouble(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -161,22 +161,22 @@ type FloatValue struct {
 	// The float value.
 	Value float32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FloatValue) Reset()            { *m = FloatValue{} }
-func (m *FloatValue) z() *FloatValue    { return wrappersIf(m == nil, &wrappersZeroFloatValue, m) }
+func (m *FloatValue) z() *FloatValue    { return wrappersIf(m == nil, &wrappersZFloatValue, m) }
 func (m *FloatValue) GetValue() float32 { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FloatValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FloatValue) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FloatValue) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeFixed(1, wrappersFixed32Size, math.Float32bits(m.Value) != 0)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -190,7 +190,7 @@ func (m *FloatValue) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FloatValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutFixed32Field(b, i, math.Float32bits(m.Value), 1<<wrappersTagTypeBits|wrappersWireFixed32)
 	return len(b) - i, nil
 }
@@ -213,10 +213,10 @@ func (m *FloatValue) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireFixed32:
 			n = wrappersFloat(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -268,22 +268,22 @@ type Int64Value struct {
 	// The int64 value.
 	Value int64
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Int64Value) Reset()          { *m = Int64Value{} }
-func (m *Int64Value) z() *Int64Value  { return wrappersIf(m == nil, &wrappersZeroInt64Value, m) }
+func (m *Int64Value) z() *Int64Value  { return wrappersIf(m == nil, &wrappersZInt64Value, m) }
 func (m *Int64Value) GetValue() int64 { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Int64Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Int64Value) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Int64Value) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeVarint(1, uint64(m.Value))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -297,7 +297,7 @@ func (m *Int64Value) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Int64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutVarintField(b, i, uint64(m.Value), 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
@@ -320,10 +320,10 @@ func (m *Int64Value) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
 			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -375,22 +375,22 @@ type UInt64Value struct {
 	// The uint64 value.
 	Value uint64
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *UInt64Value) Reset()           { *m = UInt64Value{} }
-func (m *UInt64Value) z() *UInt64Value  { return wrappersIf(m == nil, &wrappersZeroUInt64Value, m) }
+func (m *UInt64Value) z() *UInt64Value  { return wrappersIf(m == nil, &wrappersZUInt64Value, m) }
 func (m *UInt64Value) GetValue() uint64 { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *UInt64Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *UInt64Value) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *UInt64Value) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeVarint(1, m.Value)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -404,7 +404,7 @@ func (m *UInt64Value) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *UInt64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutVarintField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
@@ -427,10 +427,10 @@ func (m *UInt64Value) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
 			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -482,22 +482,22 @@ type Int32Value struct {
 	// The int32 value.
 	Value int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Int32Value) Reset()          { *m = Int32Value{} }
-func (m *Int32Value) z() *Int32Value  { return wrappersIf(m == nil, &wrappersZeroInt32Value, m) }
+func (m *Int32Value) z() *Int32Value  { return wrappersIf(m == nil, &wrappersZInt32Value, m) }
 func (m *Int32Value) GetValue() int32 { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Int32Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Int32Value) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Int32Value) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeVarint(1, uint64(int64(m.Value)))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -511,7 +511,7 @@ func (m *Int32Value) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Int32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutVarintField(b, i, uint64(int64(m.Value)), 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
@@ -534,10 +534,10 @@ func (m *Int32Value) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
 			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -589,22 +589,22 @@ type UInt32Value struct {
 	// The uint32 value.
 	Value uint32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *UInt32Value) Reset()           { *m = UInt32Value{} }
-func (m *UInt32Value) z() *UInt32Value  { return wrappersIf(m == nil, &wrappersZeroUInt32Value, m) }
+func (m *UInt32Value) z() *UInt32Value  { return wrappersIf(m == nil, &wrappersZUInt32Value, m) }
 func (m *UInt32Value) GetValue() uint32 { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *UInt32Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *UInt32Value) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *UInt32Value) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeVarint(1, uint64(m.Value))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -618,7 +618,7 @@ func (m *UInt32Value) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *UInt32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutVarintField(b, i, uint64(m.Value), 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
@@ -641,10 +641,10 @@ func (m *UInt32Value) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
 			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -696,22 +696,22 @@ type BoolValue struct {
 	// The bool value.
 	Value bool
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *BoolValue) Reset()         { *m = BoolValue{} }
-func (m *BoolValue) z() *BoolValue  { return wrappersIf(m == nil, &wrappersZeroBoolValue, m) }
+func (m *BoolValue) z() *BoolValue  { return wrappersIf(m == nil, &wrappersZBoolValue, m) }
 func (m *BoolValue) GetValue() bool { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *BoolValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *BoolValue) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *BoolValue) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeBool(1, m.Value)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -725,7 +725,7 @@ func (m *BoolValue) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *BoolValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutBoolField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
@@ -745,10 +745,10 @@ func (m *BoolValue) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
 			n = wrappersBool(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -800,22 +800,22 @@ type StringValue struct {
 	// The string value.
 	Value string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *StringValue) Reset()           { *m = StringValue{} }
-func (m *StringValue) z() *StringValue  { return wrappersIf(m == nil, &wrappersZeroStringValue, m) }
+func (m *StringValue) z() *StringValue  { return wrappersIf(m == nil, &wrappersZStringValue, m) }
 func (m *StringValue) GetValue() string { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *StringValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *StringValue) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *StringValue) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeLenField(1, len(m.Value))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -829,8 +829,8 @@ func (m *StringValue) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *StringValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
-	if err := wrappersCheckUTF8(m.Value, wrappersStringValueValueErrUTF8, nil); err != nil {
+	i := wrappersCopyUnknown(b, len(b), m.u)
+	if err := wrappersCheckUTF8(m.Value, wrappersE2, nil); err != nil {
 		return 0, err
 	}
 	i = wrappersPutStringField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireBytes)
@@ -853,12 +853,12 @@ func (m *StringValue) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireBytes:
-			n, err = wrappersString(b, &m.Value, wrappersStringValueValueErrUTF8)
+			n, err = wrappersString(b, &m.Value, wrappersE2)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -910,22 +910,22 @@ type BytesValue struct {
 	// The bytes value.
 	Value []byte
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *BytesValue) Reset()           { *m = BytesValue{} }
-func (m *BytesValue) z() *BytesValue   { return wrappersIf(m == nil, &wrappersZeroBytesValue, m) }
+func (m *BytesValue) z() *BytesValue   { return wrappersIf(m == nil, &wrappersZBytesValue, m) }
 func (m *BytesValue) GetValue() []byte { return m.z().Value }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *BytesValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *BytesValue) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *BytesValue) ProtoSize() (n int) {
 	m = m.z()
 	n += wrappersSizeLenField(1, len(m.Value))
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -939,7 +939,7 @@ func (m *BytesValue) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *BytesValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i := wrappersCopyUnknown(b, len(b), m.u)
 	i = wrappersPutBytesField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireBytes)
 	return len(b) - i, nil
 }
@@ -962,10 +962,10 @@ func (m *BytesValue) ProtoMergeDepth(b []byte, depth int) error {
 		case 1<<wrappersTagTypeBits | wrappersWireBytes:
 			n = wrappersBytes(b, &m.Value)
 		default:
-			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
+			n, err = wrappersUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(wrappersErrParse))
+			return cmp.Or(err, errors.New(wrappersE1))
 		}
 		b = b[n:]
 	}
@@ -1008,15 +1008,15 @@ func (m *BytesValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	wrappersZeroDoubleValue DoubleValue
-	wrappersZeroFloatValue  FloatValue
-	wrappersZeroInt64Value  Int64Value
-	wrappersZeroUInt64Value UInt64Value
-	wrappersZeroInt32Value  Int32Value
-	wrappersZeroUInt32Value UInt32Value
-	wrappersZeroBoolValue   BoolValue
-	wrappersZeroStringValue StringValue
-	wrappersZeroBytesValue  BytesValue
+	wrappersZDoubleValue DoubleValue
+	wrappersZFloatValue  FloatValue
+	wrappersZInt64Value  Int64Value
+	wrappersZUInt64Value UInt64Value
+	wrappersZInt32Value  Int32Value
+	wrappersZUInt32Value UInt32Value
+	wrappersZBoolValue   BoolValue
+	wrappersZStringValue StringValue
+	wrappersZBytesValue  BytesValue
 )
 
 func wrappersSizeLen(l int) int { return l + wrappersVarintLen(l) }
@@ -1159,7 +1159,7 @@ func wrappersSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = wrappersIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(wrappersErrParse)
+		return 0, errors.New(wrappersE1)
 	}
 	return n, nil
 }
@@ -1168,7 +1168,7 @@ func wrappersSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(wrappersErrParse)
+			return 0, errors.New(wrappersE1)
 		}
 		if n += k; t == uint64(num)<<wrappersTagTypeBits|wrappersWireEndGroup {
 			return n, nil
@@ -1187,7 +1187,7 @@ func wrappersUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func wrappersEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(wrappersErrParse)
+		return errors.New(wrappersE1)
 	}
 	return err
 }
@@ -1374,7 +1374,7 @@ func wrappersParseInt(tok jsontext.Token, bits int, name string) (int64, error) 
 	}
 	n := wrappersExactInt(s)
 	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-		return 0, wrappersJSONError(name, wrappersErrInvalidInteger+s)
+		return 0, wrappersJSONError(name, wrappersE3+s)
 	}
 	return n.Int64(), nil
 }
@@ -1388,7 +1388,7 @@ func wrappersParseUint(tok jsontext.Token, bits int, name string) (uint64, error
 	}
 	n := wrappersExactInt(s)
 	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-		return 0, wrappersJSONError(name, wrappersErrInvalidInteger+s)
+		return 0, wrappersJSONError(name, wrappersE3+s)
 	}
 	return n.Uint64(), nil
 }
@@ -1421,14 +1421,14 @@ func wrappersParseFloat(tok jsontext.Token, bits int, name string) (float64, err
 	}
 	v, err := strconv.ParseFloat(s, bits)
 	if err != nil {
-		return 0, wrappersJSONError(name, wrappersErrInvalidNumber+s)
+		return 0, wrappersJSONError(name, wrappersE4+s)
 	}
 	return v, nil
 }
 func wrappersJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-		return "", wrappersJSONError(name, wrappersErrInvalidNumber+s)
+		return "", wrappersJSONError(name, wrappersE4+s)
 	}
 	return s, nil
 }

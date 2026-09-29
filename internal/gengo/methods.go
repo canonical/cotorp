@@ -39,7 +39,7 @@ func (fg *fileGen) genSize(mi *messageInfo) {
 		}
 		fg.sizeField(fi)
 	}
-	fg.P("return n + len(m.unknownFields)")
+	fg.P("return n + len(m.", unknownField, ")")
 	fg.P("}")
 	fg.P()
 }
@@ -175,7 +175,7 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 	fg.P("// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.")
 	fg.P("func (m *", name, ") ProtoMarshalToSizedBuffer(b []byte) (int, error) {")
 	fg.P("m = m.z()")
-	fg.P("i := ", fg.fn("CopyUnknown"), "(b, len(b), m.unknownFields)")
+	fg.P("i := ", fg.fn("CopyUnknown"), "(b, len(b), m.", unknownField, ")")
 	fg.checkStrings(mi, "0, err", func(f *desc.Field) bool { return f.ValidateUTF8 })
 	for _, fi := range slices.Backward(mi.byNum) {
 		if fi.oneof != nil {
@@ -399,7 +399,7 @@ func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 		fg.buf.WriteString(cases)
 		fg.P("default:")
 	}
-	fg.P("n, err = ", fg.fn("Unknown"), "(b, t, depth, &m.unknownFields)")
+	fg.P("n, err = ", fg.fn("Unknown"), "(b, t, depth, &m.", unknownField, ")")
 	if len(mi.byNum) > 0 {
 		fg.P("}")
 	}
@@ -577,7 +577,7 @@ func (fg *fileGen) unmarshalClosedEnum(fi *fieldInfo) {
 	default:
 		set = fv + " = e"
 	}
-	args := "(b, &m.unknownFields, " + fg.tagExpr(num, wireVarint) + ", func(e " + fg.enumType(f.EnumType) + ") { " + set + " })"
+	args := "(b, &m." + unknownField + ", " + fg.tagExpr(num, wireVarint) + ", func(e " + fg.enumType(f.EnumType) + ") { " + set + " })"
 	if f.Repeated {
 		fg.P("case ", fg.tagExpr(num, wireBytes), ":")
 		fg.P("n = ", fg.fn("PackedClosedEnum"), args)
@@ -647,7 +647,7 @@ func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 		fg.P("if mv.IsValid() {")
 		fg.P(set)
 		fg.P("} else {")
-		fg.P("m.unknownFields = append(", bin, ".AppendUvarint(m.unknownFields, t), b[:n]...)")
+		fg.P("m.", unknownField, " = append(", bin, ".AppendUvarint(m.", unknownField, ", t), b[:n]...)")
 		fg.P("}")
 	} else {
 		fg.P(set)

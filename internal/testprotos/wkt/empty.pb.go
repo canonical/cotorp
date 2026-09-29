@@ -28,7 +28,7 @@ const (
 	emptyFixed32Size    = 4
 	emptyFixed64Size    = 8
 	emptyMaxDepth       = 10000
-	emptyErrParse       = "proto: cannot parse invalid wire-format data"
+	emptyE1             = "proto: cannot parse invalid wire-format data"
 )
 
 // A generic empty message that you can re-use to avoid defining duplicated
@@ -39,20 +39,20 @@ const (
 //	  rpc Bar(google.protobuf.Empty) returns (google.protobuf.Empty);
 //	}
 type Empty struct {
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *Empty) Reset()    { *m = Empty{} }
-func (m *Empty) z() *Empty { return emptyIf(m == nil, &emptyZeroEmpty, m) }
+func (m *Empty) z() *Empty { return emptyIf(m == nil, &emptyZEmpty, m) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *Empty) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *Empty) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Empty) ProtoSize() (n int) {
 	m = m.z()
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -66,7 +66,7 @@ func (m *Empty) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Empty) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := emptyCopyUnknown(b, len(b), m.unknownFields)
+	i := emptyCopyUnknown(b, len(b), m.u)
 	return len(b) - i, nil
 }
 
@@ -81,9 +81,9 @@ func (m *Empty) ProtoMergeDepth(b []byte, depth int) error {
 	err := emptyDepth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err = emptyUnknown(b, t, depth, &m.unknownFields)
+		n, err = emptyUnknown(b, t, depth, &m.u)
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(emptyErrParse))
+			return cmp.Or(err, errors.New(emptyE1))
 		}
 		b = b[n:]
 	}
@@ -133,7 +133,7 @@ func (m *Empty) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	emptyZeroEmpty Empty
+	emptyZEmpty Empty
 )
 
 func emptyCopyUnknown(b []byte, i int, u []byte) int {
@@ -187,7 +187,7 @@ func emptySkipField(b []byte, t uint64, depth int) (int, error) {
 		n = emptyIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(emptyErrParse)
+		return 0, errors.New(emptyE1)
 	}
 	return n, nil
 }
@@ -196,7 +196,7 @@ func emptySkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(emptyErrParse)
+			return 0, errors.New(emptyE1)
 		}
 		if n += k; t == uint64(num)<<emptyTagTypeBits|emptyWireEndGroup {
 			return n, nil
@@ -215,7 +215,7 @@ func emptyUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func emptyEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(emptyErrParse)
+		return errors.New(emptyE1)
 	}
 	return err
 }

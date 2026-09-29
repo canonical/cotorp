@@ -38,10 +38,10 @@ const (
 	descriptorMaxDepth          = 10000
 	descriptorMaxJSONExponent   = 100
 	descriptorBase64Quantum     = 4
-	descriptorErrParse          = "proto: cannot parse invalid wire-format data"
-	descriptorErrDuplicateField = "duplicate field "
-	descriptorErrInvalidInteger = "invalid integer "
-	descriptorErrInvalidNumber  = "invalid number "
+	descriptorE1                = "proto: cannot parse invalid wire-format data"
+	descriptorE2                = "duplicate field "
+	descriptorE3                = "invalid integer "
+	descriptorE4                = "invalid number "
 )
 
 // The verification state of the extension range.
@@ -772,24 +772,24 @@ func (x SymbolVisibility) IsValid() bool { return x >= 0 && x <= 2 }
 type FileDescriptorSet struct {
 	File []*FileDescriptorProto
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FileDescriptorSet) Reset() { *m = FileDescriptorSet{} }
 func (m *FileDescriptorSet) z() *FileDescriptorSet {
-	return descriptorIf(m == nil, &descriptorZeroFileDescriptorSet, m)
+	return descriptorIf(m == nil, &descriptorZFileDescriptorSet, m)
 }
 func (m *FileDescriptorSet) GetFile() []*FileDescriptorProto { return m.z().File }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FileDescriptorSet) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FileDescriptorSet) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FileDescriptorSet) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeMsgs(1, m.File, func(v *FileDescriptorProto) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -806,7 +806,7 @@ func (m *FileDescriptorSet) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FileDescriptorSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.File) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -836,10 +836,10 @@ func (m *FileDescriptorSet) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.File)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -956,13 +956,13 @@ type FileDescriptorProto struct {
 	// developers should rely on the protoreflect APIs for their client language.
 	Edition *Edition
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FileDescriptorProto) Reset() { *m = FileDescriptorProto{} }
 func (m *FileDescriptorProto) z() *FileDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroFileDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZFileDescriptorProto, m)
 }
 func (m *FileDescriptorProto) GetName() string                       { return descriptorDeref(m.z().Name, "") }
 func (m *FileDescriptorProto) GetPackage() string                    { return descriptorDeref(m.z().Package, "") }
@@ -982,7 +982,7 @@ func (m *FileDescriptorProto) GetEdition() Edition {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FileDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FileDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FileDescriptorProto) ProtoSize() (n int) {
@@ -1001,7 +1001,7 @@ func (m *FileDescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Syntax, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.Edition, descriptorVarintLen)
 	n += descriptorSizeEach(1, m.OptionDependency, descriptorBytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1018,7 +1018,7 @@ func (m *FileDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FileDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.OptionDependency) {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 15<<descriptorTagTypeBits|descriptorWireBytes)
 	}
@@ -1138,14 +1138,14 @@ func (m *FileDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		case 12<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.Syntax), "")
 		case 14<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 14<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.Edition = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 14<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.Edition = new(e) })
 		case 15<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorGrow(&m.OptionDependency), "")
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -1277,7 +1277,7 @@ func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "syntax":
 			err = descriptorOptField(d, &seen[12], key, "google.protobuf.FileDescriptorProto", &m.Syntax, descriptorJSONString)
 		case "edition":
-			err = descriptorOptField(d, &seen[13], key, "google.protobuf.FileDescriptorProto", &m.Edition, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[13], key, "google.protobuf.FileDescriptorProto", &m.Edition, descriptorJEdition)
 		default:
 			return errors.New("proto: google.protobuf.FileDescriptorProto: unknown field " + strconv.Quote(key))
 		}
@@ -1285,7 +1285,7 @@ func (m *FileDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorEditionJSON(d *jsontext.Decoder, p *Edition, name string) error {
+func descriptorJEdition(d *jsontext.Decoder, p *Edition, name string) error {
 	return descriptorJSONEnum(d, p, Edition_value, name, "google.protobuf.Edition", false)
 }
 
@@ -1306,13 +1306,13 @@ type DescriptorProto struct {
 	// Support for `export` and `local` keywords on enums.
 	Visibility *SymbolVisibility
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *DescriptorProto) Reset() { *m = DescriptorProto{} }
 func (m *DescriptorProto) z() *DescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZDescriptorProto, m)
 }
 func (m *DescriptorProto) GetName() string                       { return descriptorDeref(m.z().Name, "") }
 func (m *DescriptorProto) GetField() []*FieldDescriptorProto     { return m.z().Field }
@@ -1333,7 +1333,7 @@ func (m *DescriptorProto) GetVisibility() SymbolVisibility {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *DescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *DescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *DescriptorProto) ProtoSize() (n int) {
@@ -1349,7 +1349,7 @@ func (m *DescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeMsgs(1, m.ReservedRange, func(v *DescriptorProto_ReservedRange) int { return v.ProtoSize() })
 	n += descriptorSizeEach(1, m.ReservedName, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.Visibility, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1366,7 +1366,7 @@ func (m *DescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *DescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Visibility != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.Visibility)))), 11<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -1479,12 +1479,12 @@ func (m *DescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		case 10<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorGrow(&m.ReservedName), "")
 		case 11<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 11<<descriptorTagTypeBits|descriptorWireVarint, func(e SymbolVisibility) { m.Visibility = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 11<<descriptorTagTypeBits|descriptorWireVarint, func(e SymbolVisibility) { m.Visibility = new(e) })
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -1616,7 +1616,7 @@ func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "reservedName", "reserved_name":
 			err = descriptorRepField(d, &seen[9], key, "google.protobuf.DescriptorProto", &m.ReservedName, false, descriptorJSONString)
 		case "visibility":
-			err = descriptorOptField(d, &seen[10], key, "google.protobuf.DescriptorProto", &m.Visibility, descriptorSymbolVisibilityJSON)
+			err = descriptorOptField(d, &seen[10], key, "google.protobuf.DescriptorProto", &m.Visibility, descriptorJSymbolVisibility)
 		default:
 			return errors.New("proto: google.protobuf.DescriptorProto: unknown field " + strconv.Quote(key))
 		}
@@ -1624,7 +1624,7 @@ func (m *DescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorSymbolVisibilityJSON(d *jsontext.Decoder, p *SymbolVisibility, name string) error {
+func descriptorJSymbolVisibility(d *jsontext.Decoder, p *SymbolVisibility, name string) error {
 	return descriptorJSONEnum(d, p, SymbolVisibility_value, name, "google.protobuf.SymbolVisibility", false)
 }
 
@@ -1633,20 +1633,20 @@ type DescriptorProto_ExtensionRange struct {
 	End     *int32
 	Options *ExtensionRangeOptions
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *DescriptorProto_ExtensionRange) Reset() { *m = DescriptorProto_ExtensionRange{} }
 func (m *DescriptorProto_ExtensionRange) z() *DescriptorProto_ExtensionRange {
-	return descriptorIf(m == nil, &descriptorZeroDescriptorProto_ExtensionRange, m)
+	return descriptorIf(m == nil, &descriptorZDescriptorProto_ExtensionRange, m)
 }
 func (m *DescriptorProto_ExtensionRange) GetStart() int32                    { return descriptorDeref(m.z().Start, 0) }
 func (m *DescriptorProto_ExtensionRange) GetEnd() int32                      { return descriptorDeref(m.z().End, 0) }
 func (m *DescriptorProto_ExtensionRange) GetOptions() *ExtensionRangeOptions { return m.z().Options }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *DescriptorProto_ExtensionRange) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *DescriptorProto_ExtensionRange) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *DescriptorProto_ExtensionRange) ProtoSize() (n int) {
@@ -1654,7 +1654,7 @@ func (m *DescriptorProto_ExtensionRange) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Start, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.End, descriptorVarintLen)
 	n += descriptorSizeMsg(1, m.Options, func(v *ExtensionRangeOptions) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1671,7 +1671,7 @@ func (m *DescriptorProto_ExtensionRange) AppendBinary(b []byte) ([]byte, error) 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *DescriptorProto_ExtensionRange) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -1711,10 +1711,10 @@ func (m *DescriptorProto_ExtensionRange) ProtoMergeDepth(b []byte, depth int) er
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.Options).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -1804,26 +1804,26 @@ type DescriptorProto_ReservedRange struct {
 	Start *int32
 	End   *int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *DescriptorProto_ReservedRange) Reset() { *m = DescriptorProto_ReservedRange{} }
 func (m *DescriptorProto_ReservedRange) z() *DescriptorProto_ReservedRange {
-	return descriptorIf(m == nil, &descriptorZeroDescriptorProto_ReservedRange, m)
+	return descriptorIf(m == nil, &descriptorZDescriptorProto_ReservedRange, m)
 }
 func (m *DescriptorProto_ReservedRange) GetStart() int32 { return descriptorDeref(m.z().Start, 0) }
 func (m *DescriptorProto_ReservedRange) GetEnd() int32   { return descriptorDeref(m.z().End, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *DescriptorProto_ReservedRange) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *DescriptorProto_ReservedRange) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *DescriptorProto_ReservedRange) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeOpt(1, m.Start, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.End, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1837,7 +1837,7 @@ func (m *DescriptorProto_ReservedRange) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *DescriptorProto_ReservedRange) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.End != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.End)))), 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -1867,10 +1867,10 @@ func (m *DescriptorProto_ReservedRange) ProtoMergeDepth(b []byte, depth int) err
 		case 2<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorVarint(b, descriptorNew(&m.End))
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -1950,7 +1950,7 @@ type ExtensionRangeOptions struct {
 	// are marked as UNVERIFIED.
 	Verification *ExtensionRangeOptions_VerificationState
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for ExtensionRangeOptions fields.
@@ -1961,7 +1961,7 @@ const (
 // Reset clears all fields of m.
 func (m *ExtensionRangeOptions) Reset() { *m = ExtensionRangeOptions{} }
 func (m *ExtensionRangeOptions) z() *ExtensionRangeOptions {
-	return descriptorIf(m == nil, &descriptorZeroExtensionRangeOptions, m)
+	return descriptorIf(m == nil, &descriptorZExtensionRangeOptions, m)
 }
 func (m *ExtensionRangeOptions) GetUninterpretedOption() []*UninterpretedOption {
 	return m.z().UninterpretedOption
@@ -1975,7 +1975,7 @@ func (m *ExtensionRangeOptions) GetVerification() ExtensionRangeOptions_Verifica
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ExtensionRangeOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ExtensionRangeOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ExtensionRangeOptions) ProtoSize() (n int) {
@@ -1984,7 +1984,7 @@ func (m *ExtensionRangeOptions) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Verification, descriptorVarintLen)
 	n += descriptorSizeMsg(2, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2001,7 +2001,7 @@ func (m *ExtensionRangeOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ExtensionRangeOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -2048,7 +2048,7 @@ func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.Declaration)).ProtoMergeDepth(x, depth+1)
 		case 3<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e ExtensionRangeOptions_VerificationState) { m.Verification = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e ExtensionRangeOptions_VerificationState) { m.Verification = new(e) })
 		case 50<<descriptorTagTypeBits | descriptorWireBytes:
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.Features).ProtoMergeDepth(x, depth+1)
@@ -2056,10 +2056,10 @@ func (m *ExtensionRangeOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -2140,7 +2140,7 @@ func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "features":
 			err = descriptorField(d, &seen[2], key, "google.protobuf.ExtensionRangeOptions", &m.Features, descriptorJSONMsg)
 		case "verification":
-			err = descriptorOptField(d, &seen[3], key, "google.protobuf.ExtensionRangeOptions", &m.Verification, descriptorExtensionRangeOptionsVerificationStateJSON)
+			err = descriptorOptField(d, &seen[3], key, "google.protobuf.ExtensionRangeOptions", &m.Verification, descriptorJExtensionRangeOptionsVerificationState)
 		default:
 			return errors.New("proto: google.protobuf.ExtensionRangeOptions: unknown field " + strconv.Quote(key))
 		}
@@ -2148,7 +2148,7 @@ func (m *ExtensionRangeOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorExtensionRangeOptionsVerificationStateJSON(d *jsontext.Decoder, p *ExtensionRangeOptions_VerificationState, name string) error {
+func descriptorJExtensionRangeOptionsVerificationState(d *jsontext.Decoder, p *ExtensionRangeOptions_VerificationState, name string) error {
 	return descriptorJSONEnum(d, p, ExtensionRangeOptions_VerificationState_value, name, "google.protobuf.ExtensionRangeOptions.VerificationState", false)
 }
 
@@ -2170,13 +2170,13 @@ type ExtensionRangeOptions_Declaration struct {
 	// Otherwise the extension must be defined as optional.
 	Repeated *bool
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *ExtensionRangeOptions_Declaration) Reset() { *m = ExtensionRangeOptions_Declaration{} }
 func (m *ExtensionRangeOptions_Declaration) z() *ExtensionRangeOptions_Declaration {
-	return descriptorIf(m == nil, &descriptorZeroExtensionRangeOptions_Declaration, m)
+	return descriptorIf(m == nil, &descriptorZExtensionRangeOptions_Declaration, m)
 }
 func (m *ExtensionRangeOptions_Declaration) GetNumber() int32 {
 	return descriptorDeref(m.z().Number, 0)
@@ -2193,7 +2193,7 @@ func (m *ExtensionRangeOptions_Declaration) GetRepeated() bool {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ExtensionRangeOptions_Declaration) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ExtensionRangeOptions_Declaration) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ExtensionRangeOptions_Declaration) ProtoSize() (n int) {
@@ -2203,7 +2203,7 @@ func (m *ExtensionRangeOptions_Declaration) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Type, descriptorBytesLen)
 	n += descriptorSizeOptFixed(1, 1, m.Reserved)
 	n += descriptorSizeOptFixed(1, 1, m.Repeated)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2219,7 +2219,7 @@ func (m *ExtensionRangeOptions_Declaration) AppendBinary(b []byte) ([]byte, erro
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ExtensionRangeOptions_Declaration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Repeated != nil {
 		i = descriptorPutVarint(b, descriptorPutBool(b, i, (*m.Repeated)), 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -2266,10 +2266,10 @@ func (m *ExtensionRangeOptions_Declaration) ProtoMergeDepth(b []byte, depth int)
 		case 6<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.Repeated))
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -2407,13 +2407,13 @@ type FieldDescriptorProto struct {
 	// optional with `LABEL_OPTIONAL`.
 	Proto3Optional *bool
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FieldDescriptorProto) Reset() { *m = FieldDescriptorProto{} }
 func (m *FieldDescriptorProto) z() *FieldDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroFieldDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZFieldDescriptorProto, m)
 }
 func (m *FieldDescriptorProto) GetName() string  { return descriptorDeref(m.z().Name, "") }
 func (m *FieldDescriptorProto) GetNumber() int32 { return descriptorDeref(m.z().Number, 0) }
@@ -2436,7 +2436,7 @@ func (m *FieldDescriptorProto) GetProto3Optional() bool {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FieldDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FieldDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FieldDescriptorProto) ProtoSize() (n int) {
@@ -2452,7 +2452,7 @@ func (m *FieldDescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.OneofIndex, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.JsonName, descriptorBytesLen)
 	n += descriptorSizeOptFixed(2, 1, m.Proto3Optional)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2469,7 +2469,7 @@ func (m *FieldDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FieldDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Proto3Optional != nil {
 		i = descriptorPutVarint(b, descriptorPutBool(b, i, (*m.Proto3Optional)), 17<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -2532,9 +2532,9 @@ func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		case 3<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorVarint(b, descriptorNew(&m.Number))
 		case 4<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldDescriptorProto_Label) { m.Label = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldDescriptorProto_Label) { m.Label = new(e) })
 		case 5<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldDescriptorProto_Type) { m.Type = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldDescriptorProto_Type) { m.Type = new(e) })
 		case 6<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.TypeName), "")
 		case 7<<descriptorTagTypeBits | descriptorWireBytes:
@@ -2549,10 +2549,10 @@ func (m *FieldDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		case 17<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.Proto3Optional))
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -2651,9 +2651,9 @@ func (m *FieldDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "number":
 			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FieldDescriptorProto", &m.Number, descriptorJSONInt)
 		case "label":
-			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FieldDescriptorProto", &m.Label, descriptorFieldDescriptorProtoLabelJSON)
+			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FieldDescriptorProto", &m.Label, descriptorJFieldDescriptorProtoLabel)
 		case "type":
-			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FieldDescriptorProto", &m.Type, descriptorFieldDescriptorProtoTypeJSON)
+			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FieldDescriptorProto", &m.Type, descriptorJFieldDescriptorProtoType)
 		case "typeName", "type_name":
 			err = descriptorOptField(d, &seen[4], key, "google.protobuf.FieldDescriptorProto", &m.TypeName, descriptorJSONString)
 		case "extendee":
@@ -2675,11 +2675,11 @@ func (m *FieldDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorFieldDescriptorProtoLabelJSON(d *jsontext.Decoder, p *FieldDescriptorProto_Label, name string) error {
+func descriptorJFieldDescriptorProtoLabel(d *jsontext.Decoder, p *FieldDescriptorProto_Label, name string) error {
 	return descriptorJSONEnum(d, p, FieldDescriptorProto_Label_value, name, "google.protobuf.FieldDescriptorProto.Label", false)
 }
 
-func descriptorFieldDescriptorProtoTypeJSON(d *jsontext.Decoder, p *FieldDescriptorProto_Type, name string) error {
+func descriptorJFieldDescriptorProtoType(d *jsontext.Decoder, p *FieldDescriptorProto_Type, name string) error {
 	return descriptorJSONEnum(d, p, FieldDescriptorProto_Type_value, name, "google.protobuf.FieldDescriptorProto.Type", false)
 }
 
@@ -2688,26 +2688,26 @@ type OneofDescriptorProto struct {
 	Name    *string
 	Options *OneofOptions
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *OneofDescriptorProto) Reset() { *m = OneofDescriptorProto{} }
 func (m *OneofDescriptorProto) z() *OneofDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroOneofDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZOneofDescriptorProto, m)
 }
 func (m *OneofDescriptorProto) GetName() string           { return descriptorDeref(m.z().Name, "") }
 func (m *OneofDescriptorProto) GetOptions() *OneofOptions { return m.z().Options }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *OneofDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *OneofDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *OneofDescriptorProto) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeOpt(1, m.Name, descriptorBytesLen)
 	n += descriptorSizeMsg(1, m.Options, func(v *OneofOptions) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2724,7 +2724,7 @@ func (m *OneofDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *OneofDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -2759,10 +2759,10 @@ func (m *OneofDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.Options).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -2855,13 +2855,13 @@ type EnumDescriptorProto struct {
 	// Support for `export` and `local` keywords on enums.
 	Visibility *SymbolVisibility
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *EnumDescriptorProto) Reset() { *m = EnumDescriptorProto{} }
 func (m *EnumDescriptorProto) z() *EnumDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroEnumDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZEnumDescriptorProto, m)
 }
 func (m *EnumDescriptorProto) GetName() string                       { return descriptorDeref(m.z().Name, "") }
 func (m *EnumDescriptorProto) GetValue() []*EnumValueDescriptorProto { return m.z().Value }
@@ -2875,7 +2875,7 @@ func (m *EnumDescriptorProto) GetVisibility() SymbolVisibility {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *EnumDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *EnumDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *EnumDescriptorProto) ProtoSize() (n int) {
@@ -2886,7 +2886,7 @@ func (m *EnumDescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeMsgs(1, m.ReservedRange, func(v *EnumDescriptorProto_EnumReservedRange) int { return v.ProtoSize() })
 	n += descriptorSizeEach(1, m.ReservedName, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.Visibility, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2903,7 +2903,7 @@ func (m *EnumDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *EnumDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Visibility != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.Visibility)))), 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -2966,12 +2966,12 @@ func (m *EnumDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorGrow(&m.ReservedName), "")
 		case 6<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 6<<descriptorTagTypeBits|descriptorWireVarint, func(e SymbolVisibility) { m.Visibility = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 6<<descriptorTagTypeBits|descriptorWireVarint, func(e SymbolVisibility) { m.Visibility = new(e) })
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -3060,7 +3060,7 @@ func (m *EnumDescriptorProto) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "reservedName", "reserved_name":
 			err = descriptorRepField(d, &seen[4], key, "google.protobuf.EnumDescriptorProto", &m.ReservedName, false, descriptorJSONString)
 		case "visibility":
-			err = descriptorOptField(d, &seen[5], key, "google.protobuf.EnumDescriptorProto", &m.Visibility, descriptorSymbolVisibilityJSON)
+			err = descriptorOptField(d, &seen[5], key, "google.protobuf.EnumDescriptorProto", &m.Visibility, descriptorJSymbolVisibility)
 		default:
 			return errors.New("proto: google.protobuf.EnumDescriptorProto: unknown field " + strconv.Quote(key))
 		}
@@ -3078,13 +3078,13 @@ type EnumDescriptorProto_EnumReservedRange struct {
 	Start *int32
 	End   *int32
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *EnumDescriptorProto_EnumReservedRange) Reset() { *m = EnumDescriptorProto_EnumReservedRange{} }
 func (m *EnumDescriptorProto_EnumReservedRange) z() *EnumDescriptorProto_EnumReservedRange {
-	return descriptorIf(m == nil, &descriptorZeroEnumDescriptorProto_EnumReservedRange, m)
+	return descriptorIf(m == nil, &descriptorZEnumDescriptorProto_EnumReservedRange, m)
 }
 func (m *EnumDescriptorProto_EnumReservedRange) GetStart() int32 {
 	return descriptorDeref(m.z().Start, 0)
@@ -3092,16 +3092,14 @@ func (m *EnumDescriptorProto_EnumReservedRange) GetStart() int32 {
 func (m *EnumDescriptorProto_EnumReservedRange) GetEnd() int32 { return descriptorDeref(m.z().End, 0) }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *EnumDescriptorProto_EnumReservedRange) ProtoUnknownFields() []byte {
-	return m.z().unknownFields
-}
+func (m *EnumDescriptorProto_EnumReservedRange) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeOpt(1, m.Start, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.End, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3117,7 +3115,7 @@ func (m *EnumDescriptorProto_EnumReservedRange) AppendBinary(b []byte) ([]byte, 
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *EnumDescriptorProto_EnumReservedRange) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.End != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.End)))), 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -3149,10 +3147,10 @@ func (m *EnumDescriptorProto_EnumReservedRange) ProtoMergeDepth(b []byte, depth 
 		case 2<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorVarint(b, descriptorNew(&m.End))
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -3226,20 +3224,20 @@ type EnumValueDescriptorProto struct {
 	Number  *int32
 	Options *EnumValueOptions
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *EnumValueDescriptorProto) Reset() { *m = EnumValueDescriptorProto{} }
 func (m *EnumValueDescriptorProto) z() *EnumValueDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroEnumValueDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZEnumValueDescriptorProto, m)
 }
 func (m *EnumValueDescriptorProto) GetName() string               { return descriptorDeref(m.z().Name, "") }
 func (m *EnumValueDescriptorProto) GetNumber() int32              { return descriptorDeref(m.z().Number, 0) }
 func (m *EnumValueDescriptorProto) GetOptions() *EnumValueOptions { return m.z().Options }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *EnumValueDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *EnumValueDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *EnumValueDescriptorProto) ProtoSize() (n int) {
@@ -3247,7 +3245,7 @@ func (m *EnumValueDescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Name, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.Number, descriptorVarintLen)
 	n += descriptorSizeMsg(1, m.Options, func(v *EnumValueOptions) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3264,7 +3262,7 @@ func (m *EnumValueDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *EnumValueDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -3304,10 +3302,10 @@ func (m *EnumValueDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.Options).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -3396,20 +3394,20 @@ type ServiceDescriptorProto struct {
 	Method  []*MethodDescriptorProto
 	Options *ServiceOptions
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *ServiceDescriptorProto) Reset() { *m = ServiceDescriptorProto{} }
 func (m *ServiceDescriptorProto) z() *ServiceDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroServiceDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZServiceDescriptorProto, m)
 }
 func (m *ServiceDescriptorProto) GetName() string                     { return descriptorDeref(m.z().Name, "") }
 func (m *ServiceDescriptorProto) GetMethod() []*MethodDescriptorProto { return m.z().Method }
 func (m *ServiceDescriptorProto) GetOptions() *ServiceOptions         { return m.z().Options }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ServiceDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ServiceDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ServiceDescriptorProto) ProtoSize() (n int) {
@@ -3417,7 +3415,7 @@ func (m *ServiceDescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Name, descriptorBytesLen)
 	n += descriptorSizeMsgs(1, m.Method, func(v *MethodDescriptorProto) int { return v.ProtoSize() })
 	n += descriptorSizeMsg(1, m.Options, func(v *ServiceOptions) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3434,7 +3432,7 @@ func (m *ServiceDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ServiceDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Options != nil {
 		n, err := m.Options.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -3479,10 +3477,10 @@ func (m *ServiceDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.Options).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -3581,7 +3579,7 @@ type MethodDescriptorProto struct {
 	// Identifies if server streams multiple server messages
 	ServerStreaming *bool
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for MethodDescriptorProto fields.
@@ -3593,7 +3591,7 @@ const (
 // Reset clears all fields of m.
 func (m *MethodDescriptorProto) Reset() { *m = MethodDescriptorProto{} }
 func (m *MethodDescriptorProto) z() *MethodDescriptorProto {
-	return descriptorIf(m == nil, &descriptorZeroMethodDescriptorProto, m)
+	return descriptorIf(m == nil, &descriptorZMethodDescriptorProto, m)
 }
 func (m *MethodDescriptorProto) GetName() string            { return descriptorDeref(m.z().Name, "") }
 func (m *MethodDescriptorProto) GetInputType() string       { return descriptorDeref(m.z().InputType, "") }
@@ -3607,7 +3605,7 @@ func (m *MethodDescriptorProto) GetServerStreaming() bool {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *MethodDescriptorProto) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *MethodDescriptorProto) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *MethodDescriptorProto) ProtoSize() (n int) {
@@ -3618,7 +3616,7 @@ func (m *MethodDescriptorProto) ProtoSize() (n int) {
 	n += descriptorSizeMsg(1, m.Options, func(v *MethodOptions) int { return v.ProtoSize() })
 	n += descriptorSizeOptFixed(1, 1, m.ClientStreaming)
 	n += descriptorSizeOptFixed(1, 1, m.ServerStreaming)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3635,7 +3633,7 @@ func (m *MethodDescriptorProto) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *MethodDescriptorProto) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.ServerStreaming != nil {
 		i = descriptorPutVarint(b, descriptorPutBool(b, i, (*m.ServerStreaming)), 6<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -3690,10 +3688,10 @@ func (m *MethodDescriptorProto) ProtoMergeDepth(b []byte, depth int) error {
 		case 6<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.ServerStreaming))
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -3887,7 +3885,7 @@ type FileOptions struct {
 	// See the documentation for the "Options" section above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for FileOptions fields.
@@ -3904,7 +3902,7 @@ const (
 
 // Reset clears all fields of m.
 func (m *FileOptions) Reset()                 { *m = FileOptions{} }
-func (m *FileOptions) z() *FileOptions        { return descriptorIf(m == nil, &descriptorZeroFileOptions, m) }
+func (m *FileOptions) z() *FileOptions        { return descriptorIf(m == nil, &descriptorZFileOptions, m) }
 func (m *FileOptions) GetJavaPackage() string { return descriptorDeref(m.z().JavaPackage, "") }
 func (m *FileOptions) GetJavaOuterClassname() string {
 	return descriptorDeref(m.z().JavaOuterClassname, "")
@@ -3952,7 +3950,7 @@ func (m *FileOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FileOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FileOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FileOptions) ProtoSize() (n int) {
@@ -3978,7 +3976,7 @@ func (m *FileOptions) ProtoSize() (n int) {
 	n += descriptorSizeOpt(2, m.RubyPackage, descriptorBytesLen)
 	n += descriptorSizeMsg(2, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3995,7 +3993,7 @@ func (m *FileOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FileOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -4090,7 +4088,7 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.JavaOuterClassname), "")
 		case 9<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 9<<descriptorTagTypeBits|descriptorWireVarint, func(e FileOptions_OptimizeMode) { m.OptimizeFor = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 9<<descriptorTagTypeBits|descriptorWireVarint, func(e FileOptions_OptimizeMode) { m.OptimizeFor = new(e) })
 		case 10<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.JavaMultipleFiles))
 		case 11<<descriptorTagTypeBits | descriptorWireBytes:
@@ -4130,10 +4128,10 @@ func (m *FileOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -4271,7 +4269,7 @@ func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "javaStringCheckUtf8", "java_string_check_utf8":
 			err = descriptorOptField(d, &seen[4], key, "google.protobuf.FileOptions", &m.JavaStringCheckUtf8, descriptorJSONBool)
 		case "optimizeFor", "optimize_for":
-			err = descriptorOptField(d, &seen[5], key, "google.protobuf.FileOptions", &m.OptimizeFor, descriptorFileOptionsOptimizeModeJSON)
+			err = descriptorOptField(d, &seen[5], key, "google.protobuf.FileOptions", &m.OptimizeFor, descriptorJFileOptionsOptimizeMode)
 		case "goPackage", "go_package":
 			err = descriptorOptField(d, &seen[6], key, "google.protobuf.FileOptions", &m.GoPackage, descriptorJSONString)
 		case "ccGenericServices", "cc_generic_services":
@@ -4309,7 +4307,7 @@ func (m *FileOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorFileOptionsOptimizeModeJSON(d *jsontext.Decoder, p *FileOptions_OptimizeMode, name string) error {
+func descriptorJFileOptionsOptimizeMode(d *jsontext.Decoder, p *FileOptions_OptimizeMode, name string) error {
 	return descriptorJSONEnum(d, p, FileOptions_OptimizeMode_value, name, "google.protobuf.FileOptions.OptimizeMode", false)
 }
 
@@ -4385,7 +4383,7 @@ type MessageOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for MessageOptions fields.
@@ -4398,7 +4396,7 @@ const (
 // Reset clears all fields of m.
 func (m *MessageOptions) Reset() { *m = MessageOptions{} }
 func (m *MessageOptions) z() *MessageOptions {
-	return descriptorIf(m == nil, &descriptorZeroMessageOptions, m)
+	return descriptorIf(m == nil, &descriptorZMessageOptions, m)
 }
 func (m *MessageOptions) GetMessageSetWireFormat() bool {
 	return descriptorDeref(m.z().MessageSetWireFormat, Default_MessageOptions_MessageSetWireFormat)
@@ -4419,7 +4417,7 @@ func (m *MessageOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *MessageOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *MessageOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *MessageOptions) ProtoSize() (n int) {
@@ -4431,7 +4429,7 @@ func (m *MessageOptions) ProtoSize() (n int) {
 	n += descriptorSizeOptFixed(1, 1, m.DeprecatedLegacyJsonFieldConflicts)
 	n += descriptorSizeMsg(1, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -4448,7 +4446,7 @@ func (m *MessageOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *MessageOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -4513,10 +4511,10 @@ func (m *MessageOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -4703,7 +4701,7 @@ type FieldOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for FieldOptions fields.
@@ -4718,10 +4716,8 @@ const (
 )
 
 // Reset clears all fields of m.
-func (m *FieldOptions) Reset() { *m = FieldOptions{} }
-func (m *FieldOptions) z() *FieldOptions {
-	return descriptorIf(m == nil, &descriptorZeroFieldOptions, m)
-}
+func (m *FieldOptions) Reset()           { *m = FieldOptions{} }
+func (m *FieldOptions) z() *FieldOptions { return descriptorIf(m == nil, &descriptorZFieldOptions, m) }
 func (m *FieldOptions) GetCtype() FieldOptions_CType {
 	return descriptorDeref(m.z().Ctype, Default_FieldOptions_Ctype)
 }
@@ -4754,7 +4750,7 @@ func (m *FieldOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FieldOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FieldOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FieldOptions) ProtoSize() (n int) {
@@ -4773,7 +4769,7 @@ func (m *FieldOptions) ProtoSize() (n int) {
 	n += descriptorSizeMsg(2, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsg(2, m.FeatureSupport, func(v *FieldOptions_FeatureSupport) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -4790,7 +4786,7 @@ func (m *FieldOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FieldOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -4868,7 +4864,7 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 1<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_CType) { m.Ctype = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 1<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_CType) { m.Ctype = new(e) })
 		case 2<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.Packed))
 		case 3<<descriptorTagTypeBits | descriptorWireVarint:
@@ -4876,7 +4872,7 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 		case 5<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.Lazy))
 		case 6<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 6<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_JSType) { m.Jstype = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 6<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_JSType) { m.Jstype = new(e) })
 		case 10<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.Weak))
 		case 15<<descriptorTagTypeBits | descriptorWireVarint:
@@ -4884,11 +4880,11 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 		case 16<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.DebugRedact))
 		case 17<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 17<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_OptionRetention) { m.Retention = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 17<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_OptionRetention) { m.Retention = new(e) })
 		case 19<<descriptorTagTypeBits | descriptorWireBytes:
-			n = descriptorPackedClosedEnum(b, &m.unknownFields, 19<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_OptionTargetType) { m.Targets = append(m.Targets, e) })
+			n = descriptorPackedClosedEnum(b, &m.u, 19<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_OptionTargetType) { m.Targets = append(m.Targets, e) })
 		case 19<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 19<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_OptionTargetType) { m.Targets = append(m.Targets, e) })
+			n = descriptorClosedEnum(b, &m.u, 19<<descriptorTagTypeBits|descriptorWireVarint, func(e FieldOptions_OptionTargetType) { m.Targets = append(m.Targets, e) })
 		case 20<<descriptorTagTypeBits | descriptorWireBytes:
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.EditionDefaults)).ProtoMergeDepth(x, depth+1)
@@ -4902,10 +4898,10 @@ func (m *FieldOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -5008,11 +5004,11 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch key := kt.String(); key {
 		case "ctype":
-			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FieldOptions", &m.Ctype, descriptorFieldOptionsCTypeJSON)
+			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FieldOptions", &m.Ctype, descriptorJFieldOptionsCType)
 		case "packed":
 			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FieldOptions", &m.Packed, descriptorJSONBool)
 		case "jstype":
-			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FieldOptions", &m.Jstype, descriptorFieldOptionsJSTypeJSON)
+			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FieldOptions", &m.Jstype, descriptorJFieldOptionsJSType)
 		case "lazy":
 			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FieldOptions", &m.Lazy, descriptorJSONBool)
 		case "unverifiedLazy", "unverified_lazy":
@@ -5024,9 +5020,9 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "debugRedact", "debug_redact":
 			err = descriptorOptField(d, &seen[7], key, "google.protobuf.FieldOptions", &m.DebugRedact, descriptorJSONBool)
 		case "retention":
-			err = descriptorOptField(d, &seen[8], key, "google.protobuf.FieldOptions", &m.Retention, descriptorFieldOptionsOptionRetentionJSON)
+			err = descriptorOptField(d, &seen[8], key, "google.protobuf.FieldOptions", &m.Retention, descriptorJFieldOptionsOptionRetention)
 		case "targets":
-			err = descriptorRepField(d, &seen[9], key, "google.protobuf.FieldOptions", &m.Targets, false, descriptorFieldOptionsOptionTargetTypeJSON)
+			err = descriptorRepField(d, &seen[9], key, "google.protobuf.FieldOptions", &m.Targets, false, descriptorJFieldOptionsOptionTargetType)
 		case "editionDefaults", "edition_defaults":
 			err = descriptorRepField(d, &seen[10], key, "google.protobuf.FieldOptions", &m.EditionDefaults, false, descriptorJSONMsg)
 		case "features":
@@ -5042,19 +5038,19 @@ func (m *FieldOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorFieldOptionsCTypeJSON(d *jsontext.Decoder, p *FieldOptions_CType, name string) error {
+func descriptorJFieldOptionsCType(d *jsontext.Decoder, p *FieldOptions_CType, name string) error {
 	return descriptorJSONEnum(d, p, FieldOptions_CType_value, name, "google.protobuf.FieldOptions.CType", false)
 }
 
-func descriptorFieldOptionsJSTypeJSON(d *jsontext.Decoder, p *FieldOptions_JSType, name string) error {
+func descriptorJFieldOptionsJSType(d *jsontext.Decoder, p *FieldOptions_JSType, name string) error {
 	return descriptorJSONEnum(d, p, FieldOptions_JSType_value, name, "google.protobuf.FieldOptions.JSType", false)
 }
 
-func descriptorFieldOptionsOptionRetentionJSON(d *jsontext.Decoder, p *FieldOptions_OptionRetention, name string) error {
+func descriptorJFieldOptionsOptionRetention(d *jsontext.Decoder, p *FieldOptions_OptionRetention, name string) error {
 	return descriptorJSONEnum(d, p, FieldOptions_OptionRetention_value, name, "google.protobuf.FieldOptions.OptionRetention", false)
 }
 
-func descriptorFieldOptionsOptionTargetTypeJSON(d *jsontext.Decoder, p *FieldOptions_OptionTargetType, name string) error {
+func descriptorJFieldOptionsOptionTargetType(d *jsontext.Decoder, p *FieldOptions_OptionTargetType, name string) error {
 	return descriptorJSONEnum(d, p, FieldOptions_OptionTargetType_value, name, "google.protobuf.FieldOptions.OptionTargetType", false)
 }
 
@@ -5062,13 +5058,13 @@ type FieldOptions_EditionDefault struct {
 	Edition *Edition
 	Value   *string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FieldOptions_EditionDefault) Reset() { *m = FieldOptions_EditionDefault{} }
 func (m *FieldOptions_EditionDefault) z() *FieldOptions_EditionDefault {
-	return descriptorIf(m == nil, &descriptorZeroFieldOptions_EditionDefault, m)
+	return descriptorIf(m == nil, &descriptorZFieldOptions_EditionDefault, m)
 }
 func (m *FieldOptions_EditionDefault) GetEdition() Edition {
 	return descriptorDeref(m.z().Edition, Edition_EDITION_UNKNOWN)
@@ -5076,14 +5072,14 @@ func (m *FieldOptions_EditionDefault) GetEdition() Edition {
 func (m *FieldOptions_EditionDefault) GetValue() string { return descriptorDeref(m.z().Value, "") }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FieldOptions_EditionDefault) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FieldOptions_EditionDefault) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FieldOptions_EditionDefault) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeOpt(1, m.Value, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.Edition, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -5097,7 +5093,7 @@ func (m *FieldOptions_EditionDefault) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FieldOptions_EditionDefault) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Edition != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.Edition)))), 3<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -5125,12 +5121,12 @@ func (m *FieldOptions_EditionDefault) ProtoMergeDepth(b []byte, depth int) error
 		case 2<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.Value), "")
 		case 3<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.Edition = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.Edition = new(e) })
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -5187,7 +5183,7 @@ func (m *FieldOptions_EditionDefault) ProtoMergeJSONFrom(d *jsontext.Decoder) er
 		}
 		switch key := kt.String(); key {
 		case "edition":
-			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FieldOptions.EditionDefault", &m.Edition, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FieldOptions.EditionDefault", &m.Edition, descriptorJEdition)
 		case "value":
 			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FieldOptions.EditionDefault", &m.Value, descriptorJSONString)
 		default:
@@ -5217,13 +5213,13 @@ type FieldOptions_FeatureSupport struct {
 	// removed in.
 	RemovalError *string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FieldOptions_FeatureSupport) Reset() { *m = FieldOptions_FeatureSupport{} }
 func (m *FieldOptions_FeatureSupport) z() *FieldOptions_FeatureSupport {
-	return descriptorIf(m == nil, &descriptorZeroFieldOptions_FeatureSupport, m)
+	return descriptorIf(m == nil, &descriptorZFieldOptions_FeatureSupport, m)
 }
 func (m *FieldOptions_FeatureSupport) GetEditionIntroduced() Edition {
 	return descriptorDeref(m.z().EditionIntroduced, Edition_EDITION_UNKNOWN)
@@ -5242,7 +5238,7 @@ func (m *FieldOptions_FeatureSupport) GetRemovalError() string {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FieldOptions_FeatureSupport) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FieldOptions_FeatureSupport) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FieldOptions_FeatureSupport) ProtoSize() (n int) {
@@ -5252,7 +5248,7 @@ func (m *FieldOptions_FeatureSupport) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.DeprecationWarning, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.EditionRemoved, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.RemovalError, descriptorBytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -5266,7 +5262,7 @@ func (m *FieldOptions_FeatureSupport) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FieldOptions_FeatureSupport) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.RemovalError != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i-copy(b[i-len((*m.RemovalError)):], (*m.RemovalError)), uint64(len((*m.RemovalError)))), 5<<descriptorTagTypeBits|descriptorWireBytes)
 	}
@@ -5301,20 +5297,20 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeDepth(b []byte, depth int) error
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 1<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.EditionIntroduced = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 1<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.EditionIntroduced = new(e) })
 		case 2<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 2<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.EditionDeprecated = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 2<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.EditionDeprecated = new(e) })
 		case 3<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.DeprecationWarning), "")
 		case 4<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.EditionRemoved = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.EditionRemoved = new(e) })
 		case 5<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.RemovalError), "")
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -5380,13 +5376,13 @@ func (m *FieldOptions_FeatureSupport) ProtoMergeJSONFrom(d *jsontext.Decoder) er
 		}
 		switch key := kt.String(); key {
 		case "editionIntroduced", "edition_introduced":
-			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FieldOptions.FeatureSupport", &m.EditionIntroduced, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FieldOptions.FeatureSupport", &m.EditionIntroduced, descriptorJEdition)
 		case "editionDeprecated", "edition_deprecated":
-			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FieldOptions.FeatureSupport", &m.EditionDeprecated, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FieldOptions.FeatureSupport", &m.EditionDeprecated, descriptorJEdition)
 		case "deprecationWarning", "deprecation_warning":
 			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FieldOptions.FeatureSupport", &m.DeprecationWarning, descriptorJSONString)
 		case "editionRemoved", "edition_removed":
-			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FieldOptions.FeatureSupport", &m.EditionRemoved, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FieldOptions.FeatureSupport", &m.EditionRemoved, descriptorJEdition)
 		case "removalError", "removal_error":
 			err = descriptorOptField(d, &seen[4], key, "google.protobuf.FieldOptions.FeatureSupport", &m.RemovalError, descriptorJSONString)
 		default:
@@ -5405,28 +5401,26 @@ type OneofOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
-func (m *OneofOptions) Reset() { *m = OneofOptions{} }
-func (m *OneofOptions) z() *OneofOptions {
-	return descriptorIf(m == nil, &descriptorZeroOneofOptions, m)
-}
+func (m *OneofOptions) Reset()                   { *m = OneofOptions{} }
+func (m *OneofOptions) z() *OneofOptions         { return descriptorIf(m == nil, &descriptorZOneofOptions, m) }
 func (m *OneofOptions) GetFeatures() *FeatureSet { return m.z().Features }
 func (m *OneofOptions) GetUninterpretedOption() []*UninterpretedOption {
 	return m.z().UninterpretedOption
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *OneofOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *OneofOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *OneofOptions) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeMsg(1, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -5443,7 +5437,7 @@ func (m *OneofOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *OneofOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -5483,10 +5477,10 @@ func (m *OneofOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -5593,7 +5587,7 @@ type EnumOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for EnumOptions fields.
@@ -5603,7 +5597,7 @@ const (
 
 // Reset clears all fields of m.
 func (m *EnumOptions) Reset()              { *m = EnumOptions{} }
-func (m *EnumOptions) z() *EnumOptions     { return descriptorIf(m == nil, &descriptorZeroEnumOptions, m) }
+func (m *EnumOptions) z() *EnumOptions     { return descriptorIf(m == nil, &descriptorZEnumOptions, m) }
 func (m *EnumOptions) GetAllowAlias() bool { return descriptorDeref(m.z().AllowAlias, false) }
 func (m *EnumOptions) GetDeprecated() bool {
 	return descriptorDeref(m.z().Deprecated, Default_EnumOptions_Deprecated)
@@ -5617,7 +5611,7 @@ func (m *EnumOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *EnumOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *EnumOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *EnumOptions) ProtoSize() (n int) {
@@ -5627,7 +5621,7 @@ func (m *EnumOptions) ProtoSize() (n int) {
 	n += descriptorSizeOptFixed(1, 1, m.DeprecatedLegacyJsonFieldConflicts)
 	n += descriptorSizeMsg(1, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -5644,7 +5638,7 @@ func (m *EnumOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *EnumOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -5699,10 +5693,10 @@ func (m *EnumOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -5818,7 +5812,7 @@ type EnumValueOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for EnumValueOptions fields.
@@ -5830,7 +5824,7 @@ const (
 // Reset clears all fields of m.
 func (m *EnumValueOptions) Reset() { *m = EnumValueOptions{} }
 func (m *EnumValueOptions) z() *EnumValueOptions {
-	return descriptorIf(m == nil, &descriptorZeroEnumValueOptions, m)
+	return descriptorIf(m == nil, &descriptorZEnumValueOptions, m)
 }
 func (m *EnumValueOptions) GetDeprecated() bool {
 	return descriptorDeref(m.z().Deprecated, Default_EnumValueOptions_Deprecated)
@@ -5847,7 +5841,7 @@ func (m *EnumValueOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *EnumValueOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *EnumValueOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *EnumValueOptions) ProtoSize() (n int) {
@@ -5857,7 +5851,7 @@ func (m *EnumValueOptions) ProtoSize() (n int) {
 	n += descriptorSizeOptFixed(1, 1, m.DebugRedact)
 	n += descriptorSizeMsg(1, m.FeatureSupport, func(v *FieldOptions_FeatureSupport) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -5874,7 +5868,7 @@ func (m *EnumValueOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *EnumValueOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -5934,10 +5928,10 @@ func (m *EnumValueOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -6045,7 +6039,7 @@ type ServiceOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for ServiceOptions fields.
@@ -6056,7 +6050,7 @@ const (
 // Reset clears all fields of m.
 func (m *ServiceOptions) Reset() { *m = ServiceOptions{} }
 func (m *ServiceOptions) z() *ServiceOptions {
-	return descriptorIf(m == nil, &descriptorZeroServiceOptions, m)
+	return descriptorIf(m == nil, &descriptorZServiceOptions, m)
 }
 func (m *ServiceOptions) GetFeatures() *FeatureSet { return m.z().Features }
 func (m *ServiceOptions) GetDeprecated() bool {
@@ -6067,7 +6061,7 @@ func (m *ServiceOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *ServiceOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *ServiceOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ServiceOptions) ProtoSize() (n int) {
@@ -6075,7 +6069,7 @@ func (m *ServiceOptions) ProtoSize() (n int) {
 	n += descriptorSizeOptFixed(2, 1, m.Deprecated)
 	n += descriptorSizeMsg(2, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -6092,7 +6086,7 @@ func (m *ServiceOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ServiceOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -6137,10 +6131,10 @@ func (m *ServiceOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -6241,7 +6235,7 @@ type MethodOptions struct {
 	// The parser stores options it doesn't recognize here. See above.
 	UninterpretedOption []*UninterpretedOption
 
-	unknownFields []byte
+	u []byte
 }
 
 // Default values for MethodOptions fields.
@@ -6253,7 +6247,7 @@ const (
 // Reset clears all fields of m.
 func (m *MethodOptions) Reset() { *m = MethodOptions{} }
 func (m *MethodOptions) z() *MethodOptions {
-	return descriptorIf(m == nil, &descriptorZeroMethodOptions, m)
+	return descriptorIf(m == nil, &descriptorZMethodOptions, m)
 }
 func (m *MethodOptions) GetDeprecated() bool {
 	return descriptorDeref(m.z().Deprecated, Default_MethodOptions_Deprecated)
@@ -6267,7 +6261,7 @@ func (m *MethodOptions) GetUninterpretedOption() []*UninterpretedOption {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *MethodOptions) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *MethodOptions) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *MethodOptions) ProtoSize() (n int) {
@@ -6276,7 +6270,7 @@ func (m *MethodOptions) ProtoSize() (n int) {
 	n += descriptorSizeOpt(2, m.IdempotencyLevel, descriptorVarintLen)
 	n += descriptorSizeMsg(2, m.Features, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsgs(2, m.UninterpretedOption, func(v *UninterpretedOption) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -6293,7 +6287,7 @@ func (m *MethodOptions) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *MethodOptions) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.UninterpretedOption) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -6335,7 +6329,7 @@ func (m *MethodOptions) ProtoMergeDepth(b []byte, depth int) error {
 		case 33<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.Deprecated))
 		case 34<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 34<<descriptorTagTypeBits|descriptorWireVarint, func(e MethodOptions_IdempotencyLevel) { m.IdempotencyLevel = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 34<<descriptorTagTypeBits|descriptorWireVarint, func(e MethodOptions_IdempotencyLevel) { m.IdempotencyLevel = new(e) })
 		case 35<<descriptorTagTypeBits | descriptorWireBytes:
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.Features).ProtoMergeDepth(x, depth+1)
@@ -6343,10 +6337,10 @@ func (m *MethodOptions) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.UninterpretedOption)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -6425,7 +6419,7 @@ func (m *MethodOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "deprecated":
 			err = descriptorOptField(d, &seen[0], key, "google.protobuf.MethodOptions", &m.Deprecated, descriptorJSONBool)
 		case "idempotencyLevel", "idempotency_level":
-			err = descriptorOptField(d, &seen[1], key, "google.protobuf.MethodOptions", &m.IdempotencyLevel, descriptorMethodOptionsIdempotencyLevelJSON)
+			err = descriptorOptField(d, &seen[1], key, "google.protobuf.MethodOptions", &m.IdempotencyLevel, descriptorJMethodOptionsIdempotencyLevel)
 		case "features":
 			err = descriptorField(d, &seen[2], key, "google.protobuf.MethodOptions", &m.Features, descriptorJSONMsg)
 		case "uninterpretedOption", "uninterpreted_option":
@@ -6437,7 +6431,7 @@ func (m *MethodOptions) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorMethodOptionsIdempotencyLevelJSON(d *jsontext.Decoder, p *MethodOptions_IdempotencyLevel, name string) error {
+func descriptorJMethodOptionsIdempotencyLevel(d *jsontext.Decoder, p *MethodOptions_IdempotencyLevel, name string) error {
 	return descriptorJSONEnum(d, p, MethodOptions_IdempotencyLevel_value, name, "google.protobuf.MethodOptions.IdempotencyLevel", false)
 }
 
@@ -6458,13 +6452,13 @@ type UninterpretedOption struct {
 	StringValue      []byte
 	AggregateValue   *string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *UninterpretedOption) Reset() { *m = UninterpretedOption{} }
 func (m *UninterpretedOption) z() *UninterpretedOption {
-	return descriptorIf(m == nil, &descriptorZeroUninterpretedOption, m)
+	return descriptorIf(m == nil, &descriptorZUninterpretedOption, m)
 }
 func (m *UninterpretedOption) GetName() []*UninterpretedOption_NamePart { return m.z().Name }
 func (m *UninterpretedOption) GetIdentifierValue() string {
@@ -6483,7 +6477,7 @@ func (m *UninterpretedOption) GetAggregateValue() string {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *UninterpretedOption) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *UninterpretedOption) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *UninterpretedOption) ProtoSize() (n int) {
@@ -6495,7 +6489,7 @@ func (m *UninterpretedOption) ProtoSize() (n int) {
 	n += descriptorSizeOptFixed(1, descriptorFixed64Size, m.DoubleValue)
 	n += descriptorSizePresentBytes(1, m.StringValue)
 	n += descriptorSizeOpt(1, m.AggregateValue, descriptorBytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -6512,7 +6506,7 @@ func (m *UninterpretedOption) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *UninterpretedOption) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.AggregateValue != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i-copy(b[i-len((*m.AggregateValue)):], (*m.AggregateValue)), uint64(len((*m.AggregateValue)))), 8<<descriptorTagTypeBits|descriptorWireBytes)
 	}
@@ -6572,10 +6566,10 @@ func (m *UninterpretedOption) ProtoMergeDepth(b []byte, depth int) error {
 		case 8<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorNew(&m.AggregateValue), "")
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -6692,13 +6686,13 @@ type UninterpretedOption_NamePart struct {
 	NamePart    *string
 	IsExtension *bool
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *UninterpretedOption_NamePart) Reset() { *m = UninterpretedOption_NamePart{} }
 func (m *UninterpretedOption_NamePart) z() *UninterpretedOption_NamePart {
-	return descriptorIf(m == nil, &descriptorZeroUninterpretedOption_NamePart, m)
+	return descriptorIf(m == nil, &descriptorZUninterpretedOption_NamePart, m)
 }
 func (m *UninterpretedOption_NamePart) GetNamePart() string {
 	return descriptorDeref(m.z().NamePart, "")
@@ -6708,14 +6702,14 @@ func (m *UninterpretedOption_NamePart) GetIsExtension() bool {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *UninterpretedOption_NamePart) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *UninterpretedOption_NamePart) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *UninterpretedOption_NamePart) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeOpt(1, m.NamePart, descriptorBytesLen)
 	n += descriptorSizeOptFixed(1, 1, m.IsExtension)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -6732,7 +6726,7 @@ func (m *UninterpretedOption_NamePart) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *UninterpretedOption_NamePart) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.IsExtension != nil {
 		i = descriptorPutVarint(b, descriptorPutBool(b, i, (*m.IsExtension)), 2<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -6762,10 +6756,10 @@ func (m *UninterpretedOption_NamePart) ProtoMergeDepth(b []byte, depth int) erro
 		case 2<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorBool(b, descriptorNew(&m.IsExtension))
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -6868,12 +6862,12 @@ type FeatureSet struct {
 	DefaultSymbolVisibility *FeatureSet_VisibilityFeature_DefaultSymbolVisibility
 	EnforceProtoLimits      *FeatureSet_ProtoLimitsFeature_EnforceProtoLimits
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FeatureSet) Reset()         { *m = FeatureSet{} }
-func (m *FeatureSet) z() *FeatureSet { return descriptorIf(m == nil, &descriptorZeroFeatureSet, m) }
+func (m *FeatureSet) z() *FeatureSet { return descriptorIf(m == nil, &descriptorZFeatureSet, m) }
 func (m *FeatureSet) GetFieldPresence() FeatureSet_FieldPresence {
 	return descriptorDeref(m.z().FieldPresence, FeatureSet_FIELD_PRESENCE_UNKNOWN)
 }
@@ -6903,7 +6897,7 @@ func (m *FeatureSet) GetEnforceProtoLimits() FeatureSet_ProtoLimitsFeature_Enfor
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FeatureSet) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FeatureSet) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FeatureSet) ProtoSize() (n int) {
@@ -6917,7 +6911,7 @@ func (m *FeatureSet) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.EnforceNamingStyle, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.DefaultSymbolVisibility, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.EnforceProtoLimits, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -6931,7 +6925,7 @@ func (m *FeatureSet) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FeatureSet) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.EnforceProtoLimits != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.EnforceProtoLimits)))), 9<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -6978,28 +6972,28 @@ func (m *FeatureSet) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 1<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_FieldPresence) { m.FieldPresence = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 1<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_FieldPresence) { m.FieldPresence = new(e) })
 		case 2<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 2<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_EnumType) { m.EnumType = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 2<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_EnumType) { m.EnumType = new(e) })
 		case 3<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_RepeatedFieldEncoding) { m.RepeatedFieldEncoding = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_RepeatedFieldEncoding) { m.RepeatedFieldEncoding = new(e) })
 		case 4<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_Utf8Validation) { m.Utf8Validation = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_Utf8Validation) { m.Utf8Validation = new(e) })
 		case 5<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_MessageEncoding) { m.MessageEncoding = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_MessageEncoding) { m.MessageEncoding = new(e) })
 		case 6<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 6<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_JsonFormat) { m.JsonFormat = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 6<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_JsonFormat) { m.JsonFormat = new(e) })
 		case 7<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 7<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_EnforceNamingStyle) { m.EnforceNamingStyle = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 7<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_EnforceNamingStyle) { m.EnforceNamingStyle = new(e) })
 		case 8<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 8<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_VisibilityFeature_DefaultSymbolVisibility) { m.DefaultSymbolVisibility = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 8<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_VisibilityFeature_DefaultSymbolVisibility) { m.DefaultSymbolVisibility = new(e) })
 		case 9<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 9<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_ProtoLimitsFeature_EnforceProtoLimits) { m.EnforceProtoLimits = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 9<<descriptorTagTypeBits|descriptorWireVarint, func(e FeatureSet_ProtoLimitsFeature_EnforceProtoLimits) { m.EnforceProtoLimits = new(e) })
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -7073,23 +7067,23 @@ func (m *FeatureSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		}
 		switch key := kt.String(); key {
 		case "fieldPresence", "field_presence":
-			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FeatureSet", &m.FieldPresence, descriptorFeatureSetFieldPresenceJSON)
+			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FeatureSet", &m.FieldPresence, descriptorJFeatureSetFieldPresence)
 		case "enumType", "enum_type":
-			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FeatureSet", &m.EnumType, descriptorFeatureSetEnumTypeJSON)
+			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FeatureSet", &m.EnumType, descriptorJFeatureSetEnumType)
 		case "repeatedFieldEncoding", "repeated_field_encoding":
-			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FeatureSet", &m.RepeatedFieldEncoding, descriptorFeatureSetRepeatedFieldEncodingJSON)
+			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FeatureSet", &m.RepeatedFieldEncoding, descriptorJFeatureSetRepeatedFieldEncoding)
 		case "utf8Validation", "utf8_validation":
-			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FeatureSet", &m.Utf8Validation, descriptorFeatureSetUtf8ValidationJSON)
+			err = descriptorOptField(d, &seen[3], key, "google.protobuf.FeatureSet", &m.Utf8Validation, descriptorJFeatureSetUtf8Validation)
 		case "messageEncoding", "message_encoding":
-			err = descriptorOptField(d, &seen[4], key, "google.protobuf.FeatureSet", &m.MessageEncoding, descriptorFeatureSetMessageEncodingJSON)
+			err = descriptorOptField(d, &seen[4], key, "google.protobuf.FeatureSet", &m.MessageEncoding, descriptorJFeatureSetMessageEncoding)
 		case "jsonFormat", "json_format":
-			err = descriptorOptField(d, &seen[5], key, "google.protobuf.FeatureSet", &m.JsonFormat, descriptorFeatureSetJsonFormatJSON)
+			err = descriptorOptField(d, &seen[5], key, "google.protobuf.FeatureSet", &m.JsonFormat, descriptorJFeatureSetJsonFormat)
 		case "enforceNamingStyle", "enforce_naming_style":
-			err = descriptorOptField(d, &seen[6], key, "google.protobuf.FeatureSet", &m.EnforceNamingStyle, descriptorFeatureSetEnforceNamingStyleJSON)
+			err = descriptorOptField(d, &seen[6], key, "google.protobuf.FeatureSet", &m.EnforceNamingStyle, descriptorJFeatureSetEnforceNamingStyle)
 		case "defaultSymbolVisibility", "default_symbol_visibility":
-			err = descriptorOptField(d, &seen[7], key, "google.protobuf.FeatureSet", &m.DefaultSymbolVisibility, descriptorFeatureSetVisibilityFeatureDefaultSymbolVisibilityJSON)
+			err = descriptorOptField(d, &seen[7], key, "google.protobuf.FeatureSet", &m.DefaultSymbolVisibility, descriptorJFeatureSetVisibilityFeatureDefaultSymbolVisibility)
 		case "enforceProtoLimits", "enforce_proto_limits":
-			err = descriptorOptField(d, &seen[8], key, "google.protobuf.FeatureSet", &m.EnforceProtoLimits, descriptorFeatureSetProtoLimitsFeatureEnforceProtoLimitsJSON)
+			err = descriptorOptField(d, &seen[8], key, "google.protobuf.FeatureSet", &m.EnforceProtoLimits, descriptorJFeatureSetProtoLimitsFeatureEnforceProtoLimits)
 		default:
 			return errors.New("proto: google.protobuf.FeatureSet: unknown field " + strconv.Quote(key))
 		}
@@ -7097,59 +7091,59 @@ func (m *FeatureSet) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func descriptorFeatureSetFieldPresenceJSON(d *jsontext.Decoder, p *FeatureSet_FieldPresence, name string) error {
+func descriptorJFeatureSetFieldPresence(d *jsontext.Decoder, p *FeatureSet_FieldPresence, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_FieldPresence_value, name, "google.protobuf.FeatureSet.FieldPresence", false)
 }
 
-func descriptorFeatureSetEnumTypeJSON(d *jsontext.Decoder, p *FeatureSet_EnumType, name string) error {
+func descriptorJFeatureSetEnumType(d *jsontext.Decoder, p *FeatureSet_EnumType, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_EnumType_value, name, "google.protobuf.FeatureSet.EnumType", false)
 }
 
-func descriptorFeatureSetRepeatedFieldEncodingJSON(d *jsontext.Decoder, p *FeatureSet_RepeatedFieldEncoding, name string) error {
+func descriptorJFeatureSetRepeatedFieldEncoding(d *jsontext.Decoder, p *FeatureSet_RepeatedFieldEncoding, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_RepeatedFieldEncoding_value, name, "google.protobuf.FeatureSet.RepeatedFieldEncoding", false)
 }
 
-func descriptorFeatureSetUtf8ValidationJSON(d *jsontext.Decoder, p *FeatureSet_Utf8Validation, name string) error {
+func descriptorJFeatureSetUtf8Validation(d *jsontext.Decoder, p *FeatureSet_Utf8Validation, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_Utf8Validation_value, name, "google.protobuf.FeatureSet.Utf8Validation", false)
 }
 
-func descriptorFeatureSetMessageEncodingJSON(d *jsontext.Decoder, p *FeatureSet_MessageEncoding, name string) error {
+func descriptorJFeatureSetMessageEncoding(d *jsontext.Decoder, p *FeatureSet_MessageEncoding, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_MessageEncoding_value, name, "google.protobuf.FeatureSet.MessageEncoding", false)
 }
 
-func descriptorFeatureSetJsonFormatJSON(d *jsontext.Decoder, p *FeatureSet_JsonFormat, name string) error {
+func descriptorJFeatureSetJsonFormat(d *jsontext.Decoder, p *FeatureSet_JsonFormat, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_JsonFormat_value, name, "google.protobuf.FeatureSet.JsonFormat", false)
 }
 
-func descriptorFeatureSetEnforceNamingStyleJSON(d *jsontext.Decoder, p *FeatureSet_EnforceNamingStyle, name string) error {
+func descriptorJFeatureSetEnforceNamingStyle(d *jsontext.Decoder, p *FeatureSet_EnforceNamingStyle, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_EnforceNamingStyle_value, name, "google.protobuf.FeatureSet.EnforceNamingStyle", false)
 }
 
-func descriptorFeatureSetVisibilityFeatureDefaultSymbolVisibilityJSON(d *jsontext.Decoder, p *FeatureSet_VisibilityFeature_DefaultSymbolVisibility, name string) error {
+func descriptorJFeatureSetVisibilityFeatureDefaultSymbolVisibility(d *jsontext.Decoder, p *FeatureSet_VisibilityFeature_DefaultSymbolVisibility, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_VisibilityFeature_DefaultSymbolVisibility_value, name, "google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility", false)
 }
 
-func descriptorFeatureSetProtoLimitsFeatureEnforceProtoLimitsJSON(d *jsontext.Decoder, p *FeatureSet_ProtoLimitsFeature_EnforceProtoLimits, name string) error {
+func descriptorJFeatureSetProtoLimitsFeatureEnforceProtoLimits(d *jsontext.Decoder, p *FeatureSet_ProtoLimitsFeature_EnforceProtoLimits, name string) error {
 	return descriptorJSONEnum(d, p, FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_value, name, "google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits", false)
 }
 
 type FeatureSet_VisibilityFeature struct {
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FeatureSet_VisibilityFeature) Reset() { *m = FeatureSet_VisibilityFeature{} }
 func (m *FeatureSet_VisibilityFeature) z() *FeatureSet_VisibilityFeature {
-	return descriptorIf(m == nil, &descriptorZeroFeatureSet_VisibilityFeature, m)
+	return descriptorIf(m == nil, &descriptorZFeatureSet_VisibilityFeature, m)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FeatureSet_VisibilityFeature) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FeatureSet_VisibilityFeature) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FeatureSet_VisibilityFeature) ProtoSize() (n int) {
 	m = m.z()
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -7163,7 +7157,7 @@ func (m *FeatureSet_VisibilityFeature) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FeatureSet_VisibilityFeature) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	return len(b) - i, nil
 }
 
@@ -7181,9 +7175,9 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeDepth(b []byte, depth int) erro
 	err := descriptorDepth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+		n, err = descriptorUnknown(b, t, depth, &m.u)
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -7236,22 +7230,22 @@ func (m *FeatureSet_VisibilityFeature) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 }
 
 type FeatureSet_ProtoLimitsFeature struct {
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FeatureSet_ProtoLimitsFeature) Reset() { *m = FeatureSet_ProtoLimitsFeature{} }
 func (m *FeatureSet_ProtoLimitsFeature) z() *FeatureSet_ProtoLimitsFeature {
-	return descriptorIf(m == nil, &descriptorZeroFeatureSet_ProtoLimitsFeature, m)
+	return descriptorIf(m == nil, &descriptorZFeatureSet_ProtoLimitsFeature, m)
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FeatureSet_ProtoLimitsFeature) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FeatureSet_ProtoLimitsFeature) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoSize() (n int) {
 	m = m.z()
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -7265,7 +7259,7 @@ func (m *FeatureSet_ProtoLimitsFeature) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FeatureSet_ProtoLimitsFeature) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	return len(b) - i, nil
 }
 
@@ -7283,9 +7277,9 @@ func (m *FeatureSet_ProtoLimitsFeature) ProtoMergeDepth(b []byte, depth int) err
 	err := descriptorDepth(depth)
 	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+		n, err = descriptorUnknown(b, t, depth, &m.u)
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -7350,13 +7344,13 @@ type FeatureSetDefaults struct {
 	// after this will not have reliable defaults.
 	MaximumEdition *Edition
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FeatureSetDefaults) Reset() { *m = FeatureSetDefaults{} }
 func (m *FeatureSetDefaults) z() *FeatureSetDefaults {
-	return descriptorIf(m == nil, &descriptorZeroFeatureSetDefaults, m)
+	return descriptorIf(m == nil, &descriptorZFeatureSetDefaults, m)
 }
 func (m *FeatureSetDefaults) GetDefaults() []*FeatureSetDefaults_FeatureSetEditionDefault {
 	return m.z().Defaults
@@ -7369,7 +7363,7 @@ func (m *FeatureSetDefaults) GetMaximumEdition() Edition {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FeatureSetDefaults) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FeatureSetDefaults) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FeatureSetDefaults) ProtoSize() (n int) {
@@ -7377,7 +7371,7 @@ func (m *FeatureSetDefaults) ProtoSize() (n int) {
 	n += descriptorSizeMsgs(1, m.Defaults, func(v *FeatureSetDefaults_FeatureSetEditionDefault) int { return v.ProtoSize() })
 	n += descriptorSizeOpt(1, m.MinimumEdition, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.MaximumEdition, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -7391,7 +7385,7 @@ func (m *FeatureSetDefaults) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FeatureSetDefaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.MaximumEdition != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.MaximumEdition)))), 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -7427,14 +7421,14 @@ func (m *FeatureSetDefaults) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.Defaults)).ProtoMergeDepth(x, depth+1)
 		case 4<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.MinimumEdition = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 4<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.MinimumEdition = new(e) })
 		case 5<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.MaximumEdition = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.MaximumEdition = new(e) })
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -7494,9 +7488,9 @@ func (m *FeatureSetDefaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 		case "defaults":
 			err = descriptorRepField(d, &seen[0], key, "google.protobuf.FeatureSetDefaults", &m.Defaults, false, descriptorJSONMsg)
 		case "minimumEdition", "minimum_edition":
-			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FeatureSetDefaults", &m.MinimumEdition, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[1], key, "google.protobuf.FeatureSetDefaults", &m.MinimumEdition, descriptorJEdition)
 		case "maximumEdition", "maximum_edition":
-			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FeatureSetDefaults", &m.MaximumEdition, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[2], key, "google.protobuf.FeatureSetDefaults", &m.MaximumEdition, descriptorJEdition)
 		default:
 			return errors.New("proto: google.protobuf.FeatureSetDefaults: unknown field " + strconv.Quote(key))
 		}
@@ -7515,7 +7509,7 @@ type FeatureSetDefaults_FeatureSetEditionDefault struct {
 	// Defaults of features that can't be overridden in this edition.
 	FixedFeatures *FeatureSet
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
@@ -7523,7 +7517,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) Reset() {
 	*m = FeatureSetDefaults_FeatureSetEditionDefault{}
 }
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) z() *FeatureSetDefaults_FeatureSetEditionDefault {
-	return descriptorIf(m == nil, &descriptorZeroFeatureSetDefaults_FeatureSetEditionDefault, m)
+	return descriptorIf(m == nil, &descriptorZFeatureSetDefaults_FeatureSetEditionDefault, m)
 }
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) GetEdition() Edition {
 	return descriptorDeref(m.z().Edition, Edition_EDITION_UNKNOWN)
@@ -7536,9 +7530,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) GetFixedFeatures() *Featur
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoUnknownFields() []byte {
-	return m.z().unknownFields
-}
+func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoSize() (n int) {
@@ -7546,7 +7538,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Edition, descriptorVarintLen)
 	n += descriptorSizeMsg(1, m.OverridableFeatures, func(v *FeatureSet) int { return v.ProtoSize() })
 	n += descriptorSizeMsg(1, m.FixedFeatures, func(v *FeatureSet) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -7562,7 +7554,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) AppendBinary(b []byte) ([]
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.FixedFeatures != nil {
 		n, err := m.FixedFeatures.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -7601,7 +7593,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeDepth(b []byte, 
 		b = b[n:]
 		switch t {
 		case 3<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.Edition = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 3<<descriptorTagTypeBits|descriptorWireVarint, func(e Edition) { m.Edition = new(e) })
 		case 4<<descriptorTagTypeBits | descriptorWireBytes:
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.OverridableFeatures).ProtoMergeDepth(x, depth+1)
@@ -7609,10 +7601,10 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeDepth(b []byte, 
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(&m.FixedFeatures).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -7670,7 +7662,7 @@ func (m *FeatureSetDefaults_FeatureSetEditionDefault) ProtoMergeJSONFrom(d *json
 		}
 		switch key := kt.String(); key {
 		case "edition":
-			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault", &m.Edition, descriptorEditionJSON)
+			err = descriptorOptField(d, &seen[0], key, "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault", &m.Edition, descriptorJEdition)
 		case "overridableFeatures", "overridable_features":
 			err = descriptorField(d, &seen[1], key, "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault", &m.OverridableFeatures, descriptorJSONMsg)
 		case "fixedFeatures", "fixed_features":
@@ -7730,24 +7722,24 @@ type SourceCodeInfo struct {
 	//   be recorded in the future.
 	Location []*SourceCodeInfo_Location
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *SourceCodeInfo) Reset() { *m = SourceCodeInfo{} }
 func (m *SourceCodeInfo) z() *SourceCodeInfo {
-	return descriptorIf(m == nil, &descriptorZeroSourceCodeInfo, m)
+	return descriptorIf(m == nil, &descriptorZSourceCodeInfo, m)
 }
 func (m *SourceCodeInfo) GetLocation() []*SourceCodeInfo_Location { return m.z().Location }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *SourceCodeInfo) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *SourceCodeInfo) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *SourceCodeInfo) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeMsgs(1, m.Location, func(v *SourceCodeInfo_Location) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -7761,7 +7753,7 @@ func (m *SourceCodeInfo) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *SourceCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.Location) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -7791,10 +7783,10 @@ func (m *SourceCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.Location)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -7953,13 +7945,13 @@ type SourceCodeInfo_Location struct {
 	TrailingComments        *string
 	LeadingDetachedComments []string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *SourceCodeInfo_Location) Reset() { *m = SourceCodeInfo_Location{} }
 func (m *SourceCodeInfo_Location) z() *SourceCodeInfo_Location {
-	return descriptorIf(m == nil, &descriptorZeroSourceCodeInfo_Location, m)
+	return descriptorIf(m == nil, &descriptorZSourceCodeInfo_Location, m)
 }
 func (m *SourceCodeInfo_Location) GetPath() []int32 { return m.z().Path }
 func (m *SourceCodeInfo_Location) GetSpan() []int32 { return m.z().Span }
@@ -7974,7 +7966,7 @@ func (m *SourceCodeInfo_Location) GetLeadingDetachedComments() []string {
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *SourceCodeInfo_Location) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *SourceCodeInfo_Location) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *SourceCodeInfo_Location) ProtoSize() (n int) {
@@ -7984,7 +7976,7 @@ func (m *SourceCodeInfo_Location) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.LeadingComments, descriptorBytesLen)
 	n += descriptorSizeOpt(1, m.TrailingComments, descriptorBytesLen)
 	n += descriptorSizeEach(1, m.LeadingDetachedComments, descriptorBytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -7998,7 +7990,7 @@ func (m *SourceCodeInfo_Location) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *SourceCodeInfo_Location) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.LeadingDetachedComments) {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 6<<descriptorTagTypeBits|descriptorWireBytes)
 	}
@@ -8055,10 +8047,10 @@ func (m *SourceCodeInfo_Location) ProtoMergeDepth(b []byte, depth int) error {
 		case 6<<descriptorTagTypeBits | descriptorWireBytes:
 			n, err = descriptorString(b, descriptorGrow(&m.LeadingDetachedComments), "")
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -8142,24 +8134,24 @@ type GeneratedCodeInfo struct {
 	// of its generating .proto file.
 	Annotation []*GeneratedCodeInfo_Annotation
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *GeneratedCodeInfo) Reset() { *m = GeneratedCodeInfo{} }
 func (m *GeneratedCodeInfo) z() *GeneratedCodeInfo {
-	return descriptorIf(m == nil, &descriptorZeroGeneratedCodeInfo, m)
+	return descriptorIf(m == nil, &descriptorZGeneratedCodeInfo, m)
 }
 func (m *GeneratedCodeInfo) GetAnnotation() []*GeneratedCodeInfo_Annotation { return m.z().Annotation }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *GeneratedCodeInfo) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *GeneratedCodeInfo) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *GeneratedCodeInfo) ProtoSize() (n int) {
 	m = m.z()
 	n += descriptorSizeMsgs(1, m.Annotation, func(v *GeneratedCodeInfo_Annotation) int { return v.ProtoSize() })
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -8173,7 +8165,7 @@ func (m *GeneratedCodeInfo) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *GeneratedCodeInfo) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.Annotation) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -8203,10 +8195,10 @@ func (m *GeneratedCodeInfo) ProtoMergeDepth(b []byte, depth int) error {
 			x, n = descriptorReadBytes(b)
 			err = descriptorAlloc(descriptorGrow(&m.Annotation)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -8281,13 +8273,13 @@ type GeneratedCodeInfo_Annotation struct {
 	End      *int32
 	Semantic *GeneratedCodeInfo_Annotation_Semantic
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *GeneratedCodeInfo_Annotation) Reset() { *m = GeneratedCodeInfo_Annotation{} }
 func (m *GeneratedCodeInfo_Annotation) z() *GeneratedCodeInfo_Annotation {
-	return descriptorIf(m == nil, &descriptorZeroGeneratedCodeInfo_Annotation, m)
+	return descriptorIf(m == nil, &descriptorZGeneratedCodeInfo_Annotation, m)
 }
 func (m *GeneratedCodeInfo_Annotation) GetPath() []int32 { return m.z().Path }
 func (m *GeneratedCodeInfo_Annotation) GetSourceFile() string {
@@ -8300,7 +8292,7 @@ func (m *GeneratedCodeInfo_Annotation) GetSemantic() GeneratedCodeInfo_Annotatio
 }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *GeneratedCodeInfo_Annotation) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *GeneratedCodeInfo_Annotation) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *GeneratedCodeInfo_Annotation) ProtoSize() (n int) {
@@ -8310,7 +8302,7 @@ func (m *GeneratedCodeInfo_Annotation) ProtoSize() (n int) {
 	n += descriptorSizeOpt(1, m.Begin, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.End, descriptorVarintLen)
 	n += descriptorSizeOpt(1, m.Semantic, descriptorVarintLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -8324,7 +8316,7 @@ func (m *GeneratedCodeInfo_Annotation) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *GeneratedCodeInfo_Annotation) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := descriptorCopyUnknown(b, len(b), m.unknownFields)
+	i := descriptorCopyUnknown(b, len(b), m.u)
 	if m.Semantic != nil {
 		i = descriptorPutVarint(b, descriptorPutVarint(b, i, uint64(int64((*m.Semantic)))), 5<<descriptorTagTypeBits|descriptorWireVarint)
 	}
@@ -8373,12 +8365,12 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeDepth(b []byte, depth int) erro
 		case 4<<descriptorTagTypeBits | descriptorWireVarint:
 			n = descriptorVarint(b, descriptorNew(&m.End))
 		case 5<<descriptorTagTypeBits | descriptorWireVarint:
-			n = descriptorClosedEnum(b, &m.unknownFields, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e GeneratedCodeInfo_Annotation_Semantic) { m.Semantic = new(e) })
+			n = descriptorClosedEnum(b, &m.u, 5<<descriptorTagTypeBits|descriptorWireVarint, func(e GeneratedCodeInfo_Annotation_Semantic) { m.Semantic = new(e) })
 		default:
-			n, err = descriptorUnknown(b, t, depth, &m.unknownFields)
+			n, err = descriptorUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(descriptorErrParse))
+			return cmp.Or(err, errors.New(descriptorE1))
 		}
 		b = b[n:]
 	}
@@ -8450,7 +8442,7 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 		case "end":
 			err = descriptorOptField(d, &seen[3], key, "google.protobuf.GeneratedCodeInfo.Annotation", &m.End, descriptorJSONInt)
 		case "semantic":
-			err = descriptorOptField(d, &seen[4], key, "google.protobuf.GeneratedCodeInfo.Annotation", &m.Semantic, descriptorGeneratedCodeInfoAnnotationSemanticJSON)
+			err = descriptorOptField(d, &seen[4], key, "google.protobuf.GeneratedCodeInfo.Annotation", &m.Semantic, descriptorJGeneratedCodeInfoAnnotationSemantic)
 		default:
 			return errors.New("proto: google.protobuf.GeneratedCodeInfo.Annotation: unknown field " + strconv.Quote(key))
 		}
@@ -8458,46 +8450,46 @@ func (m *GeneratedCodeInfo_Annotation) ProtoMergeJSONFrom(d *jsontext.Decoder) e
 	return nil
 }
 
-func descriptorGeneratedCodeInfoAnnotationSemanticJSON(d *jsontext.Decoder, p *GeneratedCodeInfo_Annotation_Semantic, name string) error {
+func descriptorJGeneratedCodeInfoAnnotationSemantic(d *jsontext.Decoder, p *GeneratedCodeInfo_Annotation_Semantic, name string) error {
 	return descriptorJSONEnum(d, p, GeneratedCodeInfo_Annotation_Semantic_value, name, "google.protobuf.GeneratedCodeInfo.Annotation.Semantic", false)
 }
 
 var (
-	descriptorZeroFileDescriptorSet                           FileDescriptorSet
-	descriptorZeroFileDescriptorProto                         FileDescriptorProto
-	descriptorZeroDescriptorProto                             DescriptorProto
-	descriptorZeroDescriptorProto_ExtensionRange              DescriptorProto_ExtensionRange
-	descriptorZeroDescriptorProto_ReservedRange               DescriptorProto_ReservedRange
-	descriptorZeroExtensionRangeOptions                       ExtensionRangeOptions
-	descriptorZeroExtensionRangeOptions_Declaration           ExtensionRangeOptions_Declaration
-	descriptorZeroFieldDescriptorProto                        FieldDescriptorProto
-	descriptorZeroOneofDescriptorProto                        OneofDescriptorProto
-	descriptorZeroEnumDescriptorProto                         EnumDescriptorProto
-	descriptorZeroEnumDescriptorProto_EnumReservedRange       EnumDescriptorProto_EnumReservedRange
-	descriptorZeroEnumValueDescriptorProto                    EnumValueDescriptorProto
-	descriptorZeroServiceDescriptorProto                      ServiceDescriptorProto
-	descriptorZeroMethodDescriptorProto                       MethodDescriptorProto
-	descriptorZeroFileOptions                                 FileOptions
-	descriptorZeroMessageOptions                              MessageOptions
-	descriptorZeroFieldOptions                                FieldOptions
-	descriptorZeroFieldOptions_EditionDefault                 FieldOptions_EditionDefault
-	descriptorZeroFieldOptions_FeatureSupport                 FieldOptions_FeatureSupport
-	descriptorZeroOneofOptions                                OneofOptions
-	descriptorZeroEnumOptions                                 EnumOptions
-	descriptorZeroEnumValueOptions                            EnumValueOptions
-	descriptorZeroServiceOptions                              ServiceOptions
-	descriptorZeroMethodOptions                               MethodOptions
-	descriptorZeroUninterpretedOption                         UninterpretedOption
-	descriptorZeroUninterpretedOption_NamePart                UninterpretedOption_NamePart
-	descriptorZeroFeatureSet                                  FeatureSet
-	descriptorZeroFeatureSet_VisibilityFeature                FeatureSet_VisibilityFeature
-	descriptorZeroFeatureSet_ProtoLimitsFeature               FeatureSet_ProtoLimitsFeature
-	descriptorZeroFeatureSetDefaults                          FeatureSetDefaults
-	descriptorZeroFeatureSetDefaults_FeatureSetEditionDefault FeatureSetDefaults_FeatureSetEditionDefault
-	descriptorZeroSourceCodeInfo                              SourceCodeInfo
-	descriptorZeroSourceCodeInfo_Location                     SourceCodeInfo_Location
-	descriptorZeroGeneratedCodeInfo                           GeneratedCodeInfo
-	descriptorZeroGeneratedCodeInfo_Annotation                GeneratedCodeInfo_Annotation
+	descriptorZFileDescriptorSet                           FileDescriptorSet
+	descriptorZFileDescriptorProto                         FileDescriptorProto
+	descriptorZDescriptorProto                             DescriptorProto
+	descriptorZDescriptorProto_ExtensionRange              DescriptorProto_ExtensionRange
+	descriptorZDescriptorProto_ReservedRange               DescriptorProto_ReservedRange
+	descriptorZExtensionRangeOptions                       ExtensionRangeOptions
+	descriptorZExtensionRangeOptions_Declaration           ExtensionRangeOptions_Declaration
+	descriptorZFieldDescriptorProto                        FieldDescriptorProto
+	descriptorZOneofDescriptorProto                        OneofDescriptorProto
+	descriptorZEnumDescriptorProto                         EnumDescriptorProto
+	descriptorZEnumDescriptorProto_EnumReservedRange       EnumDescriptorProto_EnumReservedRange
+	descriptorZEnumValueDescriptorProto                    EnumValueDescriptorProto
+	descriptorZServiceDescriptorProto                      ServiceDescriptorProto
+	descriptorZMethodDescriptorProto                       MethodDescriptorProto
+	descriptorZFileOptions                                 FileOptions
+	descriptorZMessageOptions                              MessageOptions
+	descriptorZFieldOptions                                FieldOptions
+	descriptorZFieldOptions_EditionDefault                 FieldOptions_EditionDefault
+	descriptorZFieldOptions_FeatureSupport                 FieldOptions_FeatureSupport
+	descriptorZOneofOptions                                OneofOptions
+	descriptorZEnumOptions                                 EnumOptions
+	descriptorZEnumValueOptions                            EnumValueOptions
+	descriptorZServiceOptions                              ServiceOptions
+	descriptorZMethodOptions                               MethodOptions
+	descriptorZUninterpretedOption                         UninterpretedOption
+	descriptorZUninterpretedOption_NamePart                UninterpretedOption_NamePart
+	descriptorZFeatureSet                                  FeatureSet
+	descriptorZFeatureSet_VisibilityFeature                FeatureSet_VisibilityFeature
+	descriptorZFeatureSet_ProtoLimitsFeature               FeatureSet_ProtoLimitsFeature
+	descriptorZFeatureSetDefaults                          FeatureSetDefaults
+	descriptorZFeatureSetDefaults_FeatureSetEditionDefault FeatureSetDefaults_FeatureSetEditionDefault
+	descriptorZSourceCodeInfo                              SourceCodeInfo
+	descriptorZSourceCodeInfo_Location                     SourceCodeInfo_Location
+	descriptorZGeneratedCodeInfo                           GeneratedCodeInfo
+	descriptorZGeneratedCodeInfo_Annotation                GeneratedCodeInfo_Annotation
 )
 
 func descriptorSizeLen(l int) int { return l + descriptorVarintLen(l) }
@@ -8616,7 +8608,7 @@ func descriptorSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = descriptorIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(descriptorErrParse)
+		return 0, errors.New(descriptorE1)
 	}
 	return n, nil
 }
@@ -8625,7 +8617,7 @@ func descriptorSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(descriptorErrParse)
+			return 0, errors.New(descriptorE1)
 		}
 		if n += k; t == uint64(num)<<descriptorTagTypeBits|descriptorWireEndGroup {
 			return n, nil
@@ -8644,7 +8636,7 @@ func descriptorUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) 
 }
 func descriptorEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(descriptorErrParse)
+		return errors.New(descriptorE1)
 	}
 	return err
 }
@@ -8861,14 +8853,14 @@ func descriptorNextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
 }
 func descriptorField[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return descriptorJSONError(name, descriptorErrDuplicateField+strconv.Quote(key))
+		return descriptorJSONError(name, descriptorE2+strconv.Quote(key))
 	}
 	*seen = true
 	return parse(d, p, name)
 }
 func descriptorOptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p **T, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return descriptorJSONError(name, descriptorErrDuplicateField+strconv.Quote(key))
+		return descriptorJSONError(name, descriptorE2+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -8878,7 +8870,7 @@ func descriptorOptField[T any](d *jsontext.Decoder, seen *bool, key, name string
 }
 func descriptorRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
 	if *seen {
-		return descriptorJSONError(name, descriptorErrDuplicateField+strconv.Quote(key))
+		return descriptorJSONError(name, descriptorE2+strconv.Quote(key))
 	}
 	*seen = true
 	if d.PeekKind() == jsontext.KindNull {
@@ -9028,7 +9020,7 @@ func descriptorParseInt(tok jsontext.Token, bits int, name string) (int64, error
 	}
 	n := descriptorExactInt(s)
 	if n == nil || !n.IsInt64() || (bits == 32 && (n.Int64() < math.MinInt32 || n.Int64() > math.MaxInt32)) {
-		return 0, descriptorJSONError(name, descriptorErrInvalidInteger+s)
+		return 0, descriptorJSONError(name, descriptorE3+s)
 	}
 	return n.Int64(), nil
 }
@@ -9042,7 +9034,7 @@ func descriptorParseUint(tok jsontext.Token, bits int, name string) (uint64, err
 	}
 	n := descriptorExactInt(s)
 	if n == nil || !n.IsUint64() || (bits == 32 && n.Uint64() > math.MaxUint32) {
-		return 0, descriptorJSONError(name, descriptorErrInvalidInteger+s)
+		return 0, descriptorJSONError(name, descriptorE3+s)
 	}
 	return n.Uint64(), nil
 }
@@ -9075,14 +9067,14 @@ func descriptorParseFloat(tok jsontext.Token, bits int, name string) (float64, e
 	}
 	v, err := strconv.ParseFloat(s, bits)
 	if err != nil {
-		return 0, descriptorJSONError(name, descriptorErrInvalidNumber+s)
+		return 0, descriptorJSONError(name, descriptorE4+s)
 	}
 	return v, nil
 }
 func descriptorJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
-		return "", descriptorJSONError(name, descriptorErrInvalidNumber+s)
+		return "", descriptorJSONError(name, descriptorE4+s)
 	}
 	return s, nil
 }

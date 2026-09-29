@@ -19,23 +19,23 @@ import (
 )
 
 const (
-	fieldMaskWireVarint                      = 0
-	fieldMaskWireFixed64                     = 1
-	fieldMaskWireBytes                       = 2
-	fieldMaskWireStartGroup                  = 3
-	fieldMaskWireEndGroup                    = 4
-	fieldMaskWireFixed32                     = 5
-	fieldMaskTagTypeBits                     = 3
-	fieldMaskTagTypeMask                     = 1<<3 - 1
-	fieldMaskMaxFieldNumber                  = 1<<29 - 1
-	fieldMaskFixed32Size                     = 4
-	fieldMaskFixed64Size                     = 8
-	fieldMaskVarintPayloadBits               = 7
-	fieldMaskVarintContBit                   = 0x80
-	fieldMaskMaxDepth                        = 10000
-	fieldMaskFieldMaskPathsErrUTF8           = "proto: field google.protobuf.FieldMask.paths contains invalid UTF-8"
-	fieldMaskErrParse                        = "proto: cannot parse invalid wire-format data"
-	fieldMaskFieldMaskErrUnrepresentablePath = "proto: google.protobuf.FieldMask: path cannot be represented in JSON: "
+	fieldMaskWireVarint        = 0
+	fieldMaskWireFixed64       = 1
+	fieldMaskWireBytes         = 2
+	fieldMaskWireStartGroup    = 3
+	fieldMaskWireEndGroup      = 4
+	fieldMaskWireFixed32       = 5
+	fieldMaskTagTypeBits       = 3
+	fieldMaskTagTypeMask       = 1<<3 - 1
+	fieldMaskMaxFieldNumber    = 1<<29 - 1
+	fieldMaskFixed32Size       = 4
+	fieldMaskFixed64Size       = 8
+	fieldMaskVarintPayloadBits = 7
+	fieldMaskVarintContBit     = 0x80
+	fieldMaskMaxDepth          = 10000
+	fieldMaskE1                = "proto: field google.protobuf.FieldMask.paths contains invalid UTF-8"
+	fieldMaskE2                = "proto: cannot parse invalid wire-format data"
+	fieldMaskE3                = "proto: google.protobuf.FieldMask: path cannot be represented in JSON: "
 )
 
 // `FieldMask` represents a set of symbolic field paths, for example:
@@ -238,22 +238,22 @@ type FieldMask struct {
 	// The set of field mask paths.
 	Paths []string
 
-	unknownFields []byte
+	u []byte
 }
 
 // Reset clears all fields of m.
 func (m *FieldMask) Reset()             { *m = FieldMask{} }
-func (m *FieldMask) z() *FieldMask      { return fieldMaskIf(m == nil, &fieldMaskZeroFieldMask, m) }
+func (m *FieldMask) z() *FieldMask      { return fieldMaskIf(m == nil, &fieldMaskZFieldMask, m) }
 func (m *FieldMask) GetPaths() []string { return m.z().Paths }
 
 // ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
-func (m *FieldMask) ProtoUnknownFields() []byte { return m.z().unknownFields }
+func (m *FieldMask) ProtoUnknownFields() []byte { return m.z().u }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FieldMask) ProtoSize() (n int) {
 	m = m.z()
 	n += fieldMaskSizeEach(1, m.Paths, fieldMaskBytesLen)
-	return n + len(m.unknownFields)
+	return n + len(m.u)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -267,10 +267,10 @@ func (m *FieldMask) AppendBinary(b []byte) ([]byte, error) {
 // ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FieldMask) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	m = m.z()
-	i := fieldMaskCopyUnknown(b, len(b), m.unknownFields)
+	i := fieldMaskCopyUnknown(b, len(b), m.u)
 	for _, v := range slices.Backward(m.Paths) {
 		if !utf8.ValidString(v) {
-			return 0, errors.New(fieldMaskFieldMaskPathsErrUTF8)
+			return 0, errors.New(fieldMaskE1)
 		}
 		i = fieldMaskPutVarint(b, fieldMaskPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 1<<fieldMaskTagTypeBits|fieldMaskWireBytes)
 	}
@@ -290,12 +290,12 @@ func (m *FieldMask) ProtoMergeDepth(b []byte, depth int) error {
 		b = b[n:]
 		switch t {
 		case 1<<fieldMaskTagTypeBits | fieldMaskWireBytes:
-			n, err = fieldMaskString(b, fieldMaskGrow(&m.Paths), fieldMaskFieldMaskPathsErrUTF8)
+			n, err = fieldMaskString(b, fieldMaskGrow(&m.Paths), fieldMaskE1)
 		default:
-			n, err = fieldMaskUnknown(b, t, depth, &m.unknownFields)
+			n, err = fieldMaskUnknown(b, t, depth, &m.u)
 		}
 		if n <= 0 || err != nil {
-			return cmp.Or(err, errors.New(fieldMaskErrParse))
+			return cmp.Or(err, errors.New(fieldMaskE2))
 		}
 		b = b[n:]
 	}
@@ -325,12 +325,12 @@ func (m *FieldMask) ProtoAppendJSON(b []byte) ([]byte, error) {
 				switch c := p[ci]; {
 				case c == '_':
 					if ci+1 >= len(p) || p[ci+1] < 'a' || p[ci+1] > 'z' {
-						return nil, errors.New(fieldMaskFieldMaskErrUnrepresentablePath + strconv.Quote(p))
+						return nil, errors.New(fieldMaskE3 + strconv.Quote(p))
 					}
 					ci++
 					b = append(b, p[ci]-('a'-'A'))
 				case c >= 'A' && c <= 'Z', c < ' ', c == '"', c == '\\', c == ',':
-					return nil, errors.New(fieldMaskFieldMaskErrUnrepresentablePath + strconv.Quote(p))
+					return nil, errors.New(fieldMaskE3 + strconv.Quote(p))
 				default:
 					b = append(b, c)
 				}
@@ -389,7 +389,7 @@ func (m *FieldMask) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 }
 
 var (
-	fieldMaskZeroFieldMask FieldMask
+	fieldMaskZFieldMask FieldMask
 )
 
 func fieldMaskSizeLen(l int) int { return l + fieldMaskVarintLen(l) }
@@ -463,7 +463,7 @@ func fieldMaskSkipField(b []byte, t uint64, depth int) (int, error) {
 		n = fieldMaskIf(len(b) >= n, n, 0)
 	}
 	if n <= 0 {
-		return 0, errors.New(fieldMaskErrParse)
+		return 0, errors.New(fieldMaskE2)
 	}
 	return n, nil
 }
@@ -472,7 +472,7 @@ func fieldMaskSkipGroup(b []byte, num int32, depth int) (int, error) {
 	for err == nil {
 		t, k := binary.Uvarint(b[n:])
 		if k <= 0 {
-			return 0, errors.New(fieldMaskErrParse)
+			return 0, errors.New(fieldMaskE2)
 		}
 		if n += k; t == uint64(num)<<fieldMaskTagTypeBits|fieldMaskWireEndGroup {
 			return n, nil
@@ -491,7 +491,7 @@ func fieldMaskUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
 }
 func fieldMaskEnd(b []byte, err error) error {
 	if err == nil && len(b) > 0 {
-		return errors.New(fieldMaskErrParse)
+		return errors.New(fieldMaskE2)
 	}
 	return err
 }

@@ -209,11 +209,10 @@ func (fg *fileGen) sizeExpr(k desc.Kind, v string) string {
 	if fixedSize(k) > 0 {
 		return fg.fixedSizeExpr(k)
 	}
-	switch k {
-	case desc.KindString, desc.KindBytes:
+	if k == desc.KindString || k == desc.KindBytes {
 		return fg.fn("SizeLen") + "(len(" + v + "))"
 	}
-	return fg.sizeVarint(varintExpr(k, v))
+	return fg.lenFunc(k) + "(" + v + ")"
 }
 
 // putVarint returns an expression writing uint64 expression e backwards
