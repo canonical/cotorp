@@ -48,10 +48,13 @@ type Options struct {
 	// Helpers is the Go import path (optionally "path;name") of a package
 	// that holds the helper functions and constants shared by all generated
 	// files, which import it instead of declaring their own. The package is
-	// written by every Generate call, as helpers.pb.go under the import
-	// path (with Module stripped). It is empty by default, and each file is
-	// then self-contained.
+	// written by every Generate call, as helpers.pb.go in HelpersDir, or
+	// under the import path with Module stripped if HelpersDir is empty. It
+	// is empty by default, and each file is then self-contained.
 	Helpers string
+	// HelpersDir is the output directory of the Helpers package, relative
+	// to the output root.
+	HelpersDir string
 }
 
 // OutputFile is a generated file.
@@ -264,9 +267,12 @@ func (g *Generator) generateHelpers() (OutputFile, error) {
 	if pkg.name == "" {
 		pkg.name = defaultPackageName(pkg.importPath)
 	}
-	name, err := g.importOutputName(pkg.importPath, "helpers.pb.go")
-	if err != nil {
-		return OutputFile{}, fmt.Errorf("-helpers: %v", err)
+	name := path.Join(g.opts.HelpersDir, "helpers.pb.go")
+	if g.opts.HelpersDir == "" {
+		var err error
+		if name, err = g.importOutputName(pkg.importPath, "helpers.pb.go"); err != nil {
+			return OutputFile{}, fmt.Errorf("-helpers: %v", err)
+		}
 	}
 	g.helpers = &pkg
 	if g.pkgIdents[pkg.importPath] == nil {

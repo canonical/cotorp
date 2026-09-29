@@ -48,7 +48,7 @@ func run(args []string) error {
 		jsonNumbers = fs.Bool("json_enum_numbers", false, "write enum values as numbers instead of names in JSON output")
 		jsonDiscard = fs.Bool("json_discard_unknown", false, "ignore unknown keys when decoding JSON instead of rejecting them")
 		jsonHex     listFlag
-		helpers     = fs.String("helpers", "", "generate the helper functions once as this Go package (import/path[;name]) and import it, instead of declaring them in every file")
+		helpers     = fs.String("helpers", "", "generate the helper functions once as this Go package and import it, instead of declaring them in every file: an import path, or a directory under -go_out, each optionally followed by ;name")
 	)
 	fs.Var(&jsonHex, "json_hex", "encode this bytes field as hex instead of base64 in JSON, e.g. -json_hex pkg.Msg.trace_id (repeatable)")
 	fs.Var(&importPaths, "I", "directory to search for imports (repeatable; default \".\")")
@@ -80,6 +80,11 @@ func run(args []string) error {
 		importMap[k] = v
 	}
 
+	helpersImport, helpersDir, err := resolveHelpers(*helpers, *out, *module, *paths == "import")
+	if err != nil {
+		return err
+	}
+
 	c := compiler.New(importPaths)
 	var files []*desc.File
 	seen := map[string]bool{}
@@ -106,7 +111,8 @@ func run(args []string) error {
 		JSONEnumNumbers:    *jsonNumbers,
 		JSONHex:            jsonHex,
 		JSONDiscardUnknown: *jsonDiscard,
-		Helpers:            *helpers,
+		Helpers:            helpersImport,
+		HelpersDir:         helpersDir,
 	})
 	outs, err := g.Generate(files)
 	if err != nil {
@@ -122,4 +128,69 @@ func run(args []string) error {
 		}
 	}
 	return nil
+}
+
+// resolveHelpers interprets the -helpers flag: a Go import path, or a
+// directory relative to the output directory out. It returns the import path
+// (with any ";name") and the directory of the package relative to out. The
+// import path of out comes from -module in import mode, where out stands for
+// the module root, and otherwise from the go.mod enclosing out.
+func resolveHelpers(spec, out, module string, importMode bool) (importPath, dir string, err error) {
+	if spec == "" {
+		return "", "", nil
+	}
+	p, name, _ := strings.Cut(spec, ";")
+	if name != "" {
+		name = ";" + name
+	}
+	base := module
+	if !importMode || base == "" {
+		if base, err = outputImportPath(out); err != nil && (module == "" || !isImportPath(p)) {
+			return "", "", fmt.Errorf("-helpers %s: %v; pass -module or a full import path", p, err)
+		} else if err != nil {
+			base = module
+		}
+	}
+	switch {
+	case p == base || strings.HasPrefix(p, base+"/"):
+		return p + name, strings.TrimPrefix(strings.TrimPrefix(p, base), "/"), nil
+	case isImportPath(p):
+		return "", "", fmt.Errorf("-helpers %s: not under the output directory's import path %s", p, base)
+	}
+	p = strings.TrimSuffix(p, "/")
+	return base + "/" + p + name, p, nil
+}
+
+// isImportPath reports whether p looks like a full import path rather than
+// a relative directory: its first element is a domain name.
+func isImportPath(p string) bool {
+	first, _, _ := strings.Cut(p, "/")
+	return strings.Contains(first, ".")
+}
+
+// outputImportPath returns the import path of directory dir, from the module
+// directive of the go.mod in dir or one of its parents.
+func outputImportPath(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	for d := abs; ; d = filepath.Dir(d) {
+		if data, err := os.ReadFile(filepath.Join(d, "go.mod")); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if mod, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+					mod = strings.Trim(strings.TrimSpace(mod), "\"")
+					rel, _ := filepath.Rel(d, abs)
+					if rel == "." {
+						return mod, nil
+					}
+					return mod + "/" + filepath.ToSlash(rel), nil
+				}
+			}
+			return "", fmt.Errorf("%s has no module directive", filepath.Join(d, "go.mod"))
+		}
+		if filepath.Dir(d) == d {
+			return "", fmt.Errorf("no go.mod found above %s", dir)
+		}
+	}
 }

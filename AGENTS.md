@@ -60,7 +60,11 @@ proves little. CI installs protoc 36.1 and fails if it is missing
     the file prefix plus the suffix, declared in the file, or
     `<alias>.Name` in the shared package generated with `Options.Helpers`
     (`generateHelpers`, which emits every helper and constant, exported,
-    with its `doc`; give each new helper one). Constants (`fg.c`) and the
+    with its `doc`; give each new helper one). The flag is resolved in
+    `cmd/cotorp` (`resolveHelpers`, tested there): a directory under
+    `-go_out` gets its import path from `-module` or the enclosing
+    `go.mod`, and the generator receives the full path and output
+    directory. Constants (`fg.c`) and the
     error messages helpers use (`errString`, through `g.sharedErrs`) follow
     the same rule. A file declares only the helpers it uses.
     `TestSelfContained` rejects package-level functions without the file's
