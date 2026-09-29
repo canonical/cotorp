@@ -363,8 +363,12 @@ type fileGen struct {
 	stdImports map[string]bool // standard library import paths
 
 	// usesErr records use of the variable err in the ProtoAppendJSON body
-	// currently being generated.
-	usesErr bool
+	// currently being generated, and usesX that of x in ProtoMergeDepth.
+	usesErr, usesX bool
+
+	// enumJSON names the JSON parse function declared for each enum used
+	// by the file (see enumJSONFunc).
+	enumJSON map[*desc.Enum]string
 
 	// File-level constants (see consts.go).
 	prefix string            // name prefix for this file's constants
@@ -372,9 +376,10 @@ type fileGen struct {
 	errs   []*errConst
 	errIdx map[string]int // error text -> index in errs
 
-	// decls holds package-level declarations, such as lookup tables, to
-	// write after the method being generated.
-	decls []string
+	// decls holds package-level declarations to write after the message
+	// being generated, and zeros the zero values of the file's messages,
+	// declared together before the helpers.
+	decls, zeros []string
 
 	// Helper functions (see helpers.go).
 	funcs map[string]string // helperDefs suffix -> declared name
@@ -395,6 +400,7 @@ func (g *Generator) generateFile(f *desc.File, pkg goPackage) (_ []byte, err err
 	fg.consts = map[string]string{}
 	fg.errIdx = map[string]int{}
 	fg.funcs = map[string]string{}
+	fg.enumJSON = map[*desc.Enum]string{}
 	for _, e := range f.AllEnums {
 		fg.genEnum(e)
 	}
@@ -403,6 +409,14 @@ func (g *Generator) generateFile(f *desc.File, pkg goPackage) (_ []byte, err err
 			continue
 		}
 		fg.genMessage(g.msgInfos[m])
+	}
+	if len(fg.zeros) > 0 {
+		fg.P("var (")
+		for _, z := range fg.zeros {
+			fg.P(z)
+		}
+		fg.P(")")
+		fg.P()
 	}
 	fg.genHelpers()
 	body, errs := fg.resolveErrs(fg.buf.Bytes())

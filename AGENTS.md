@@ -60,15 +60,27 @@ proves little. CI installs protoc 36.1 and fails if it is missing
     without the file's prefix.
   - **Helpers never take a message.** Calling methods through an interface
     or a type parameter makes the message escape to the heap, so
-    `var m M; m.UnmarshalBinary(b)` would allocate. The method calls its own
-    methods and passes the results (`Appended`, `WriteJSON`, `EndJSON`).
-    Check with `go build -gcflags=-m`.
-  - Keep hot-path helpers inlinable (`PutVarint` is) or measure them
-    (`ReadBytes` is not inlinable and costs about 1% of binary decoding). A
-    slice or string a helper returns is heap-allocated, where the same code
-    inline may use the stack: `SortedKeys` takes a slice the caller makes,
-    and enum names are looked up from the token in `ParseEnum` rather than
-    returned by `ParseString`.
+    `var m M; m.UnmarshalBinary(b)` would allocate. A method calls its own
+    methods and passes the results, or passes a method value of itself
+    (`AppendBinary`, `MarshalTo`, `MergeJSON`, `MergeFrom`) or a function
+    literal calling a sub-message's method (`SizeMsg`, `AppendMsg`); with
+    the helper inlined, the compiler calls the method directly and nothing
+    escapes. A method expression such as `(*Msg).ProtoSize` stays an
+    indirect call. Check with `go build -gcflags=-m`.
+  - The JSON field helpers (`Field`, `RepField`, ...) call the parse
+    function through a parameter, which makes the receiver of
+    `ProtoMergeJSONFrom` escape: a message decoded from JSON on the stack
+    costs one allocation. Binary decoding keeps direct calls.
+  - Keep hot-path helpers inlinable or measure them. The inlining budget is
+    80: a generic helper's wrapper adds about 9, so the field writers are
+    plain functions per kind; `binary.PutUvarint` costs 57 as a call, so
+    the writers loop instead; `If` lets one-line helpers avoid `if`, but
+    both alternatives are evaluated, so use it only where that is cheap and
+    safe (never around `*p`, an allocation or `errors.New`). `cmp.Or`
+    builds a slice and doubled getter time; use `If`. A slice or string a
+    helper returns is heap-allocated, where the same code inline may use the
+    stack: `SortedKeys` takes a slice the caller makes, and enum names are
+    looked up from the token in `JSONEnum` rather than returned.
 - **Stdlib imports are tracked.** Reference a stdlib package only through
   `fg.std("import/path")`, which records the import and returns the package
   name. Writing `binary.` or `math.` directly into generated code leads to a
@@ -78,7 +90,7 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   a selector. `otlp/ids.proto` (hex bytes fields only, so no base64) guards
   this.
 - **No magic numbers or repeated error strings in generated code.**
-  - Numbers with a fixed meaning (wire types, sizes, limits, parse classes)
+  - Numbers with a fixed meaning (wire types, sizes, limits)
     are written as `fg.c("Name")`, which declares the constant from
     `constGroups` in `consts.go` at the top of the file. Add new ones there.
     Schema data (field numbers, enum values, tag sizes) stays literal.
@@ -98,50 +110,62 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   to `localNames` in `gengo.go`, so that import aliases cannot shadow it.
 - **`ProtoMergeDepth` switches on the whole tag.** Each field contributes
   `case num<<TagTypeBits | WireX:` cases (two for packable repeated fields);
-  the `default` case measures the unknown field with the `SkipField` helper
-  and keeps it. Map entries decode with the same pattern.
-- **`goto` rules in `ProtoMergeDepth`:**
-  - Decode failures `goto errParse`, whose label sits at the end of the
-    function; the depth check at the top returns its error directly.
-    Helpers cannot jump to the label, so they report failure with a
-    negative length (`ReadBytes`) or return the error (`SkipField`,
-    `SkipGroup`).
-  - Declare no variables at the top level of the function body between the
-    first `goto` and the labels. Declare them inside the `for` loop or other
-    blocks, or the jump will not compile.
-  - Every label must be used.
+  the `default` case is the `Unknown` helper, which skips the field with
+  `SkipField` (the only check of the field number) and keeps it with a
+  canonical tag. Map entries decode with the same pattern, inline.
+  - Each case is one call of a decoder (`Varint`, `Bytes`, `String`, the
+    `Packed*` and `ClosedEnum` helpers, ...) writing through a pointer:
+    `&m.F`, `New(&m.F)` for explicit presence or `Grow(&m.F)` for a
+    repeated element. It returns the length consumed, zero or negative if
+    malformed, and `String` also an error. Messages take two lines:
+    `ReadBytes` into `x`, then `ProtoMergeDepth` on `Alloc(...)`.
+  - The check comes once, after the switch: `n <= 0 || err != nil`. The
+    loop condition also stops on `err`, which `Depth` sets before the
+    first iteration, and `End(b, err)` reports leftover bytes. There is no
+    `goto`.
 - **`ProtoMarshalToSizedBuffer` writes back to front.** Fields are emitted in
   descending field-number order so that the output ends up ascending.
   - Unknown fields are copied first, so they end up last.
-  - Each value is written by one expression that evaluates to the new `i`:
-    `fg.putScalar` returns it (a `PutVarint`, `PutFixed32`, `PutFixed64` or
-    `PutBool` call; strings and bytes nest their `copy` in the length
-    write), and the tag
-    write wraps it: `i = PutVarint(b, <value>, <tag>)`.
+  - Implicit-presence scalars are written by one call of a `Put*Field`
+    helper, which skips zero values and writes a one-byte tag (or a
+    two-byte one with the `2` variants, except for strings and bytes, whose
+    writer would not inline). Other values are written under their
+    presence check by one expression that evaluates to the new `i`:
+    `fg.putScalar` returns it, and the tag write wraps it:
+    `i = PutVarint(b, <value>, <tag>)`.
+  - Singular strings are validated first, in one `CheckUTF8` chain, so the
+    writes need no check; repeated and map strings are checked in their
+    loops.
 - **Keep generated code dense.** Where gofmt allows it, prefer one line:
   - one-statement methods on one line (`MarshalBinary`, `ProtoMerge`, and
     `ProtoCheckInitialized` and `MarshalJSON` without required fields);
-  - `b, m.F = b[n:], expr` to advance and assign in `ProtoMergeDepth`;
-  - `m.F = new(expr)` for explicit-presence fields (Go 1.26);
+  - `*m = M{}; return ...` and the like: gofmt keeps several statements on
+    one line when the whole function fits in 100 characters, and splits
+    it otherwise, so emit such bodies on one line;
   - `a, b := x, y` for several locals (gofmt expands `var (...)` groups);
   - `cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())` and the
-    like, where a method returns the first of two errors;
+    like, where a method returns the first of two errors (not on hot
+    paths, see `If` above);
   - `Alloc(&m.F)` to allocate a sub-message on first use;
-  - getters through the `Get` and `GetOr` helpers, whose function literal is
-    inlined (measured as fast as the plain form). Oneof member getters keep
-    their type assertion: a generic helper asserts through a dictionary and
-    was 60% slower. gofmt keeps a function on one line only when it is
-    short, so most getters take three lines;
-  - lookup tables built at generation time instead of `switch` statements
-    where indexing is at least as fast (the JSON parse class per field,
-    `<Msg>JSONClasses`), or at init time where only startup pays
-    (`E_value = Invert(E_name)` for enums without aliases). JSON field names
-    stay in a `switch`: a map lookup was four times slower;
+  - a nil receiver is replaced by the message's zero value, declared in
+    one `var` block per file: getters read `m.z().F` (`Deref` and
+    `BytesOr` apply defaults), and `ProtoSize`, marshaling and
+    `ProtoAppendJSON` start with `m = m.z()` instead of a nil check.
+    `ProtoCheckInitialized` keeps its nil check, because unset
+    sub-messages pass through it. Oneof member getters keep their type
+    assertion: a generic helper asserts through a dictionary and was 60%
+    slower;
+  - lookup tables built at init time where only startup pays
+    (`E_value = Invert(E_name)` for enums without aliases). JSON field
+    names stay in a `switch`: a map lookup was four times slower;
+  - one-line doc comments on exported methods, and helpers without blank
+    lines between them (gofmt requires one only before a documented
+    declaration or a change of kind);
   - no blank lines between declarations that gofmt lets touch (getters, and
     the oneof types, then their marker methods).
-- **Emit comments only on exported declarations.** Helpers, file constants
-  and lookup tables have none, and no comments are emitted inside function
-  bodies. Explain generated code with comments in the generator instead
+- **Emit comments only on exported declarations.** Helpers, file constants,
+  zero values and the per-enum JSON functions have none, and no comments
+  are emitted inside function bodies. Explain generated code with comments in the generator instead
   (`constGroups` keeps its docs for this reason).
 - **Measure density changes that touch hot paths.** Some are not free: an
   unconditional `copy` of empty unknown fields cost 4% of binary marshaling,
@@ -158,36 +182,41 @@ proves little. CI installs protoc 36.1 and fails if it is missing
   `jsontext.AppendFloat`; `ProtoAppendJSON` declares `err` only when
   `fg.usesErr` is set.
   - Each member is appended with a leading comma (`,"name":value`), and the
-    `CloseObject` helper turns the first comma into `{`. Array elements and
-    map entries are followed by a comma, and the last one is replaced with
-    `]` or `}`.
+    `CloseObject` helper turns the first comma into `{`.
   - `fg.jsonOutExpr` returns a scalar value as one expression appended to a
     literal (the key, and the opening quote of 64-bit integers and bytes);
-    `fg.jsonOut` emits it, or the statements for strings and messages,
-    which can fail.
-- **JSON unmarshal streams from one decoder.** `ProtoMergeJSONFrom` reads
-  one value per loop iteration (a field's value, or an element of the
-  repeated or map field named by `in`), parses scalars with one `Parse*`
-  helper call per class, then assigns. Nested messages call
-  `ProtoMergeJSONFrom` on the same decoder. The loop reads keys with the
-  `NextKey` helper, which also consumes the closing brace and ends the
-  method; it returns the key token, not a string, so that the key can stay
-  on the stack. Map entries are stored with the
-  `MapSet` helper, after non-string keys are parsed by `Parse*Key`.
+    `fg.jsonOut` emits it, or the `Quote` or `AppendMsg` call for strings
+    and messages. Repeated fields and maps are one `AppendList` or
+    `AppendMap` call with function literals for the elements. These
+    helpers take `err` and do nothing once it is set, so that the method
+    returns the first error at the end without checks; strings are not
+    validated twice (that cost 9%).
+- **JSON unmarshal streams from one decoder.** `ProtoMergeJSONFrom` loops
+  with `OpenObject` and `NextKey`, which return the next key token, or
+  `EndObject` at the closing brace and for null; an error comes back as an
+  invalid token and the body returns it. The token, not a string, keeps
+  the key on the stack. Each key's case is one call of a field helper
+  (`Field`, `OptField`, `RepField`, `MapField` or `OneofField`) with the
+  destination and the parse function for the field's type: `JSONInt`,
+  `JSONString`, ... for scalars, `JSONMsg` for messages, and a per-enum
+  function declared after the message (`enumJSONFunc`) for enums, so that
+  every parse function has the same signature. The helpers reject
+  duplicate keys and handle null; the scalar parsers leave the
+  destination unchanged on null, and `JSONEnum` and `JSONMsgNull` treat
+  it as a value for `NullValue` and `Value`. Nested messages call
+  `ProtoMergeJSONFrom` on the same decoder.
   - A `jsontext.Token` is invalid after the next read or peek, so convert it
-    (for example with `tok.String()`) before using the decoder again. An
-    enum name stays in `tok` until `ParseEnum` looks it up, which happens
-    before the next read.
-  - Declare scratch variables such as `iv`, `sv` and `bits` only when a class
-    that reads them is in use, or the unused-variable check fails. They are
-    declared with `class` in one `:=` statement, with typed zero values.
+    (for example with `tok.String()`) before using the decoder again.
+  - The integer and float parsers are generic over the field's Go type and
+    derive the bit width from the type (`T(1)<<31 < 0`), rather than take
+    it as a parameter, to keep that signature.
   - Build error messages with dynamic parts using `fg.errConcat`.
   - Well-known types are selected by full name in `genJSON`.
   - The `-json_*` flags arrive as `gengo.Options` (`JSONEnumNumbers`, `JSONHex`,
     `JSONDiscardUnknown`) and are read at generation time. Generated code has
     no runtime options.
     - `JSONHex` names are validated in `checkJSONHex`.
-    - Hex fields use their own parse class, `classHex`.
+    - Hex fields parse with `JSONHex` instead of `JSONBytes`.
     - `internal/testprotos/otlp` is generated with all three flags by the
       second `go:generate` line in `gen.go`, and is tested by `otlp_test.go`.
 

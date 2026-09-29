@@ -57,17 +57,6 @@ var constGroups = []constGroup{
 		{"MaxDepth", "10000", "maximum message and group nesting"},
 		{"SkipStackSize", "16", "group nesting tracked without allocating"},
 	}},
-	{"ProtoJSON scalar parse classes.", []constDef{
-		{"ClassNone", strconv.Itoa(classNone), ""},
-		{"ClassSigned", strconv.Itoa(classSigned), ""},
-		{"ClassUnsigned", strconv.Itoa(classUnsigned), ""},
-		{"ClassFloat", strconv.Itoa(classFloat), ""},
-		{"ClassBool", strconv.Itoa(classBool), ""},
-		{"ClassString", strconv.Itoa(classString), ""},
-		{"ClassBytes", strconv.Itoa(classBytes), ""},
-		{"ClassHex", strconv.Itoa(classHex), ""},
-		{"ClassEnum", strconv.Itoa(classEnum), ""},
-	}},
 	{"ProtoJSON limits.", []constDef{
 		{"MaxJSONExponent", "100", "bounds exact integer parsing of exponent forms"},
 		{"Base64Quantum", "4", "base64 characters per padded block"},

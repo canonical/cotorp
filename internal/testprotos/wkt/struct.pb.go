@@ -35,11 +35,10 @@ const (
 	structVarintPayloadBits           = 7
 	structVarintContBit               = 0x80
 	structMaxDepth                    = 10000
-	structSkipStackSize               = 16
 	structStructFieldsEntryKeyErrUTF8 = "proto: field google.protobuf.Struct.FieldsEntry.key contains invalid UTF-8"
-	structErrDepth                    = "proto: exceeded maximum recursion depth"
 	structErrParse                    = "proto: cannot parse invalid wire-format data"
 	structValueStringValueErrUTF8     = "proto: field google.protobuf.Value.string_value contains invalid UTF-8"
+	structErrNullElement              = "null is not allowed in repeated fields or map values"
 )
 
 // Represents a JSON `null`.
@@ -58,12 +57,10 @@ const (
 	NullValue_NULL_VALUE NullValue = 0
 )
 
-// NullValue_name maps NullValue numbers to their names.
+// NullValue_name maps NullValue numbers to their names, and NullValue_value the reverse.
 var NullValue_name = map[int32]string{
 	0: "NULL_VALUE",
 }
-
-// NullValue_value maps NullValue names to their numbers.
 var NullValue_value = structInvert(NullValue_name)
 
 // Enum returns a pointer to a copy of x.
@@ -96,28 +93,20 @@ type Struct struct {
 }
 
 // Reset clears all fields of m.
-func (m *Struct) Reset() { *m = Struct{} }
+func (m *Struct) Reset()                       { *m = Struct{} }
+func (m *Struct) z() *Struct                   { return structIf(m == nil, &structZeroStruct, m) }
+func (m *Struct) GetFields() map[string]*Value { return m.z().Fields }
 
-func (m *Struct) GetFields() map[string]*Value {
-	return structGet(m, func(m *Struct) map[string]*Value { return m.Fields })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Struct) ProtoUnknownFields() []byte {
-	return structGet(m, func(m *Struct) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Struct) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Struct) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
+	m = m.z()
 	for k, v := range m.Fields {
 		n += 1 + structSizeLen(1+structSizeLen(len(k))+1+structSizeLen(v.ProtoSize()))
 	}
-	n += len(m.unknownFields)
-	return n
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -125,23 +114,13 @@ func (m *Struct) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Struct) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return structAppended(b, size, n, err)
+	return structAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := structCopyUnknown(b, len(b), m.unknownFields)
 	if len(m.Fields) > 0 {
 		for _, k := range slices.Backward(structSortedKeys(m.Fields, make([]string, 0, len(m.Fields)))) {
 			v := m.Fields[k]
@@ -161,169 +140,91 @@ func (m *Struct) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Struct) UnmarshalBinary(b []byte) error {
-	*m = Struct{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Struct) UnmarshalBinary(b []byte) error { *m = Struct{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Struct) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Struct) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= structMaxDepth {
-		return errors.New(structErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), structDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<structTagTypeBits | structWireBytes:
-			v, n := structReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
+			x, n = structReadBytes(b)
 			mk, mv := "", (*Value)(nil)
-			for len(v) > 0 {
-				t, n := binary.Uvarint(v)
-				if n <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-					goto errParse
-				}
-				v = v[n:]
+			var v []byte
+			for t, k := binary.Uvarint(x); k > 0; t, k = binary.Uvarint(x) {
+				x = x[k:]
 				switch t {
 				case structMapKeyField<<structTagTypeBits | structWireBytes:
-					x, n := structReadBytes(v)
-					if n < 0 {
-						goto errParse
-					}
-					if !utf8.Valid(x) {
-						return errors.New(structStructFieldsEntryKeyErrUTF8)
-					}
-					v, mk = v[n:], string(x)
+					k, err = structString(x, &mk, structStructFieldsEntryKeyErrUTF8)
 				case structMapValueField<<structTagTypeBits | structWireBytes:
-					x, n := structReadBytes(v)
-					if n < 0 {
-						goto errParse
-					}
-					if err := structAlloc(&mv).ProtoMergeDepth(x, depth+1); err != nil {
-						return err
-					}
-					v = v[n:]
+					v, k = structReadBytes(x)
+					err = structAlloc(&mv).ProtoMergeDepth(v, depth+1)
 				default:
-					n, err := structSkipField(v, t, depth)
-					if err != nil {
-						return err
-					}
-					v = v[n:]
+					k, err = structSkipField(x, t, depth)
 				}
+				if k <= 0 || err != nil {
+					return cmp.Or(err, errors.New(structErrParse))
+				}
+				x = x[k:]
 			}
 			structAlloc(&mv)
 			structMapSet(&m.Fields, mk, mv)
-			b = b[n:]
+			err = structEnd(x, err)
 		default:
-			n, err := structSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = structUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(structErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(structErrParse)
+	return structEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Struct) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Struct) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Struct) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return structWriteJSON(e, b, err)
+	return structMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Struct) ProtoAppendJSON(b []byte) ([]byte, error) {
-	var err error
 	if len(m.GetFields()) == 0 {
 		return append(b, "{}"...), nil
 	}
-	b = append(b, '{')
-	for _, k := range structSortedKeys(m.Fields, make([]string, 0, len(m.Fields))) {
-		v := m.Fields[k]
-		if b, err = jsontext.AppendQuote(b, k); err != nil {
-			return nil, errors.New("proto: google.protobuf.Struct.fields contains invalid UTF-8")
-		}
-		if b, err = v.ProtoAppendJSON(append(b, ':')); err != nil {
-			return nil, err
-		}
-		b = append(b, ',')
-	}
-	b[len(b)-1] = '}'
-	return b, nil
+	return structAppendMap(b, "{", m.Fields, func(k string, b []byte) ([]byte, error) { return jsontext.AppendQuote(b, k) }, (*Value).ProtoAppendJSON, nil)
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Struct) UnmarshalJSON(b []byte) error {
-	*m = Struct{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Struct) UnmarshalJSON(b []byte) error { *m = Struct{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Struct) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return structEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Struct")
+	return structMergeJSON(b, "google.protobuf.Struct", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Struct) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := structStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Struct{}
-	return m.ProtoMergeJSONFrom(d)
+	return structMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Struct) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := structOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.Struct", "object")
-	if !ok {
-		return err
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
 	}
-	for d.PeekKind() != jsontext.KindEndObject {
-		kt, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		mk := kt.String()
-		mv := &Value{}
-		if err := mv.ProtoMergeJSONFrom(d); err != nil {
-			return err
-		}
-		structMapSet(&m.Fields, mk, mv)
-	}
-	_, err = d.ReadToken()
-	return err
+	return structJSONMap(d, &m.Fields, "google.protobuf.Struct", "fields", true, structStringKey, structJSONMsgNull)
 }
 
 // Represents a JSON value.
@@ -349,53 +250,36 @@ type Value struct {
 }
 
 // Reset clears all fields of m.
-func (m *Value) Reset() { *m = Value{} }
-
-func (m *Value) GetKind() isValue_Kind {
-	return structGet(m, func(m *Value) isValue_Kind { return m.Kind })
-}
+func (m *Value) Reset()                { *m = Value{} }
+func (m *Value) z() *Value             { return structIf(m == nil, &structZeroValue, m) }
+func (m *Value) GetKind() isValue_Kind { return m.z().Kind }
 func (m *Value) GetNullValue() NullValue {
-	if x, ok := m.GetKind().(*Value_NullValue); ok {
-		return x.NullValue
-	}
-	return NullValue_NULL_VALUE
+	x, _ := m.GetKind().(*Value_NullValue)
+	return structIf(x == nil, new(Value_NullValue), x).NullValue
 }
 func (m *Value) GetNumberValue() float64 {
-	if x, ok := m.GetKind().(*Value_NumberValue); ok {
-		return x.NumberValue
-	}
-	return 0
+	x, _ := m.GetKind().(*Value_NumberValue)
+	return structIf(x == nil, new(Value_NumberValue), x).NumberValue
 }
 func (m *Value) GetStringValue() string {
-	if x, ok := m.GetKind().(*Value_StringValue); ok {
-		return x.StringValue
-	}
-	return ""
+	x, _ := m.GetKind().(*Value_StringValue)
+	return structIf(x == nil, new(Value_StringValue), x).StringValue
 }
 func (m *Value) GetBoolValue() bool {
-	if x, ok := m.GetKind().(*Value_BoolValue); ok {
-		return x.BoolValue
-	}
-	return false
+	x, _ := m.GetKind().(*Value_BoolValue)
+	return structIf(x == nil, new(Value_BoolValue), x).BoolValue
 }
 func (m *Value) GetStructValue() *Struct {
-	if x, ok := m.GetKind().(*Value_StructValue); ok {
-		return x.StructValue
-	}
-	return nil
+	x, _ := m.GetKind().(*Value_StructValue)
+	return structIf(x == nil, new(Value_StructValue), x).StructValue
 }
 func (m *Value) GetListValue() *ListValue {
-	if x, ok := m.GetKind().(*Value_ListValue); ok {
-		return x.ListValue
-	}
-	return nil
+	x, _ := m.GetKind().(*Value_ListValue)
+	return structIf(x == nil, new(Value_ListValue), x).ListValue
 }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Value) ProtoUnknownFields() []byte {
-	return structGet(m, func(m *Value) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 type isValue_Kind interface{ isValue_Kind() }
 
@@ -429,9 +313,7 @@ func (*Value_ListValue) isValue_Kind()   {}
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Value) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
+	m = m.z()
 	switch o := m.Kind.(type) {
 	case *Value_NullValue:
 		n += 1 + (bits.Len64(uint64(int64(o.NullValue))|1)+structVarintPayloadBits-1)/structVarintPayloadBits
@@ -446,8 +328,7 @@ func (m *Value) ProtoSize() (n int) {
 	case *Value_ListValue:
 		n += 1 + structSizeLen(o.ListValue.ProtoSize())
 	}
-	n += len(m.unknownFields)
-	return n
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -455,22 +336,15 @@ func (m *Value) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Value) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return structAppended(b, size, n, err)
+	return structAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
+	m = m.z()
+	i := structCopyUnknown(b, len(b), m.unknownFields)
+	if err := structCheckUTF8(m.GetStringValue(), structValueStringValueErrUTF8, nil); err != nil {
+		return 0, err
 	}
 	if o, ok := m.Kind.(*Value_ListValue); ok {
 		n, err := o.ListValue.ProtoMarshalToSizedBuffer(b[:i])
@@ -490,9 +364,6 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 		i = structPutVarint(b, structPutBool(b, i, o.BoolValue), 4<<structTagTypeBits|structWireVarint)
 	}
 	if o, ok := m.Kind.(*Value_StringValue); ok {
-		if !utf8.ValidString(o.StringValue) {
-			return 0, errors.New(structValueStringValueErrUTF8)
-		}
 		i = structPutVarint(b, structPutVarint(b, i-copy(b[i-len(o.StringValue):], o.StringValue), uint64(len(o.StringValue))), 3<<structTagTypeBits|structWireBytes)
 	}
 	if o, ok := m.Kind.(*Value_NumberValue); ok {
@@ -504,61 +375,33 @@ func (m *Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Value) UnmarshalBinary(b []byte) error {
-	*m = Value{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Value) UnmarshalBinary(b []byte) error { *m = Value{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= structMaxDepth {
-		return errors.New(structErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), structDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<structTagTypeBits | structWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Kind = b[n:], &Value_NullValue{NullValue: NullValue(int32(x))}
+			o := new(Value_NullValue)
+			n, m.Kind = structVarint(b, &o.NullValue), o
 		case 2<<structTagTypeBits | structWireFixed64:
-			if len(b) < structFixed64Size {
-				goto errParse
-			}
-			b, m.Kind = b[structFixed64Size:], &Value_NumberValue{NumberValue: math.Float64frombits(binary.LittleEndian.Uint64(b))}
+			o := new(Value_NumberValue)
+			n, m.Kind = structDouble(b, &o.NumberValue), o
 		case 3<<structTagTypeBits | structWireBytes:
-			x, n := structReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if !utf8.Valid(x) {
-				return errors.New(structValueStringValueErrUTF8)
-			}
-			b, m.Kind = b[n:], &Value_StringValue{StringValue: string(x)}
+			o := new(Value_StringValue)
+			n, err = structString(b, &o.StringValue, structValueStringValueErrUTF8)
+			m.Kind = o
 		case 4<<structTagTypeBits | structWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Kind = b[n:], &Value_BoolValue{BoolValue: x != 0}
+			o := new(Value_BoolValue)
+			n, m.Kind = structBool(b, &o.BoolValue), o
 		case 5<<structTagTypeBits | structWireBytes:
-			v, n := structReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
+			x, n = structReadBytes(b)
 			var mv *Struct
 			if o, ok := m.Kind.(*Value_StructValue); ok && o.StructValue != nil {
 				mv = o.StructValue
@@ -566,15 +409,9 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 				mv = &Struct{}
 				m.Kind = &Value_StructValue{StructValue: mv}
 			}
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			err = mv.ProtoMergeDepth(x, depth+1)
 		case 6<<structTagTypeBits | structWireBytes:
-			v, n := structReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
+			x, n = structReadBytes(b)
 			var mv *ListValue
 			if o, ok := m.Kind.(*Value_ListValue); ok && o.ListValue != nil {
 				mv = o.ListValue
@@ -582,40 +419,30 @@ func (m *Value) ProtoMergeDepth(b []byte, depth int) error {
 				mv = &ListValue{}
 				m.Kind = &Value_ListValue{ListValue: mv}
 			}
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			err = mv.ProtoMergeDepth(x, depth+1)
 		default:
-			n, err := structSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = structUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(structErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(structErrParse)
+	return structEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Value) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Value) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Value) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return structWriteJSON(e, b, err)
+	return structMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
 	if m == nil {
@@ -630,53 +457,34 @@ func (m *Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 		}
 		b = jsontext.AppendFloat(b, o.NumberValue, 64)
 	case *Value_StringValue:
-		if b, err = jsontext.AppendQuote(b, o.StringValue); err != nil {
-			return nil, errors.New("proto: google.protobuf.Value.string_value contains invalid UTF-8")
-		}
+		return structQuote(b, o.StringValue, nil)
 	case *Value_BoolValue:
 		b = strconv.AppendBool(b, o.BoolValue)
 	case *Value_StructValue:
-		if b, err = o.StructValue.ProtoAppendJSON(b); err != nil {
-			return nil, err
-		}
+		b, err = structAppendMsg(b, "", o.StructValue, func(v *Struct, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
 	case *Value_ListValue:
-		if b, err = o.ListValue.ProtoAppendJSON(b); err != nil {
-			return nil, err
-		}
+		b, err = structAppendMsg(b, "", o.ListValue, func(v *ListValue, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
 	default:
 		return nil, errors.New("proto: google.protobuf.Value: no kind is set")
 	}
 	return b, nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Value) UnmarshalJSON(b []byte) error {
-	*m = Value{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Value) UnmarshalJSON(b []byte) error { *m = Value{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Value) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return structEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Value")
+	return structMergeJSON(b, "google.protobuf.Value", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := structStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Value{}
-	return m.ProtoMergeJSONFrom(d)
+	return structMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	switch d.PeekKind() {
 	case jsontext.KindNull:
@@ -736,28 +544,18 @@ type ListValue struct {
 }
 
 // Reset clears all fields of m.
-func (m *ListValue) Reset() { *m = ListValue{} }
+func (m *ListValue) Reset()              { *m = ListValue{} }
+func (m *ListValue) z() *ListValue       { return structIf(m == nil, &structZeroListValue, m) }
+func (m *ListValue) GetValues() []*Value { return m.z().Values }
 
-func (m *ListValue) GetValues() []*Value {
-	return structGet(m, func(m *ListValue) []*Value { return m.Values })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *ListValue) ProtoUnknownFields() []byte {
-	return structGet(m, func(m *ListValue) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *ListValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ListValue) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	for _, v := range m.Values {
-		n += 1 + structSizeLen(v.ProtoSize())
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += structSizeMsgs(1, m.Values, func(v *Value) int { return v.ProtoSize() })
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -765,23 +563,13 @@ func (m *ListValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil)
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ListValue) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return structAppended(b, size, n, err)
+	return structAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := structCopyUnknown(b, len(b), m.unknownFields)
 	for _, v := range slices.Backward(m.Values) {
 		n, err := v.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -792,131 +580,112 @@ func (m *ListValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *ListValue) UnmarshalBinary(b []byte) error {
-	*m = ListValue{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *ListValue) UnmarshalBinary(b []byte) error { *m = ListValue{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *ListValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ListValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= structMaxDepth {
-		return errors.New(structErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), structDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<structTagTypeBits | structWireBytes:
-			v, n := structReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			mv := &Value{}
-			m.Values = append(m.Values, mv)
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n = structReadBytes(b)
+			err = structAlloc(structGrow(&m.Values)).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err := structSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = structUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(structErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(structErrParse)
+	return structEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *ListValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *ListValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *ListValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return structWriteJSON(e, b, err)
+	return structMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *ListValue) ProtoAppendJSON(b []byte) ([]byte, error) {
-	var err error
 	if len(m.GetValues()) == 0 {
 		return append(b, "[]"...), nil
 	}
-	b = append(b, '[')
-	for j := range m.Values {
-		if b, err = m.Values[j].ProtoAppendJSON(b); err != nil {
-			return nil, err
-		}
-		b = append(b, ',')
-	}
-	b[len(b)-1] = ']'
-	return b, nil
+	return structAppendList(b, "[", m.Values, (*Value).ProtoAppendJSON, nil)
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *ListValue) UnmarshalJSON(b []byte) error {
-	*m = ListValue{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *ListValue) UnmarshalJSON(b []byte) error { *m = ListValue{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *ListValue) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return structEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.ListValue")
+	return structMergeJSON(b, "google.protobuf.ListValue", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *ListValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := structStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = ListValue{}
-	return m.ProtoMergeJSONFrom(d)
+	return structMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *ListValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := structOpenJSON(d, jsontext.KindBeginArray, "google.protobuf.ListValue", "array")
-	if !ok {
-		return err
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
 	}
-	for d.PeekKind() != jsontext.KindEndArray {
-		mv := &Value{}
-		if err := mv.ProtoMergeJSONFrom(d); err != nil {
-			return err
-		}
-		m.Values = append(m.Values, mv)
+	return structJSONArray(d, &m.Values, "google.protobuf.ListValue", true, structJSONMsgNull)
+}
+
+var (
+	structZeroStruct    Struct
+	structZeroValue     Value
+	structZeroListValue ListValue
+)
+
+func structSizeLen(l int) int { return l + structVarintLen(l) }
+func structSizeMsgs[T any](tag int, s []*T, size func(*T) int) (n int) {
+	for _, v := range s {
+		n += tag + structSizeLen(size(v))
 	}
-	_, err = d.ReadToken()
+	return n
+}
+func structVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + structVarintPayloadBits - 1) / structVarintPayloadBits
+}
+func structCheckUTF8(s, msg string, err error) error {
+	if len(s) > 0 && !utf8.ValidString(s) {
+		return errors.New(msg)
+	}
 	return err
 }
-
+func structCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
+	}
+	return i
+}
+func structAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
 func structPutVarint(b []byte, i int, u uint64) int {
 	if u < structVarintContBit {
 		b[i-1] = byte(u)
@@ -926,12 +695,10 @@ func structPutVarint(b []byte, i int, u uint64) int {
 	binary.PutUvarint(b[i:], u)
 	return i
 }
-
 func structPutFixed64(b []byte, i int, u uint64) int {
 	binary.LittleEndian.PutUint64(b[i-structFixed64Size:], u)
 	return i - structFixed64Size
 }
-
 func structPutBool(b []byte, i int, v bool) int {
 	b[i-1] = 0
 	if v {
@@ -939,85 +706,6 @@ func structPutBool(b []byte, i int, v bool) int {
 	}
 	return i - 1
 }
-
-func structSizeLen(l int) int {
-	return l + (bits.Len64(uint64(l)|1)+structVarintPayloadBits-1)/structVarintPayloadBits
-}
-
-func structReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-
-func structSkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & structTagTypeMask {
-	case structWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case structWireFixed64:
-		if len(b) >= structFixed64Size {
-			return structFixed64Size, nil
-		}
-	case structWireBytes:
-		if _, n := structReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case structWireStartGroup:
-		return structSkipGroup(b, int32(t>>structTagTypeBits), depth)
-	case structWireFixed32:
-		if len(b) >= structFixed32Size {
-			return structFixed32Size, nil
-		}
-	}
-	return 0, errors.New(structErrParse)
-}
-
-func structSkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [structSkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > structMaxDepth {
-			return 0, errors.New(structErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>structTagTypeBits == 0 || t>>structTagTypeBits > structMaxFieldNumber {
-			return 0, errors.New(structErrParse)
-		}
-		n += k
-		switch t & structTagTypeMask {
-		case structWireStartGroup:
-			open = append(open, int32(t>>structTagTypeBits))
-		case structWireEndGroup:
-			if open[len(open)-1] != int32(t>>structTagTypeBits) {
-				return 0, errors.New(structErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := structSkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func structAppended(b []byte, size, n int, err error) ([]byte, error) {
-	if err == nil && n != size {
-		err = errors.New("proto: message size changed during marshal")
-	}
-	if err != nil {
-		return b, err
-	}
-	return b[:len(b)+size], nil
-}
-
 func structSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	for k := range m {
 		keys = append(keys, k)
@@ -1025,28 +713,110 @@ func structSortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	slices.Sort(keys)
 	return keys
 }
-
-func structGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func structIf[T any](c bool, a, b T) T {
+	if c {
+		return a
 	}
-	return t
+	return b
 }
-
+func structDepth(depth int) error {
+	if depth >= structMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func structReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func structSkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>structTagTypeBits
+	switch wt := t & structTagTypeMask; {
+	case num == 0 || num > structMaxFieldNumber:
+	case wt == structWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == structWireBytes:
+		_, n = structReadBytes(b)
+	case wt == structWireStartGroup:
+		return structSkipGroup(b, int32(num), depth+1)
+	case wt == structWireFixed64 || wt == structWireFixed32:
+		n = structIf(wt == structWireFixed64, structFixed64Size, structFixed32Size)
+		n = structIf(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(structErrParse)
+	}
+	return n, nil
+}
+func structSkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, structDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(structErrParse)
+		}
+		if n += k; t == uint64(num)<<structTagTypeBits|structWireEndGroup {
+			return n, nil
+		}
+		k, err = structSkipField(b[n:], t, depth)
+		n += k
+	}
+	return 0, err
+}
+func structUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := structSkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func structEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(structErrParse)
+	}
+	return err
+}
+func structVarint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
+	u, n := binary.Uvarint(b)
+	*p = T(u)
+	return n
+}
+func structBool(b []byte, p *bool) int { u, n := binary.Uvarint(b); *p = u != 0; return n }
+func structDouble(b []byte, p *float64) int {
+	if len(b) < structFixed64Size {
+		return -1
+	}
+	*p = math.Float64frombits(binary.LittleEndian.Uint64(b))
+	return structFixed64Size
+}
+func structString(b []byte, p *string, errUTF8 string) (int, error) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1, nil
+	}
+	x := b[k : k+int(ln)]
+	if errUTF8 != "" && !utf8.Valid(x) {
+		return 0, errors.New(errUTF8)
+	}
+	*p = string(x)
+	return k + int(ln), nil
+}
+func structGrow[T any](s *[]T) *T { var z T; *s = append(*s, z); return &(*s)[len(*s)-1] }
 func structAlloc[T any](p **T) *T {
 	if *p == nil {
 		*p = new(T)
 	}
 	return *p
 }
-
 func structMapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
 	}
 	(*m)[k] = v
 }
-
 func structInvert[K, V comparable](m map[K]V) map[V]K {
 	r := make(map[V]K, len(m))
 	for k, v := range m {
@@ -1054,23 +824,65 @@ func structInvert[K, V comparable](m map[K]V) map[V]K {
 	}
 	return r
 }
-
 func structEnumString(names map[int32]string, v int32) string {
 	if s, ok := names[v]; ok {
 		return s
 	}
 	return strconv.Itoa(int(v))
 }
-
-func structWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func structMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
-func structEndJSON(d *jsontext.Decoder, err error, name string) error {
+func structQuote(b []byte, s string, err error) ([]byte, error) {
 	if err != nil {
+		return b, err
+	}
+	return jsontext.AppendQuote(b, s)
+}
+func structAppendMsg[T any](b []byte, lit string, p *T, f func(*T, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || p == nil {
+		return b, err
+	}
+	return f(p, append(b, lit...))
+}
+func structAppendList[T any](b []byte, lit string, s []T, f func(T, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || len(s) == 0 {
+		return b, err
+	}
+	b = append(b, lit...)
+	for _, v := range s {
+		if b, err = f(v, b); err != nil {
+			return b, err
+		}
+		b = append(b, ',')
+	}
+	b[len(b)-1] = ']'
+	return b, nil
+}
+func structAppendMap[K cmp.Ordered, V any](b []byte, lit string, m map[K]V, fk func(K, []byte) ([]byte, error), fv func(V, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || len(m) == 0 {
+		return b, err
+	}
+	b = append(b, lit...)
+	for _, k := range structSortedKeys(m, make([]K, 0, len(m))) {
+		if b, err = fk(k, b); err != nil {
+			return b, err
+		}
+		if b, err = fv(m[k], append(b, ':')); err != nil {
+			return b, err
+		}
+		b = append(b, ',')
+	}
+	b[len(b)-1] = '}'
+	return b, nil
+}
+func structMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -1078,26 +890,20 @@ func structEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func structMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := structStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func structStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func structOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
-	if d.PeekKind() == jsontext.KindNull {
-		return false, d.SkipValue()
-	}
-	err := structExpectJSON(d, kind, name, what)
-	return err == nil, err
-}
-
 func structExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -1108,7 +914,51 @@ func structExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string
 	}
 	return nil
 }
-
-func structJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
+func structJSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
+	if err := structExpectJSON(d, jsontext.KindBeginArray, name, "array"); err != nil {
+		return err
+	}
+	for d.PeekKind() != jsontext.KindEndArray {
+		if !nullOK && d.PeekKind() == jsontext.KindNull {
+			return structJSONError(name, structErrNullElement)
+		}
+		if err := parse(d, structGrow(s), name); err != nil {
+			return err
+		}
+	}
+	_, err := d.ReadToken()
+	return err
 }
+func structJSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, field string, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
+	if err := structExpectJSON(d, jsontext.KindBeginObject, name, "object"); err != nil {
+		return err
+	}
+	for d.PeekKind() != jsontext.KindEndObject {
+		kt, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		k, err := pk(kt.String(), name, field)
+		if err != nil {
+			return err
+		}
+		if !nullOK && d.PeekKind() == jsontext.KindNull {
+			return structJSONError(name, structErrNullElement)
+		}
+		var v V
+		if err := pv(d, &v, name); err != nil {
+			return err
+		}
+		structMapSet(m, k, v)
+	}
+	_, err := d.ReadToken()
+	return err
+}
+func structJSONMsgNull[T any, PT interface {
+	*T
+	ProtoMergeJSONFrom(*jsontext.Decoder) error
+}](d *jsontext.Decoder, p **T, _ string) error {
+	return PT(structAlloc(p)).ProtoMergeJSONFrom(d)
+}
+func structStringKey(s, _, _ string) (string, error) { return s, nil }
+func structJSONError(name, msg string) error         { return errors.New("proto: " + name + ": " + msg) }

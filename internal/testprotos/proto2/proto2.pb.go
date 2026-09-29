@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	commonpb "github.com/canonical/cotorp/internal/testprotos/common"
 )
@@ -39,19 +40,11 @@ const (
 	proto2VarintPayloadBits = 7
 	proto2VarintContBit     = 0x80
 	proto2MaxDepth          = 10000
-	proto2SkipStackSize     = 16
-	proto2ClassNone         = 0
-	proto2ClassSigned       = 1
-	proto2ClassUnsigned     = 2
-	proto2ClassFloat        = 3
-	proto2ClassBool         = 4
-	proto2ClassString       = 5
-	proto2ClassBytes        = 6
-	proto2ClassEnum         = 8
 	proto2MaxJSONExponent   = 100
 	proto2Base64Quantum     = 4
-	proto2ErrDepth          = "proto: exceeded maximum recursion depth"
 	proto2ErrParse          = "proto: cannot parse invalid wire-format data"
+	proto2ErrDuplicateField = "duplicate field "
+	proto2ErrNullElement    = "null is not allowed in repeated fields or map values"
 	proto2ErrInvalidInteger = "invalid integer "
 	proto2ErrInvalidNumber  = "invalid number "
 )
@@ -64,14 +57,12 @@ const (
 	Closed_CLOSED_TEN Closed = 10
 )
 
-// Closed_name maps Closed numbers to their names.
+// Closed_name maps Closed numbers to their names, and Closed_value the reverse.
 var Closed_name = map[int32]string{
 	1:  "CLOSED_ONE",
 	2:  "CLOSED_TWO",
 	10: "CLOSED_TEN",
 }
-
-// Closed_value maps Closed names to their numbers.
 var Closed_value = proto2Invert(Closed_name)
 
 // Enum returns a pointer to a copy of x.
@@ -90,13 +81,11 @@ const (
 	ClosedZero_CLOSED_ZERO_ONE  ClosedZero = 1
 )
 
-// ClosedZero_name maps ClosedZero numbers to their names.
+// ClosedZero_name maps ClosedZero numbers to their names, and ClosedZero_value the reverse.
 var ClosedZero_name = map[int32]string{
 	0: "CLOSED_ZERO_ZERO",
 	1: "CLOSED_ZERO_ONE",
 }
-
-// ClosedZero_value maps ClosedZero names to their numbers.
 var ClosedZero_value = proto2Invert(ClosedZero_name)
 
 // Enum returns a pointer to a copy of x.
@@ -161,145 +150,70 @@ var (
 )
 
 // Reset clears all fields of m.
-func (m *Defaults) Reset() { *m = Defaults{} }
-
-func (m *Defaults) GetDInt32() int32 {
-	return proto2GetOr(m, func(m *Defaults) *int32 { return m.DInt32 }, Default_Defaults_DInt32)
-}
-func (m *Defaults) GetDInt64() int64 {
-	return proto2GetOr(m, func(m *Defaults) *int64 { return m.DInt64 }, Default_Defaults_DInt64)
-}
-func (m *Defaults) GetDUint32() uint32 {
-	return proto2GetOr(m, func(m *Defaults) *uint32 { return m.DUint32 }, Default_Defaults_DUint32)
-}
-func (m *Defaults) GetDUint64() uint64 {
-	return proto2GetOr(m, func(m *Defaults) *uint64 { return m.DUint64 }, Default_Defaults_DUint64)
-}
-func (m *Defaults) GetDSint32() int32 {
-	return proto2GetOr(m, func(m *Defaults) *int32 { return m.DSint32 }, Default_Defaults_DSint32)
-}
-func (m *Defaults) GetDSint64() int64 {
-	return proto2GetOr(m, func(m *Defaults) *int64 { return m.DSint64 }, Default_Defaults_DSint64)
-}
+func (m *Defaults) Reset()             { *m = Defaults{} }
+func (m *Defaults) z() *Defaults       { return proto2If(m == nil, &proto2ZeroDefaults, m) }
+func (m *Defaults) GetDInt32() int32   { return proto2Deref(m.z().DInt32, Default_Defaults_DInt32) }
+func (m *Defaults) GetDInt64() int64   { return proto2Deref(m.z().DInt64, Default_Defaults_DInt64) }
+func (m *Defaults) GetDUint32() uint32 { return proto2Deref(m.z().DUint32, Default_Defaults_DUint32) }
+func (m *Defaults) GetDUint64() uint64 { return proto2Deref(m.z().DUint64, Default_Defaults_DUint64) }
+func (m *Defaults) GetDSint32() int32  { return proto2Deref(m.z().DSint32, Default_Defaults_DSint32) }
+func (m *Defaults) GetDSint64() int64  { return proto2Deref(m.z().DSint64, Default_Defaults_DSint64) }
 func (m *Defaults) GetDFixed32() uint32 {
-	return proto2GetOr(m, func(m *Defaults) *uint32 { return m.DFixed32 }, Default_Defaults_DFixed32)
+	return proto2Deref(m.z().DFixed32, Default_Defaults_DFixed32)
 }
 func (m *Defaults) GetDFixed64() uint64 {
-	return proto2GetOr(m, func(m *Defaults) *uint64 { return m.DFixed64 }, Default_Defaults_DFixed64)
+	return proto2Deref(m.z().DFixed64, Default_Defaults_DFixed64)
 }
 func (m *Defaults) GetDSfixed32() int32 {
-	return proto2GetOr(m, func(m *Defaults) *int32 { return m.DSfixed32 }, Default_Defaults_DSfixed32)
+	return proto2Deref(m.z().DSfixed32, Default_Defaults_DSfixed32)
 }
 func (m *Defaults) GetDSfixed64() int64 {
-	return proto2GetOr(m, func(m *Defaults) *int64 { return m.DSfixed64 }, Default_Defaults_DSfixed64)
+	return proto2Deref(m.z().DSfixed64, Default_Defaults_DSfixed64)
 }
-func (m *Defaults) GetDFloat() float32 {
-	return proto2GetOr(m, func(m *Defaults) *float32 { return m.DFloat }, Default_Defaults_DFloat)
-}
-func (m *Defaults) GetDDouble() float64 {
-	return proto2GetOr(m, func(m *Defaults) *float64 { return m.DDouble }, Default_Defaults_DDouble)
-}
-func (m *Defaults) GetDNan() float64 {
-	return proto2GetOr(m, func(m *Defaults) *float64 { return m.DNan }, Default_Defaults_DNan)
-}
-func (m *Defaults) GetDBool() bool {
-	return proto2GetOr(m, func(m *Defaults) *bool { return m.DBool }, Default_Defaults_DBool)
-}
-func (m *Defaults) GetDString() string {
-	return proto2GetOr(m, func(m *Defaults) *string { return m.DString }, Default_Defaults_DString)
-}
-func (m *Defaults) GetDBytes() []byte {
-	if m != nil && m.DBytes != nil {
-		return m.DBytes
-	}
-	return append([]byte(nil), Default_Defaults_DBytes...)
-}
-func (m *Defaults) GetDEnum() Closed {
-	return proto2GetOr(m, func(m *Defaults) *Closed { return m.DEnum }, Default_Defaults_DEnum)
-}
+func (m *Defaults) GetDFloat() float32  { return proto2Deref(m.z().DFloat, Default_Defaults_DFloat) }
+func (m *Defaults) GetDDouble() float64 { return proto2Deref(m.z().DDouble, Default_Defaults_DDouble) }
+func (m *Defaults) GetDNan() float64    { return proto2Deref(m.z().DNan, Default_Defaults_DNan) }
+func (m *Defaults) GetDBool() bool      { return proto2Deref(m.z().DBool, Default_Defaults_DBool) }
+func (m *Defaults) GetDString() string  { return proto2Deref(m.z().DString, Default_Defaults_DString) }
+func (m *Defaults) GetDBytes() []byte   { return proto2BytesOr(m.z().DBytes, Default_Defaults_DBytes) }
+func (m *Defaults) GetDEnum() Closed    { return proto2Deref(m.z().DEnum, Default_Defaults_DEnum) }
 func (m *Defaults) GetDEnumNodefault() Closed {
-	return proto2GetOr(m, func(m *Defaults) *Closed { return m.DEnumNodefault }, Closed_CLOSED_ONE)
+	return proto2Deref(m.z().DEnumNodefault, Closed_CLOSED_ONE)
 }
 func (m *Defaults) GetDFloatNegZero() float32 {
-	return proto2GetOr(m, func(m *Defaults) *float32 { return m.DFloatNegZero }, Default_Defaults_DFloatNegZero)
+	return proto2Deref(m.z().DFloatNegZero, Default_Defaults_DFloatNegZero)
 }
 func (m *Defaults) GetDDoubleInt() float64 {
-	return proto2GetOr(m, func(m *Defaults) *float64 { return m.DDoubleInt }, Default_Defaults_DDoubleInt)
+	return proto2Deref(m.z().DDoubleInt, Default_Defaults_DDoubleInt)
 }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Defaults) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Defaults) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Defaults) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Defaults) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.DInt32 != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.DInt32)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DInt64 != nil {
-		n += 1 + (bits.Len64(uint64((*m.DInt64))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DUint32 != nil {
-		n += 1 + (bits.Len64(uint64((*m.DUint32))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DUint64 != nil {
-		n += 1 + (bits.Len64((*m.DUint64)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DSint32 != nil {
-		n += 1 + (bits.Len64(uint64(uint32((*m.DSint32)<<1)^uint32((*m.DSint32)>>31))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DSint64 != nil {
-		n += 1 + (bits.Len64((uint64((*m.DSint64)<<1)^uint64((*m.DSint64)>>63))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DFixed32 != nil {
-		n += 1 + proto2Fixed32Size
-	}
-	if m.DFixed64 != nil {
-		n += 1 + proto2Fixed64Size
-	}
-	if m.DSfixed32 != nil {
-		n += 1 + proto2Fixed32Size
-	}
-	if m.DSfixed64 != nil {
-		n += 1 + proto2Fixed64Size
-	}
-	if m.DFloat != nil {
-		n += 1 + proto2Fixed32Size
-	}
-	if m.DDouble != nil {
-		n += 1 + proto2Fixed64Size
-	}
-	if m.DNan != nil {
-		n += 1 + proto2Fixed64Size
-	}
-	if m.DBool != nil {
-		n += 1 + 1
-	}
-	if m.DString != nil {
-		n += 1 + proto2SizeLen(len((*m.DString)))
-	}
-	if m.DBytes != nil {
-		n += 2 + proto2SizeLen(len(m.DBytes))
-	}
-	if m.DEnum != nil {
-		n += 2 + (bits.Len64(uint64(int64((*m.DEnum)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DEnumNodefault != nil {
-		n += 2 + (bits.Len64(uint64(int64((*m.DEnumNodefault)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.DFloatNegZero != nil {
-		n += 2 + proto2Fixed32Size
-	}
-	if m.DDoubleInt != nil {
-		n += 2 + proto2Fixed64Size
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOpt(1, m.DInt32, proto2VarintLen)
+	n += proto2SizeOpt(1, m.DInt64, proto2VarintLen)
+	n += proto2SizeOpt(1, m.DUint32, proto2VarintLen)
+	n += proto2SizeOpt(1, m.DUint64, proto2VarintLen)
+	n += proto2SizeOpt(1, m.DSint32, proto2Sint32Len)
+	n += proto2SizeOpt(1, m.DSint64, proto2Sint64Len)
+	n += proto2SizeOptFixed(1, proto2Fixed32Size, m.DFixed32)
+	n += proto2SizeOptFixed(1, proto2Fixed64Size, m.DFixed64)
+	n += proto2SizeOptFixed(1, proto2Fixed32Size, m.DSfixed32)
+	n += proto2SizeOptFixed(1, proto2Fixed64Size, m.DSfixed64)
+	n += proto2SizeOptFixed(1, proto2Fixed32Size, m.DFloat)
+	n += proto2SizeOptFixed(1, proto2Fixed64Size, m.DDouble)
+	n += proto2SizeOptFixed(1, proto2Fixed64Size, m.DNan)
+	n += proto2SizeOptFixed(1, 1, m.DBool)
+	n += proto2SizeOpt(1, m.DString, proto2BytesLen)
+	n += proto2SizePresentBytes(2, m.DBytes)
+	n += proto2SizeOpt(2, m.DEnum, proto2VarintLen)
+	n += proto2SizeOpt(2, m.DEnumNodefault, proto2VarintLen)
+	n += proto2SizeOptFixed(2, proto2Fixed32Size, m.DFloatNegZero)
+	n += proto2SizeOptFixed(2, proto2Fixed64Size, m.DDoubleInt)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -307,23 +221,13 @@ func (m *Defaults) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) 
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Defaults) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.DDoubleInt != nil {
 		i = proto2PutVarint(b, proto2PutFixed64(b, i, math.Float64bits((*m.DDoubleInt))), 20<<proto2TagTypeBits|proto2WireFixed64)
 	}
@@ -387,189 +291,84 @@ func (m *Defaults) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Defaults) UnmarshalBinary(b []byte) error {
-	*m = Defaults{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Defaults) UnmarshalBinary(b []byte) error { *m = Defaults{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Defaults) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Defaults) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DInt32 = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.DInt32))
 		case 2<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DInt64 = b[n:], new(int64(x))
+			n = proto2Varint(b, proto2New(&m.DInt64))
 		case 3<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DUint32 = b[n:], new(uint32(x))
+			n = proto2Varint(b, proto2New(&m.DUint32))
 		case 4<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DUint64 = b[n:], new(x)
+			n = proto2Varint(b, proto2New(&m.DUint64))
 		case 5<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DSint32 = b[n:], new(int32(uint32(x)>>1)^-int32(x&1))
+			n = proto2Sint32(b, proto2New(&m.DSint32))
 		case 6<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DSint64 = b[n:], new(int64(x>>1)^-int64(x&1))
+			n = proto2Sint64(b, proto2New(&m.DSint64))
 		case 7<<proto2TagTypeBits | proto2WireFixed32:
-			if len(b) < proto2Fixed32Size {
-				goto errParse
-			}
-			b, m.DFixed32 = b[proto2Fixed32Size:], new(binary.LittleEndian.Uint32(b))
+			n = proto2Fixed32(b, proto2New(&m.DFixed32))
 		case 8<<proto2TagTypeBits | proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			b, m.DFixed64 = b[proto2Fixed64Size:], new(binary.LittleEndian.Uint64(b))
+			n = proto2Fixed64(b, proto2New(&m.DFixed64))
 		case 9<<proto2TagTypeBits | proto2WireFixed32:
-			if len(b) < proto2Fixed32Size {
-				goto errParse
-			}
-			b, m.DSfixed32 = b[proto2Fixed32Size:], new(int32(binary.LittleEndian.Uint32(b)))
+			n = proto2Fixed32(b, proto2New(&m.DSfixed32))
 		case 10<<proto2TagTypeBits | proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			b, m.DSfixed64 = b[proto2Fixed64Size:], new(int64(binary.LittleEndian.Uint64(b)))
+			n = proto2Fixed64(b, proto2New(&m.DSfixed64))
 		case 11<<proto2TagTypeBits | proto2WireFixed32:
-			if len(b) < proto2Fixed32Size {
-				goto errParse
-			}
-			b, m.DFloat = b[proto2Fixed32Size:], new(math.Float32frombits(binary.LittleEndian.Uint32(b)))
+			n = proto2Float(b, proto2New(&m.DFloat))
 		case 12<<proto2TagTypeBits | proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			b, m.DDouble = b[proto2Fixed64Size:], new(math.Float64frombits(binary.LittleEndian.Uint64(b)))
+			n = proto2Double(b, proto2New(&m.DDouble))
 		case 13<<proto2TagTypeBits | proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			b, m.DNan = b[proto2Fixed64Size:], new(math.Float64frombits(binary.LittleEndian.Uint64(b)))
+			n = proto2Double(b, proto2New(&m.DNan))
 		case 14<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.DBool = b[n:], new(x != 0)
+			n = proto2Bool(b, proto2New(&m.DBool))
 		case 15<<proto2TagTypeBits | proto2WireBytes:
-			x, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.DString = b[n:], new(string(x))
+			n, err = proto2String(b, proto2New(&m.DString), "")
 		case 16<<proto2TagTypeBits | proto2WireBytes:
-			x, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.DBytes = b[n:], append([]byte{}, x...)
+			n = proto2Bytes(b, &m.DBytes)
 		case 17<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b = b[n:]
-			e := Closed(int32(x))
-			if !e.IsValid() {
-				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 17<<proto2TagTypeBits|proto2WireVarint), x)
-				continue
-			}
-			m.DEnum = new(e)
+			n = proto2ClosedEnum(b, &m.unknownFields, 17<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.DEnum = new(e) })
 		case 18<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b = b[n:]
-			e := Closed(int32(x))
-			if !e.IsValid() {
-				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 18<<proto2TagTypeBits|proto2WireVarint), x)
-				continue
-			}
-			m.DEnumNodefault = new(e)
+			n = proto2ClosedEnum(b, &m.unknownFields, 18<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.DEnumNodefault = new(e) })
 		case 19<<proto2TagTypeBits | proto2WireFixed32:
-			if len(b) < proto2Fixed32Size {
-				goto errParse
-			}
-			b, m.DFloatNegZero = b[proto2Fixed32Size:], new(math.Float32frombits(binary.LittleEndian.Uint32(b)))
+			n = proto2Float(b, proto2New(&m.DFloatNegZero))
 		case 20<<proto2TagTypeBits | proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			b, m.DDoubleInt = b[proto2Fixed64Size:], new(math.Float64frombits(binary.LittleEndian.Uint64(b)))
+			n = proto2Double(b, proto2New(&m.DDoubleInt))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Defaults) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Defaults) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Defaults) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.DInt32 != nil {
 		b = strconv.AppendInt(append(b, ",\"dInt32\":"...), int64((*m.DInt32)), 10)
 	}
@@ -613,9 +412,7 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 		b = strconv.AppendBool(append(b, ",\"dBool\":"...), (*m.DBool))
 	}
 	if m.DString != nil {
-		if b, err = jsontext.AppendQuote(append(b, ",\"dString\":"...), (*m.DString)); err != nil {
-			return nil, errors.New("proto: cotorp.test.proto2.Defaults.d_string contains invalid UTF-8")
-		}
+		b, err = proto2Quote(append(b, ",\"dString\":"...), (*m.DString), err)
 	}
 	if m.DBytes != nil {
 		b = append(base64.StdEncoding.AppendEncode(append(b, ",\"dBytes\":\""...), m.DBytes), '"')
@@ -632,183 +429,81 @@ func (m *Defaults) ProtoAppendJSON(b []byte) ([]byte, error) {
 	if m.DDoubleInt != nil {
 		b = proto2AppendFloat(append(b, ",\"dDoubleInt\":"...), (*m.DDoubleInt), 64)
 	}
-	return proto2CloseObject(b, start), nil
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Defaults) UnmarshalJSON(b []byte) error {
-	*m = Defaults{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Defaults) UnmarshalJSON(b []byte) error { *m = Defaults{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Defaults) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Defaults")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Defaults", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Defaults) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Defaults{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Defaults) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Defaults", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [20]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
-			return err
-		}
-		key := kt.String()
-		switch key {
-		case "dInt32", "d_int32":
-			f = 0
-		case "dInt64", "d_int64":
-			f = 1
-		case "dUint32", "d_uint32":
-			f = 2
-		case "dUint64", "d_uint64":
-			f = 3
-		case "dSint32", "d_sint32":
-			f = 4
-		case "dSint64", "d_sint64":
-			f = 5
-		case "dFixed32", "d_fixed32":
-			f = 6
-		case "dFixed64", "d_fixed64":
-			f = 7
-		case "dSfixed32", "d_sfixed32":
-			f = 8
-		case "dSfixed64", "d_sfixed64":
-			f = 9
-		case "dFloat", "d_float":
-			f = 10
-		case "dDouble", "d_double":
-			f = 11
-		case "dNan", "d_nan":
-			f = 12
-		case "dBool", "d_bool":
-			f = 13
-		case "dString", "d_string":
-			f = 14
-		case "dBytes", "d_bytes":
-			f = 15
-		case "dEnum", "d_enum":
-			f = 16
-		case "dEnumNodefault", "d_enum_nodefault":
-			f = 17
-		case "dFloatNegZero", "d_float_neg_zero":
-			f = 18
-		case "dDoubleInt", "d_double_int":
-			f = 19
-		default:
-			return errors.New("proto: cotorp.test.proto2.Defaults: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Defaults: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv, uv, fv, bv, sv, by, tok := proto2DefaultsJSONClasses[f][0], proto2DefaultsJSONClasses[f][1], int64(0), uint64(0), float64(0), false, "", []byte(nil), jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-			if class == proto2ClassEnum {
-				class, bits = proto2EnumClass(tok.Kind())
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Defaults")
-		case proto2ClassUnsigned:
-			uv, err = proto2ParseUint(tok, bits, "cotorp.test.proto2.Defaults")
-		case proto2ClassFloat:
-			fv, err = proto2ParseFloat(tok, bits, "cotorp.test.proto2.Defaults")
-		case proto2ClassBool:
-			bv, err = proto2ParseBool(tok, "cotorp.test.proto2.Defaults")
-		case proto2ClassString:
-			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Defaults")
-		case proto2ClassBytes:
-			by, err = proto2ParseBytes(tok, "cotorp.test.proto2.Defaults")
-		}
+	var seen [20]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Defaults"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.DInt32 = new(int32(iv))
-		case 1:
-			m.DInt64 = new(iv)
-		case 2:
-			m.DUint32 = new(uint32(uv))
-		case 3:
-			m.DUint64 = new(uv)
-		case 4:
-			m.DSint32 = new(int32(iv))
-		case 5:
-			m.DSint64 = new(iv)
-		case 6:
-			m.DFixed32 = new(uint32(uv))
-		case 7:
-			m.DFixed64 = new(uv)
-		case 8:
-			m.DSfixed32 = new(int32(iv))
-		case 9:
-			m.DSfixed64 = new(iv)
-		case 10:
-			m.DFloat = new(float32(fv))
-		case 11:
-			m.DDouble = new(fv)
-		case 12:
-			m.DNan = new(fv)
-		case 13:
-			m.DBool = new(bv)
-		case 14:
-			m.DString = new(sv)
-		case 15:
-			m.DBytes = by
-		case 16:
-			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.Defaults", "cotorp.test.proto2.Closed")
-			if err != nil {
-				return err
-			}
-			m.DEnum = new(ev)
-		case 17:
-			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.Defaults", "cotorp.test.proto2.Closed")
-			if err != nil {
-				return err
-			}
-			m.DEnumNodefault = new(ev)
-		case 18:
-			m.DFloatNegZero = new(float32(fv))
-		case 19:
-			m.DDoubleInt = new(fv)
+		switch key := kt.String(); key {
+		case "dInt32", "d_int32":
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Defaults", &m.DInt32, proto2JSONInt)
+		case "dInt64", "d_int64":
+			err = proto2OptField(d, &seen[1], key, "cotorp.test.proto2.Defaults", &m.DInt64, proto2JSONInt)
+		case "dUint32", "d_uint32":
+			err = proto2OptField(d, &seen[2], key, "cotorp.test.proto2.Defaults", &m.DUint32, proto2JSONUint)
+		case "dUint64", "d_uint64":
+			err = proto2OptField(d, &seen[3], key, "cotorp.test.proto2.Defaults", &m.DUint64, proto2JSONUint)
+		case "dSint32", "d_sint32":
+			err = proto2OptField(d, &seen[4], key, "cotorp.test.proto2.Defaults", &m.DSint32, proto2JSONInt)
+		case "dSint64", "d_sint64":
+			err = proto2OptField(d, &seen[5], key, "cotorp.test.proto2.Defaults", &m.DSint64, proto2JSONInt)
+		case "dFixed32", "d_fixed32":
+			err = proto2OptField(d, &seen[6], key, "cotorp.test.proto2.Defaults", &m.DFixed32, proto2JSONUint)
+		case "dFixed64", "d_fixed64":
+			err = proto2OptField(d, &seen[7], key, "cotorp.test.proto2.Defaults", &m.DFixed64, proto2JSONUint)
+		case "dSfixed32", "d_sfixed32":
+			err = proto2OptField(d, &seen[8], key, "cotorp.test.proto2.Defaults", &m.DSfixed32, proto2JSONInt)
+		case "dSfixed64", "d_sfixed64":
+			err = proto2OptField(d, &seen[9], key, "cotorp.test.proto2.Defaults", &m.DSfixed64, proto2JSONInt)
+		case "dFloat", "d_float":
+			err = proto2OptField(d, &seen[10], key, "cotorp.test.proto2.Defaults", &m.DFloat, proto2JSONFloat)
+		case "dDouble", "d_double":
+			err = proto2OptField(d, &seen[11], key, "cotorp.test.proto2.Defaults", &m.DDouble, proto2JSONFloat)
+		case "dNan", "d_nan":
+			err = proto2OptField(d, &seen[12], key, "cotorp.test.proto2.Defaults", &m.DNan, proto2JSONFloat)
+		case "dBool", "d_bool":
+			err = proto2OptField(d, &seen[13], key, "cotorp.test.proto2.Defaults", &m.DBool, proto2JSONBool)
+		case "dString", "d_string":
+			err = proto2OptField(d, &seen[14], key, "cotorp.test.proto2.Defaults", &m.DString, proto2JSONString)
+		case "dBytes", "d_bytes":
+			err = proto2Field(d, &seen[15], key, "cotorp.test.proto2.Defaults", &m.DBytes, proto2JSONBytes)
+		case "dEnum", "d_enum":
+			err = proto2OptField(d, &seen[16], key, "cotorp.test.proto2.Defaults", &m.DEnum, proto2ClosedJSON)
+		case "dEnumNodefault", "d_enum_nodefault":
+			err = proto2OptField(d, &seen[17], key, "cotorp.test.proto2.Defaults", &m.DEnumNodefault, proto2ClosedJSON)
+		case "dFloatNegZero", "d_float_neg_zero":
+			err = proto2OptField(d, &seen[18], key, "cotorp.test.proto2.Defaults", &m.DFloatNegZero, proto2JSONFloat)
+		case "dDoubleInt", "d_double_int":
+			err = proto2OptField(d, &seen[19], key, "cotorp.test.proto2.Defaults", &m.DDoubleInt, proto2JSONFloat)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Defaults: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
 
-var proto2DefaultsJSONClasses = [20][2]int{{proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassUnsigned, 32}, {proto2ClassUnsigned, 64}, {proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassUnsigned, 32}, {proto2ClassUnsigned, 64}, {proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassFloat, 32}, {proto2ClassFloat, 64}, {proto2ClassFloat, 64}, {proto2ClassBool, 64}, {proto2ClassString, 64}, {proto2ClassBytes, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassFloat, 32}, {proto2ClassFloat, 64}}
+func proto2ClosedJSON(d *jsontext.Decoder, p *Closed, name string) error {
+	return proto2JSONEnum(d, p, Closed_value, name, "cotorp.test.proto2.Closed", false)
+}
 
 type Required struct {
 	ReqInt32  *int32
@@ -825,38 +520,21 @@ type Required struct {
 }
 
 // Reset clears all fields of m.
-func (m *Required) Reset() { *m = Required{} }
-
-func (m *Required) GetReqInt32() int32 {
-	return proto2GetOr(m, func(m *Required) *int32 { return m.ReqInt32 }, 0)
-}
-func (m *Required) GetReqString() string {
-	return proto2GetOr(m, func(m *Required) *string { return m.ReqString }, "")
-}
-func (m *Required) GetInner() *Required_Inner {
-	return proto2Get(m, func(m *Required) *Required_Inner { return m.Inner })
-}
-func (m *Required) GetInners() []*Required_Inner {
-	return proto2Get(m, func(m *Required) []*Required_Inner { return m.Inners })
-}
-func (m *Required) GetInnerMap() map[string]*Required_Inner {
-	return proto2Get(m, func(m *Required) map[string]*Required_Inner { return m.InnerMap })
-}
-func (m *Required) GetO() isRequired_O {
-	return proto2Get(m, func(m *Required) isRequired_O { return m.O })
-}
+func (m *Required) Reset()                                  { *m = Required{} }
+func (m *Required) z() *Required                            { return proto2If(m == nil, &proto2ZeroRequired, m) }
+func (m *Required) GetReqInt32() int32                      { return proto2Deref(m.z().ReqInt32, 0) }
+func (m *Required) GetReqString() string                    { return proto2Deref(m.z().ReqString, "") }
+func (m *Required) GetInner() *Required_Inner               { return m.z().Inner }
+func (m *Required) GetInners() []*Required_Inner            { return m.z().Inners }
+func (m *Required) GetInnerMap() map[string]*Required_Inner { return m.z().InnerMap }
+func (m *Required) GetO() isRequired_O                      { return m.z().O }
 func (m *Required) GetInnerOneof() *Required_Inner {
-	if x, ok := m.GetO().(*Required_InnerOneof); ok {
-		return x.InnerOneof
-	}
-	return nil
+	x, _ := m.GetO().(*Required_InnerOneof)
+	return proto2If(x == nil, new(Required_InnerOneof), x).InnerOneof
 }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Required) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Required) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Required) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 type isRequired_O interface{ isRequired_O() }
 type Required_InnerOneof struct{ InnerOneof *Required_Inner }
@@ -865,21 +543,11 @@ func (*Required_InnerOneof) isRequired_O() {}
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Required) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.ReqInt32 != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.ReqInt32)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.ReqString != nil {
-		n += 1 + proto2SizeLen(len((*m.ReqString)))
-	}
-	if m.Inner != nil {
-		n += 1 + proto2SizeLen(m.Inner.ProtoSize())
-	}
-	for _, v := range m.Inners {
-		n += 1 + proto2SizeLen(v.ProtoSize())
-	}
+	m = m.z()
+	n += proto2SizeOpt(1, m.ReqInt32, proto2VarintLen)
+	n += proto2SizeOpt(1, m.ReqString, proto2BytesLen)
+	n += proto2SizeMsg(1, m.Inner, func(v *Required_Inner) int { return v.ProtoSize() })
+	n += proto2SizeMsgs(1, m.Inners, func(v *Required_Inner) int { return v.ProtoSize() })
 	for k, v := range m.InnerMap {
 		n += 1 + proto2SizeLen(1+proto2SizeLen(len(k))+1+proto2SizeLen(v.ProtoSize()))
 	}
@@ -887,8 +555,7 @@ func (m *Required) ProtoSize() (n int) {
 	case *Required_InnerOneof:
 		n += 1 + proto2SizeLen(o.InnerOneof.ProtoSize())
 	}
-	n += len(m.unknownFields)
-	return n
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -899,23 +566,13 @@ func (m *Required) AppendBinary(b []byte) ([]byte, error) {
 	if err := m.ProtoCheckInitialized(); err != nil {
 		return b, err
 	}
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if o, ok := m.O.(*Required_InnerOneof); ok {
 		n, err := o.InnerOneof.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -959,106 +616,56 @@ func (m *Required) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Required) UnmarshalBinary(b []byte) error {
 	*m = Required{}
 	return cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Required) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.ReqInt32 = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.ReqInt32))
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			x, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.ReqString = b[n:], new(string(x))
+			n, err = proto2String(b, proto2New(&m.ReqString), "")
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if err := proto2Alloc(&m.Inner).ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n = proto2ReadBytes(b)
+			err = proto2Alloc(&m.Inner).ProtoMergeDepth(x, depth+1)
 		case 4<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			mv := &Required_Inner{}
-			m.Inners = append(m.Inners, mv)
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n = proto2ReadBytes(b)
+			err = proto2Alloc(proto2Grow(&m.Inners)).ProtoMergeDepth(x, depth+1)
 		case 5<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
+			x, n = proto2ReadBytes(b)
 			mk, mv := "", (*Required_Inner)(nil)
-			for len(v) > 0 {
-				t, n := binary.Uvarint(v)
-				if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-					goto errParse
-				}
-				v = v[n:]
+			var v []byte
+			for t, k := binary.Uvarint(x); k > 0; t, k = binary.Uvarint(x) {
+				x = x[k:]
 				switch t {
 				case proto2MapKeyField<<proto2TagTypeBits | proto2WireBytes:
-					x, n := proto2ReadBytes(v)
-					if n < 0 {
-						goto errParse
-					}
-					v, mk = v[n:], string(x)
+					k, err = proto2String(x, &mk, "")
 				case proto2MapValueField<<proto2TagTypeBits | proto2WireBytes:
-					x, n := proto2ReadBytes(v)
-					if n < 0 {
-						goto errParse
-					}
-					if err := proto2Alloc(&mv).ProtoMergeDepth(x, depth+1); err != nil {
-						return err
-					}
-					v = v[n:]
+					v, k = proto2ReadBytes(x)
+					err = proto2Alloc(&mv).ProtoMergeDepth(v, depth+1)
 				default:
-					n, err := proto2SkipField(v, t, depth)
-					if err != nil {
-						return err
-					}
-					v = v[n:]
+					k, err = proto2SkipField(x, t, depth)
 				}
+				if k <= 0 || err != nil {
+					return cmp.Or(err, errors.New(proto2ErrParse))
+				}
+				x = x[k:]
 			}
 			proto2Alloc(&mv)
 			proto2MapSet(&m.InnerMap, mk, mv)
-			b = b[n:]
+			err = proto2End(x, err)
 		case 6<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
+			x, n = proto2ReadBytes(b)
 			var mv *Required_Inner
 			if o, ok := m.O.(*Required_InnerOneof); ok && o.InnerOneof != nil {
 				mv = o.InnerOneof
@@ -1066,26 +673,19 @@ func (m *Required) ProtoMergeDepth(b []byte, depth int) error {
 				mv = &Required_Inner{}
 				m.O = &Required_InnerOneof{InnerOneof: mv}
 			}
-			if err := mv.ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			err = mv.ProtoMergeDepth(x, depth+1)
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Required) ProtoCheckInitialized() error {
 	if m == nil {
 		return nil
@@ -1125,221 +725,77 @@ func (m *Required) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Required) MarshalJSONTo(e *jsontext.Encoder) error {
 	if err := m.ProtoCheckInitialized(); err != nil {
 		return err
 	}
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Required) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.ReqInt32 != nil {
 		b = strconv.AppendInt(append(b, ",\"reqInt32\":"...), int64((*m.ReqInt32)), 10)
 	}
 	if m.ReqString != nil {
-		if b, err = jsontext.AppendQuote(append(b, ",\"reqString\":"...), (*m.ReqString)); err != nil {
-			return nil, errors.New("proto: cotorp.test.proto2.Required.req_string contains invalid UTF-8")
-		}
+		b, err = proto2Quote(append(b, ",\"reqString\":"...), (*m.ReqString), err)
 	}
-	if m.Inner != nil {
-		if b, err = m.Inner.ProtoAppendJSON(append(b, ",\"inner\":"...)); err != nil {
-			return nil, err
-		}
-	}
-	if len(m.Inners) > 0 {
-		b = append(b, ",\"inners\":["...)
-		for j := range m.Inners {
-			if b, err = m.Inners[j].ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
-			b = append(b, ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.InnerMap) > 0 {
-		b = append(b, ",\"innerMap\":{"...)
-		for _, k := range proto2SortedKeys(m.InnerMap, make([]string, 0, len(m.InnerMap))) {
-			v := m.InnerMap[k]
-			if b, err = jsontext.AppendQuote(b, k); err != nil {
-				return nil, errors.New("proto: cotorp.test.proto2.Required.inner_map contains invalid UTF-8")
-			}
-			if b, err = v.ProtoAppendJSON(append(b, ':')); err != nil {
-				return nil, err
-			}
-			b = append(b, ',')
-		}
-		b[len(b)-1] = '}'
-	}
+	b, err = proto2AppendMsg(b, ",\"inner\":", m.Inner, func(v *Required_Inner, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
+	b, err = proto2AppendList(b, ",\"inners\":[", m.Inners, (*Required_Inner).ProtoAppendJSON, err)
+	b, err = proto2AppendMap(b, ",\"innerMap\":{", m.InnerMap, func(k string, b []byte) ([]byte, error) { return jsontext.AppendQuote(b, k) }, (*Required_Inner).ProtoAppendJSON, err)
 	if o, ok := m.O.(*Required_InnerOneof); ok {
-		if b, err = o.InnerOneof.ProtoAppendJSON(append(b, ",\"innerOneof\":"...)); err != nil {
-			return nil, err
-		}
+		b, err = proto2AppendMsg(b, ",\"innerOneof\":", o.InnerOneof, func(v *Required_Inner, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
 	}
-	return proto2CloseObject(b, start), nil
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Required) UnmarshalJSON(b []byte) error {
 	*m = Required{}
 	return cmp.Or(m.ProtoMergeJSON(b), m.ProtoCheckInitialized())
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Required) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Required")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Required", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Required) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Required{}
-	return cmp.Or(m.ProtoMergeJSONFrom(d), m.ProtoCheckInitialized())
+	return cmp.Or(proto2MergeFrom(d, m.ProtoMergeJSONFrom), m.ProtoCheckInitialized())
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Required) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Required", "object")
-	if !ok {
-		return err
-	}
-	seen, oneofs, in, mk, f := [6]bool{}, [1]bool{}, jsontext.KindInvalid, "", 0
-	for {
-		if in == jsontext.KindInvalid {
-			kt, more, err := proto2NextKey(d)
-			if !more {
-				return err
-			}
-			key := kt.String()
-			switch key {
-			case "reqInt32", "req_int32":
-				f = 0
-			case "reqString", "req_string":
-				f = 1
-			case "inner":
-				f = 2
-			case "inners":
-				f = 3
-			case "innerMap", "inner_map":
-				f = 4
-			case "innerOneof", "inner_oneof":
-				f = 5
-			default:
-				return errors.New("proto: cotorp.test.proto2.Required: unknown field " + strconv.Quote(key))
-			}
-			if seen[f] {
-				return errors.New("proto: cotorp.test.proto2.Required: duplicate field " + strconv.Quote(key))
-			}
-			seen[f] = true
-			if d.PeekKind() == jsontext.KindNull {
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			switch f {
-			case 5:
-				if oneofs[0] {
-					return errors.New("proto: cotorp.test.proto2.Required: multiple fields set for oneof o")
-				}
-				oneofs[0] = true
-			case 3:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Required", "array"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginArray
-				continue
-			case 4:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Required", "object"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginObject
-				continue
-			}
-		} else {
-			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
-				if _, err := d.ReadToken(); err != nil {
-					return err
-				}
-				in = jsontext.KindInvalid
-				continue
-			}
-			if in == jsontext.KindBeginObject {
-				kt, err := d.ReadToken()
-				if err != nil {
-					return err
-				}
-				mk = kt.String()
-			}
-			if d.PeekKind() == jsontext.KindNull {
-				return errors.New("proto: cotorp.test.proto2.Required: null is not allowed in repeated fields or map values")
-			}
-		}
-		class, bits, iv, sv, tok := proto2RequiredJSONClasses[f][0], proto2RequiredJSONClasses[f][1], int64(0), "", jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Required")
-		case proto2ClassString:
-			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Required")
-		}
+	seen, oneofs := [6]bool{}, [1]bool{}
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Required"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.ReqInt32 = new(int32(iv))
-		case 1:
-			m.ReqString = new(sv)
-		case 2:
-			if err := proto2Alloc(&m.Inner).ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
-		case 3:
-			mv := &Required_Inner{}
-			if err := mv.ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
-			m.Inners = append(m.Inners, mv)
-		case 4:
-			mv := &Required_Inner{}
-			if err := mv.ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
-			proto2MapSet(&m.InnerMap, mk, mv)
-		case 5:
-			mv := &Required_Inner{}
-			if err := mv.ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
-			m.O = &Required_InnerOneof{InnerOneof: mv}
+		switch key := kt.String(); key {
+		case "reqInt32", "req_int32":
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Required", &m.ReqInt32, proto2JSONInt)
+		case "reqString", "req_string":
+			err = proto2OptField(d, &seen[1], key, "cotorp.test.proto2.Required", &m.ReqString, proto2JSONString)
+		case "inner":
+			err = proto2Field(d, &seen[2], key, "cotorp.test.proto2.Required", &m.Inner, proto2JSONMsg)
+		case "inners":
+			err = proto2RepField(d, &seen[3], key, "cotorp.test.proto2.Required", &m.Inners, false, proto2JSONMsg)
+		case "innerMap", "inner_map":
+			err = proto2MapField(d, &seen[4], key, "cotorp.test.proto2.Required", "inner_map", &m.InnerMap, false, proto2StringKey, proto2JSONMsg)
+		case "innerOneof", "inner_oneof":
+			o := new(Required_InnerOneof)
+			err = proto2OneofField(d, &seen[5], &oneofs[0], key, "cotorp.test.proto2.Required", "o", &m.O, isRequired_O(o), &o.InnerOneof, false, proto2JSONMsg)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Required: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var proto2RequiredJSONClasses = [6][2]int{{proto2ClassSigned, 32}, {proto2ClassString, 64}, {proto2ClassNone, 64}, {proto2ClassNone, 64}, {proto2ClassNone, 64}, {proto2ClassNone, 64}}
 
 type Required_Inner struct {
 	Flag *bool
@@ -1348,28 +804,18 @@ type Required_Inner struct {
 }
 
 // Reset clears all fields of m.
-func (m *Required_Inner) Reset() { *m = Required_Inner{} }
+func (m *Required_Inner) Reset()             { *m = Required_Inner{} }
+func (m *Required_Inner) z() *Required_Inner { return proto2If(m == nil, &proto2ZeroRequired_Inner, m) }
+func (m *Required_Inner) GetFlag() bool      { return proto2Deref(m.z().Flag, false) }
 
-func (m *Required_Inner) GetFlag() bool {
-	return proto2GetOr(m, func(m *Required_Inner) *bool { return m.Flag }, false)
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Required_Inner) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Required_Inner) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Required_Inner) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Required_Inner) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Flag != nil {
-		n += 1 + 1
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOptFixed(1, 1, m.Flag)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1380,75 +826,48 @@ func (m *Required_Inner) AppendBinary(b []byte) ([]byte, error) {
 	if err := m.ProtoCheckInitialized(); err != nil {
 		return b, err
 	}
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Required_Inner) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.Flag != nil {
 		i = proto2PutVarint(b, proto2PutBool(b, i, (*m.Flag)), 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Required_Inner) UnmarshalBinary(b []byte) error {
 	*m = Required_Inner{}
 	return cmp.Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Required_Inner) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Required_Inner) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Flag = b[n:], new(x != 0)
+			n = proto2Bool(b, proto2New(&m.Flag))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Required_Inner) ProtoCheckInitialized() error {
 	if m == nil {
 		return nil
@@ -1467,99 +886,55 @@ func (m *Required_Inner) MarshalJSON() ([]byte, error) {
 	return m.ProtoAppendJSON(nil)
 }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Required_Inner) MarshalJSONTo(e *jsontext.Encoder) error {
 	if err := m.ProtoCheckInitialized(); err != nil {
 		return err
 	}
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Required_Inner) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.Flag != nil {
 		b = strconv.AppendBool(append(b, ",\"flag\":"...), (*m.Flag))
 	}
 	return proto2CloseObject(b, start), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Required_Inner) UnmarshalJSON(b []byte) error {
 	*m = Required_Inner{}
 	return cmp.Or(m.ProtoMergeJSON(b), m.ProtoCheckInitialized())
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Required_Inner) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Required.Inner")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Required.Inner", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Required_Inner) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Required_Inner{}
-	return cmp.Or(m.ProtoMergeJSONFrom(d), m.ProtoCheckInitialized())
+	return cmp.Or(proto2MergeFrom(d, m.ProtoMergeJSONFrom), m.ProtoCheckInitialized())
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Required_Inner) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Required.Inner", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [1]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
+	var seen [1]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Required.Inner"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
+		if err != nil {
 			return err
 		}
-		key := kt.String()
-		switch key {
+		switch key := kt.String(); key {
 		case "flag":
-			f = 0
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Required.Inner", &m.Flag, proto2JSONBool)
 		default:
 			return errors.New("proto: cotorp.test.proto2.Required.Inner: unknown field " + strconv.Quote(key))
 		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Required.Inner: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bv := proto2ClassBool, false
-		tok, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		switch class {
-		case proto2ClassBool:
-			bv, err = proto2ParseBool(tok, "cotorp.test.proto2.Required.Inner")
-		}
-		if err != nil {
-			return err
-		}
-		m.Flag = new(bv)
 	}
+	return nil
 }
 
 type Groups struct {
@@ -1571,40 +946,26 @@ type Groups struct {
 }
 
 // Reset clears all fields of m.
-func (m *Groups) Reset() { *m = Groups{} }
+func (m *Groups) Reset()                          { *m = Groups{} }
+func (m *Groups) z() *Groups                      { return proto2If(m == nil, &proto2ZeroGroups, m) }
+func (m *Groups) GetOptgroup() *Groups_OptGroup   { return m.z().Optgroup }
+func (m *Groups) GetRepgroup() []*Groups_RepGroup { return m.z().Repgroup }
+func (m *Groups) GetAfter() int32                 { return proto2Deref(m.z().After, 0) }
 
-func (m *Groups) GetOptgroup() *Groups_OptGroup {
-	return proto2Get(m, func(m *Groups) *Groups_OptGroup { return m.Optgroup })
-}
-func (m *Groups) GetRepgroup() []*Groups_RepGroup {
-	return proto2Get(m, func(m *Groups) []*Groups_RepGroup { return m.Repgroup })
-}
-func (m *Groups) GetAfter() int32 {
-	return proto2GetOr(m, func(m *Groups) *int32 { return m.After }, 0)
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Groups) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Groups) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Groups) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
+	m = m.z()
 	if m.Optgroup != nil {
 		n += 2 + m.Optgroup.ProtoSize()
 	}
 	for _, v := range m.Repgroup {
 		n += 2 + v.ProtoSize()
 	}
-	if m.After != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.After)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	n += proto2SizeOpt(1, m.After, proto2VarintLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1612,23 +973,13 @@ func (m *Groups) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.After != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.After)))), 8<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -1651,225 +1002,94 @@ func (m *Groups) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Groups) UnmarshalBinary(b []byte) error {
-	*m = Groups{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Groups) UnmarshalBinary(b []byte) error { *m = Groups{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Groups) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireStartGroup:
-			n, err := proto2SkipGroup(b, 1, depth)
-			if err != nil {
-				return err
-			}
-			if err := proto2Alloc(&m.Optgroup).ProtoMergeDepth(b[:n-1], depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n, err = proto2Group(b, 1, depth)
+			err = cmp.Or(err, proto2Alloc(&m.Optgroup).ProtoMergeDepth(x, depth+1))
 		case 4<<proto2TagTypeBits | proto2WireStartGroup:
-			n, err := proto2SkipGroup(b, 4, depth)
-			if err != nil {
-				return err
-			}
-			mv := &Groups_RepGroup{}
-			m.Repgroup = append(m.Repgroup, mv)
-			if err := mv.ProtoMergeDepth(b[:n-1], depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n, err = proto2Group(b, 4, depth)
+			err = cmp.Or(err, proto2Alloc(proto2Grow(&m.Repgroup)).ProtoMergeDepth(x, depth+1))
 		case 8<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.After = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.After))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Groups) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Groups) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Groups) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Groups) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
-	if m.Optgroup != nil {
-		if b, err = m.Optgroup.ProtoAppendJSON(append(b, ",\"optgroup\":"...)); err != nil {
-			return nil, err
-		}
-	}
-	if len(m.Repgroup) > 0 {
-		b = append(b, ",\"repgroup\":["...)
-		for j := range m.Repgroup {
-			if b, err = m.Repgroup[j].ProtoAppendJSON(b); err != nil {
-				return nil, err
-			}
-			b = append(b, ',')
-		}
-		b[len(b)-1] = ']'
-	}
+	m, start := m.z(), len(b)
+	b, err = proto2AppendMsg(b, ",\"optgroup\":", m.Optgroup, func(v *Groups_OptGroup, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
+	b, err = proto2AppendList(b, ",\"repgroup\":[", m.Repgroup, (*Groups_RepGroup).ProtoAppendJSON, err)
 	if m.After != nil {
 		b = strconv.AppendInt(append(b, ",\"after\":"...), int64((*m.After)), 10)
 	}
-	return proto2CloseObject(b, start), nil
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Groups) UnmarshalJSON(b []byte) error {
-	*m = Groups{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Groups) UnmarshalJSON(b []byte) error { *m = Groups{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Groups) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Groups", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Groups{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Groups) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups", "object")
-	if !ok {
-		return err
-	}
-	seen, in, f := [3]bool{}, jsontext.KindInvalid, 0
-	for {
-		if in == jsontext.KindInvalid {
-			kt, more, err := proto2NextKey(d)
-			if !more {
-				return err
-			}
-			key := kt.String()
-			switch key {
-			case "optgroup":
-				f = 0
-			case "repgroup":
-				f = 1
-			case "after":
-				f = 2
-			default:
-				return errors.New("proto: cotorp.test.proto2.Groups: unknown field " + strconv.Quote(key))
-			}
-			if seen[f] {
-				return errors.New("proto: cotorp.test.proto2.Groups: duplicate field " + strconv.Quote(key))
-			}
-			seen[f] = true
-			if d.PeekKind() == jsontext.KindNull {
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			switch f {
-			case 1:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Groups", "array"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginArray
-				continue
-			}
-		} else {
-			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
-				if _, err := d.ReadToken(); err != nil {
-					return err
-				}
-				in = jsontext.KindInvalid
-				continue
-			}
-			if d.PeekKind() == jsontext.KindNull {
-				return errors.New("proto: cotorp.test.proto2.Groups: null is not allowed in repeated fields or map values")
-			}
-		}
-		class, bits, iv, tok := proto2GroupsJSONClasses[f][0], proto2GroupsJSONClasses[f][1], int64(0), jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups")
-		}
+	var seen [3]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Groups"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			if err := proto2Alloc(&m.Optgroup).ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
-		case 1:
-			mv := &Groups_RepGroup{}
-			if err := mv.ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
-			m.Repgroup = append(m.Repgroup, mv)
-		case 2:
-			m.After = new(int32(iv))
+		switch key := kt.String(); key {
+		case "optgroup":
+			err = proto2Field(d, &seen[0], key, "cotorp.test.proto2.Groups", &m.Optgroup, proto2JSONMsg)
+		case "repgroup":
+			err = proto2RepField(d, &seen[1], key, "cotorp.test.proto2.Groups", &m.Repgroup, false, proto2JSONMsg)
+		case "after":
+			err = proto2OptField(d, &seen[2], key, "cotorp.test.proto2.Groups", &m.After, proto2JSONInt)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Groups: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var proto2GroupsJSONClasses = [3][2]int{{proto2ClassNone, 64}, {proto2ClassNone, 64}, {proto2ClassSigned, 32}}
 
 type Groups_OptGroup struct {
 	A *int32
@@ -1880,33 +1100,21 @@ type Groups_OptGroup struct {
 
 // Reset clears all fields of m.
 func (m *Groups_OptGroup) Reset() { *m = Groups_OptGroup{} }
+func (m *Groups_OptGroup) z() *Groups_OptGroup {
+	return proto2If(m == nil, &proto2ZeroGroups_OptGroup, m)
+}
+func (m *Groups_OptGroup) GetA() int32  { return proto2Deref(m.z().A, 0) }
+func (m *Groups_OptGroup) GetB() string { return proto2Deref(m.z().B, "") }
 
-func (m *Groups_OptGroup) GetA() int32 {
-	return proto2GetOr(m, func(m *Groups_OptGroup) *int32 { return m.A }, 0)
-}
-func (m *Groups_OptGroup) GetB() string {
-	return proto2GetOr(m, func(m *Groups_OptGroup) *string { return m.B }, "")
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Groups_OptGroup) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Groups_OptGroup) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Groups_OptGroup) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups_OptGroup) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.A != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.A)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if m.B != nil {
-		n += 1 + proto2SizeLen(len((*m.B)))
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOpt(1, m.A, proto2VarintLen)
+	n += proto2SizeOpt(1, m.B, proto2BytesLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1914,23 +1122,13 @@ func (m *Groups_OptGroup) MarshalBinary() ([]byte, error) { return m.AppendBinar
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups_OptGroup) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.B != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i-copy(b[i-len((*m.B)):], (*m.B)), uint64(len((*m.B)))), 3<<proto2TagTypeBits|proto2WireBytes)
 	}
@@ -1940,172 +1138,95 @@ func (m *Groups_OptGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Groups_OptGroup) UnmarshalBinary(b []byte) error {
 	*m = Groups_OptGroup{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Groups_OptGroup) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_OptGroup) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 2<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.A = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.A))
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			x, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.B = b[n:], new(string(x))
+			n, err = proto2String(b, proto2New(&m.B), "")
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Groups_OptGroup) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Groups_OptGroup) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Groups_OptGroup) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Groups_OptGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.A != nil {
 		b = strconv.AppendInt(append(b, ",\"a\":"...), int64((*m.A)), 10)
 	}
 	if m.B != nil {
-		if b, err = jsontext.AppendQuote(append(b, ",\"b\":"...), (*m.B)); err != nil {
-			return nil, errors.New("proto: cotorp.test.proto2.Groups.OptGroup.b contains invalid UTF-8")
-		}
+		b, err = proto2Quote(append(b, ",\"b\":"...), (*m.B), err)
 	}
-	return proto2CloseObject(b, start), nil
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Groups_OptGroup) UnmarshalJSON(b []byte) error {
 	*m = Groups_OptGroup{}
 	return m.ProtoMergeJSON(b)
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Groups_OptGroup) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups.OptGroup")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Groups.OptGroup", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups_OptGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Groups_OptGroup{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Groups_OptGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups.OptGroup", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [2]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
-			return err
-		}
-		key := kt.String()
-		switch key {
-		case "a":
-			f = 0
-		case "b":
-			f = 1
-		default:
-			return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv, sv, tok := proto2GroupsOptGroupJSONClasses[f][0], proto2GroupsOptGroupJSONClasses[f][1], int64(0), "", jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups.OptGroup")
-		case proto2ClassString:
-			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Groups.OptGroup")
-		}
+	var seen [2]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Groups.OptGroup"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.A = new(int32(iv))
-		case 1:
-			m.B = new(sv)
+		switch key := kt.String(); key {
+		case "a":
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Groups.OptGroup", &m.A, proto2JSONInt)
+		case "b":
+			err = proto2OptField(d, &seen[1], key, "cotorp.test.proto2.Groups.OptGroup", &m.B, proto2JSONString)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Groups.OptGroup: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var proto2GroupsOptGroupJSONClasses = [2][2]int{{proto2ClassSigned, 32}, {proto2ClassString, 64}}
 
 type Groups_RepGroup struct {
 	C    *int32
@@ -2116,33 +1237,23 @@ type Groups_RepGroup struct {
 
 // Reset clears all fields of m.
 func (m *Groups_RepGroup) Reset() { *m = Groups_RepGroup{} }
+func (m *Groups_RepGroup) z() *Groups_RepGroup {
+	return proto2If(m == nil, &proto2ZeroGroups_RepGroup, m)
+}
+func (m *Groups_RepGroup) GetC() int32                    { return proto2Deref(m.z().C, 0) }
+func (m *Groups_RepGroup) GetDeep() *Groups_RepGroup_Deep { return m.z().Deep }
 
-func (m *Groups_RepGroup) GetC() int32 {
-	return proto2GetOr(m, func(m *Groups_RepGroup) *int32 { return m.C }, 0)
-}
-func (m *Groups_RepGroup) GetDeep() *Groups_RepGroup_Deep {
-	return proto2Get(m, func(m *Groups_RepGroup) *Groups_RepGroup_Deep { return m.Deep })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Groups_RepGroup) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Groups_RepGroup) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Groups_RepGroup) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups_RepGroup) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.C != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.C)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
+	m = m.z()
+	n += proto2SizeOpt(1, m.C, proto2VarintLen)
 	if m.Deep != nil {
 		n += 2 + m.Deep.ProtoSize()
 	}
-	n += len(m.unknownFields)
-	return n
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2150,23 +1261,13 @@ func (m *Groups_RepGroup) MarshalBinary() ([]byte, error) { return m.AppendBinar
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups_RepGroup) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups_RepGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.Deep != nil {
 		i = proto2PutVarint(b, i, 6<<proto2TagTypeBits|proto2WireEndGroup)
 		n, err := m.Deep.ProtoMarshalToSizedBuffer(b[:i])
@@ -2181,175 +1282,94 @@ func (m *Groups_RepGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Groups_RepGroup) UnmarshalBinary(b []byte) error {
 	*m = Groups_RepGroup{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Groups_RepGroup) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_RepGroup) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 5<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.C = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.C))
 		case 6<<proto2TagTypeBits | proto2WireStartGroup:
-			n, err := proto2SkipGroup(b, 6, depth)
-			if err != nil {
-				return err
-			}
-			if err := proto2Alloc(&m.Deep).ProtoMergeDepth(b[:n-1], depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n, err = proto2Group(b, 6, depth)
+			err = cmp.Or(err, proto2Alloc(&m.Deep).ProtoMergeDepth(x, depth+1))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Groups_RepGroup) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Groups_RepGroup) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Groups_RepGroup) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Groups_RepGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.C != nil {
 		b = strconv.AppendInt(append(b, ",\"c\":"...), int64((*m.C)), 10)
 	}
-	if m.Deep != nil {
-		if b, err = m.Deep.ProtoAppendJSON(append(b, ",\"deep\":"...)); err != nil {
-			return nil, err
-		}
-	}
-	return proto2CloseObject(b, start), nil
+	b, err = proto2AppendMsg(b, ",\"deep\":", m.Deep, func(v *Groups_RepGroup_Deep, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Groups_RepGroup) UnmarshalJSON(b []byte) error {
 	*m = Groups_RepGroup{}
 	return m.ProtoMergeJSON(b)
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Groups_RepGroup) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups.RepGroup")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Groups.RepGroup", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups_RepGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Groups_RepGroup{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Groups_RepGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups.RepGroup", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [2]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
-			return err
-		}
-		key := kt.String()
-		switch key {
-		case "c":
-			f = 0
-		case "deep":
-			f = 1
-		default:
-			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv, tok := proto2GroupsRepGroupJSONClasses[f][0], proto2GroupsRepGroupJSONClasses[f][1], int64(0), jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups.RepGroup")
-		}
+	var seen [2]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Groups.RepGroup"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.C = new(int32(iv))
-		case 1:
-			if err := proto2Alloc(&m.Deep).ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
+		switch key := kt.String(); key {
+		case "c":
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Groups.RepGroup", &m.C, proto2JSONInt)
+		case "deep":
+			err = proto2Field(d, &seen[1], key, "cotorp.test.proto2.Groups.RepGroup", &m.Deep, proto2JSONMsg)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var proto2GroupsRepGroupJSONClasses = [2][2]int{{proto2ClassSigned, 32}, {proto2ClassNone, 64}}
 
 type Groups_RepGroup_Deep struct {
 	D *int64
@@ -2359,27 +1379,19 @@ type Groups_RepGroup_Deep struct {
 
 // Reset clears all fields of m.
 func (m *Groups_RepGroup_Deep) Reset() { *m = Groups_RepGroup_Deep{} }
-
-func (m *Groups_RepGroup_Deep) GetD() int64 {
-	return proto2GetOr(m, func(m *Groups_RepGroup_Deep) *int64 { return m.D }, 0)
+func (m *Groups_RepGroup_Deep) z() *Groups_RepGroup_Deep {
+	return proto2If(m == nil, &proto2ZeroGroups_RepGroup_Deep, m)
 }
+func (m *Groups_RepGroup_Deep) GetD() int64 { return proto2Deref(m.z().D, 0) }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Groups_RepGroup_Deep) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Groups_RepGroup_Deep) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Groups_RepGroup_Deep) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Groups_RepGroup_Deep) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.D != nil {
-		n += 1 + (bits.Len64(uint64((*m.D))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOpt(1, m.D, proto2VarintLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2387,170 +1399,99 @@ func (m *Groups_RepGroup_Deep) MarshalBinary() ([]byte, error) { return m.Append
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Groups_RepGroup_Deep) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Groups_RepGroup_Deep) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.D != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64((*m.D))), 7<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Groups_RepGroup_Deep) UnmarshalBinary(b []byte) error {
 	*m = Groups_RepGroup_Deep{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Groups_RepGroup_Deep) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Groups_RepGroup_Deep) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 7<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.D = b[n:], new(int64(x))
+			n = proto2Varint(b, proto2New(&m.D))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Groups_RepGroup_Deep) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Groups_RepGroup_Deep) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Groups_RepGroup_Deep) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Groups_RepGroup_Deep) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.D != nil {
 		b = append(strconv.AppendInt(append(b, ",\"d\":\""...), (*m.D), 10), '"')
 	}
 	return proto2CloseObject(b, start), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Groups_RepGroup_Deep) UnmarshalJSON(b []byte) error {
 	*m = Groups_RepGroup_Deep{}
 	return m.ProtoMergeJSON(b)
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Groups_RepGroup_Deep) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Groups.RepGroup.Deep")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Groups.RepGroup.Deep", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Groups_RepGroup_Deep) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Groups_RepGroup_Deep{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Groups_RepGroup_Deep) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Groups.RepGroup.Deep", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [1]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
+	var seen [1]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Groups.RepGroup.Deep"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
+		if err != nil {
 			return err
 		}
-		key := kt.String()
-		switch key {
+		switch key := kt.String(); key {
 		case "d":
-			f = 0
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Groups.RepGroup.Deep", &m.D, proto2JSONInt)
 		default:
 			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: unknown field " + strconv.Quote(key))
 		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Groups.RepGroup.Deep: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv := proto2ClassSigned, 64, int64(0)
-		tok, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Groups.RepGroup.Deep")
-		}
-		if err != nil {
-			return err
-		}
-		m.D = new(iv)
 	}
+	return nil
 }
 
 type ClosedEnums struct {
@@ -2567,35 +1508,20 @@ type ClosedEnums struct {
 }
 
 // Reset clears all fields of m.
-func (m *ClosedEnums) Reset() { *m = ClosedEnums{} }
-
-func (m *ClosedEnums) GetSingle() Closed {
-	return proto2GetOr(m, func(m *ClosedEnums) *Closed { return m.Single }, Closed_CLOSED_ONE)
-}
-func (m *ClosedEnums) GetRep() []Closed {
-	return proto2Get(m, func(m *ClosedEnums) []Closed { return m.Rep })
-}
-func (m *ClosedEnums) GetPacked() []Closed {
-	return proto2Get(m, func(m *ClosedEnums) []Closed { return m.Packed })
-}
-func (m *ClosedEnums) GetByKey() map[int32]ClosedZero {
-	return proto2Get(m, func(m *ClosedEnums) map[int32]ClosedZero { return m.ByKey })
-}
-func (m *ClosedEnums) GetO() isClosedEnums_O {
-	return proto2Get(m, func(m *ClosedEnums) isClosedEnums_O { return m.O })
-}
+func (m *ClosedEnums) Reset()                         { *m = ClosedEnums{} }
+func (m *ClosedEnums) z() *ClosedEnums                { return proto2If(m == nil, &proto2ZeroClosedEnums, m) }
+func (m *ClosedEnums) GetSingle() Closed              { return proto2Deref(m.z().Single, Closed_CLOSED_ONE) }
+func (m *ClosedEnums) GetRep() []Closed               { return m.z().Rep }
+func (m *ClosedEnums) GetPacked() []Closed            { return m.z().Packed }
+func (m *ClosedEnums) GetByKey() map[int32]ClosedZero { return m.z().ByKey }
+func (m *ClosedEnums) GetO() isClosedEnums_O          { return m.z().O }
 func (m *ClosedEnums) GetInOneof() Closed {
-	if x, ok := m.GetO().(*ClosedEnums_InOneof); ok {
-		return x.InOneof
-	}
-	return Closed_CLOSED_ONE
+	x, _ := m.GetO().(*ClosedEnums_InOneof)
+	return proto2If(x == nil, new(ClosedEnums_InOneof), x).InOneof
 }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *ClosedEnums) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *ClosedEnums) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *ClosedEnums) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 type isClosedEnums_O interface{ isClosedEnums_O() }
 type ClosedEnums_InOneof struct{ InOneof Closed }
@@ -2604,22 +1530,10 @@ func (*ClosedEnums_InOneof) isClosedEnums_O() {}
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ClosedEnums) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Single != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.Single)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	for _, v := range m.Rep {
-		n += 1 + (bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	if len(m.Packed) > 0 {
-		l := 0
-		for _, v := range m.Packed {
-			l += (bits.Len64(uint64(int64(v))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-		}
-		n += 1 + proto2SizeLen(l)
-	}
+	m = m.z()
+	n += proto2SizeOpt(1, m.Single, proto2VarintLen)
+	n += proto2SizeEach(1, m.Rep, proto2VarintLen)
+	n += proto2SizePacked(1, m.Packed, proto2VarintLen)
 	for k, v := range m.ByKey {
 		n += 1 + proto2SizeLen(1+(bits.Len64(uint64(int64(k))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits+1+(bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits)
 	}
@@ -2627,8 +1541,7 @@ func (m *ClosedEnums) ProtoSize() (n int) {
 	case *ClosedEnums_InOneof:
 		n += 1 + (bits.Len64(uint64(int64(o.InOneof))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
 	}
-	n += len(m.unknownFields)
-	return n
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -2636,23 +1549,13 @@ func (m *ClosedEnums) MarshalBinary() ([]byte, error) { return m.AppendBinary(ni
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ClosedEnums) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64(o.InOneof))), 5<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -2681,380 +1584,142 @@ func (m *ClosedEnums) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *ClosedEnums) UnmarshalBinary(b []byte) error {
 	*m = ClosedEnums{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *ClosedEnums) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ClosedEnums) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b = b[n:]
-			e := Closed(int32(x))
-			if !e.IsValid() {
-				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 1<<proto2TagTypeBits|proto2WireVarint), x)
-				continue
-			}
-			m.Single = new(e)
+			n = proto2ClosedEnum(b, &m.unknownFields, 1<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Single = new(e) })
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			for len(v) > 0 {
-				x, n := binary.Uvarint(v)
-				if n <= 0 {
-					goto errParse
-				}
-				v = v[n:]
-				if e := Closed(int32(x)); !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint), x)
-				} else {
-					m.Rep = append(m.Rep, e)
-				}
-			}
+			n = proto2PackedClosedEnum(b, &m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Rep = append(m.Rep, e) })
 		case 2<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b = b[n:]
-			e := Closed(int32(x))
-			if !e.IsValid() {
-				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint), x)
-				continue
-			}
-			m.Rep = append(m.Rep, e)
+			n = proto2ClosedEnum(b, &m.unknownFields, 2<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Rep = append(m.Rep, e) })
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			for len(v) > 0 {
-				x, n := binary.Uvarint(v)
-				if n <= 0 {
-					goto errParse
-				}
-				v = v[n:]
-				if e := Closed(int32(x)); !e.IsValid() {
-					m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint), x)
-				} else {
-					m.Packed = append(m.Packed, e)
-				}
-			}
+			n = proto2PackedClosedEnum(b, &m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Packed = append(m.Packed, e) })
 		case 3<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b = b[n:]
-			e := Closed(int32(x))
-			if !e.IsValid() {
-				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint), x)
-				continue
-			}
-			m.Packed = append(m.Packed, e)
+			n = proto2ClosedEnum(b, &m.unknownFields, 3<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.Packed = append(m.Packed, e) })
 		case 4<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
+			x, n = proto2ReadBytes(b)
 			mk, mv := int32(0), ClosedZero(0)
-			for len(v) > 0 {
-				t, n := binary.Uvarint(v)
-				if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-					goto errParse
-				}
-				v = v[n:]
+			for t, k := binary.Uvarint(x); k > 0; t, k = binary.Uvarint(x) {
+				x = x[k:]
 				switch t {
 				case proto2MapKeyField<<proto2TagTypeBits | proto2WireVarint:
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v, mk = v[n:], int32(x)
+					k = proto2Varint(x, &mk)
 				case proto2MapValueField<<proto2TagTypeBits | proto2WireVarint:
-					x, n := binary.Uvarint(v)
-					if n <= 0 {
-						goto errParse
-					}
-					v, mv = v[n:], ClosedZero(int32(x))
+					k = proto2Varint(x, &mv)
 				default:
-					n, err := proto2SkipField(v, t, depth)
-					if err != nil {
-						return err
-					}
-					v = v[n:]
+					k, err = proto2SkipField(x, t, depth)
 				}
+				if k <= 0 || err != nil {
+					return cmp.Or(err, errors.New(proto2ErrParse))
+				}
+				x = x[k:]
 			}
-			if !mv.IsValid() {
-				m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-				b = b[n:]
-				continue
+			if mv.IsValid() {
+				proto2MapSet(&m.ByKey, mk, mv)
+			} else {
+				m.unknownFields = append(binary.AppendUvarint(m.unknownFields, t), b[:n]...)
 			}
-			proto2MapSet(&m.ByKey, mk, mv)
-			b = b[n:]
+			err = proto2End(x, err)
 		case 5<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b = b[n:]
-			e := Closed(int32(x))
-			if !e.IsValid() {
-				m.unknownFields = binary.AppendUvarint(binary.AppendUvarint(m.unknownFields, 5<<proto2TagTypeBits|proto2WireVarint), x)
-				continue
-			}
-			m.O = &ClosedEnums_InOneof{InOneof: e}
+			n = proto2ClosedEnum(b, &m.unknownFields, 5<<proto2TagTypeBits|proto2WireVarint, func(e Closed) { m.O = &ClosedEnums_InOneof{InOneof: e} })
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *ClosedEnums) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *ClosedEnums) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *ClosedEnums) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *ClosedEnums) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	var err error
+	m, start := m.z(), len(b)
 	if m.Single != nil {
 		b = proto2AppendEnum(append(b, ",\"single\":"...), int32((*m.Single)), Closed_name)
 	}
-	if len(m.Rep) > 0 {
-		b = append(b, ",\"rep\":["...)
-		for j := range m.Rep {
-			b = append(proto2AppendEnum(b, int32(m.Rep[j]), Closed_name), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.Packed) > 0 {
-		b = append(b, ",\"packed\":["...)
-		for j := range m.Packed {
-			b = append(proto2AppendEnum(b, int32(m.Packed[j]), Closed_name), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.ByKey) > 0 {
-		b = append(b, ",\"byKey\":{"...)
-		for _, k := range proto2SortedKeys(m.ByKey, make([]int32, 0, len(m.ByKey))) {
-			v := m.ByKey[k]
-			b = strconv.AppendInt(append(b, '"'), int64(k), 10)
-			b = append(proto2AppendEnum(append(b, "\":"...), int32(v), ClosedZero_name), ',')
-		}
-		b[len(b)-1] = '}'
-	}
+	b, err = proto2AppendList(b, ",\"rep\":[", m.Rep, func(v Closed, b []byte) ([]byte, error) { return proto2AppendEnum(b, int32(v), Closed_name), nil }, err)
+	b, err = proto2AppendList(b, ",\"packed\":[", m.Packed, func(v Closed, b []byte) ([]byte, error) { return proto2AppendEnum(b, int32(v), Closed_name), nil }, err)
+	b, err = proto2AppendMap(b, ",\"byKey\":{", m.ByKey, func(k int32, b []byte) ([]byte, error) {
+		return append(strconv.AppendInt(append(b, '"'), int64(k), 10), '"'), nil
+	}, func(v ClosedZero, b []byte) ([]byte, error) {
+		return proto2AppendEnum(b, int32(v), ClosedZero_name), nil
+	}, err)
 	if o, ok := m.O.(*ClosedEnums_InOneof); ok {
 		b = proto2AppendEnum(append(b, ",\"inOneof\":"...), int32(o.InOneof), Closed_name)
 	}
-	return proto2CloseObject(b, start), nil
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *ClosedEnums) UnmarshalJSON(b []byte) error {
-	*m = ClosedEnums{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *ClosedEnums) UnmarshalJSON(b []byte) error { *m = ClosedEnums{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *ClosedEnums) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.ClosedEnums")
+	return proto2MergeJSON(b, "cotorp.test.proto2.ClosedEnums", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *ClosedEnums) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = ClosedEnums{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *ClosedEnums) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.ClosedEnums", "object")
-	if !ok {
-		return err
-	}
-	seen, oneofs, in, mk, f := [5]bool{}, [1]bool{}, jsontext.KindInvalid, "", 0
-	for {
-		if in == jsontext.KindInvalid {
-			kt, more, err := proto2NextKey(d)
-			if !more {
-				return err
-			}
-			key := kt.String()
-			switch key {
-			case "single":
-				f = 0
-			case "rep":
-				f = 1
-			case "packed":
-				f = 2
-			case "byKey", "by_key":
-				f = 3
-			case "inOneof", "in_oneof":
-				f = 4
-			default:
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: unknown field " + strconv.Quote(key))
-			}
-			if seen[f] {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: duplicate field " + strconv.Quote(key))
-			}
-			seen[f] = true
-			if d.PeekKind() == jsontext.KindNull {
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			switch f {
-			case 4:
-				if oneofs[0] {
-					return errors.New("proto: cotorp.test.proto2.ClosedEnums: multiple fields set for oneof o")
-				}
-				oneofs[0] = true
-			case 1, 2:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.ClosedEnums", "array"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginArray
-				continue
-			case 3:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.ClosedEnums", "object"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginObject
-				continue
-			}
-		} else {
-			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
-				if _, err := d.ReadToken(); err != nil {
-					return err
-				}
-				in = jsontext.KindInvalid
-				continue
-			}
-			if in == jsontext.KindBeginObject {
-				kt, err := d.ReadToken()
-				if err != nil {
-					return err
-				}
-				mk = kt.String()
-			}
-			if d.PeekKind() == jsontext.KindNull {
-				return errors.New("proto: cotorp.test.proto2.ClosedEnums: null is not allowed in repeated fields or map values")
-			}
-		}
-		class, bits, iv, tok := proto2ClosedEnumsJSONClasses[f][0], proto2ClosedEnumsJSONClasses[f][1], int64(0), jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-			if class == proto2ClassEnum {
-				class, bits = proto2EnumClass(tok.Kind())
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.ClosedEnums")
-		}
+	seen, oneofs := [5]bool{}, [1]bool{}
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.ClosedEnums"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
-			if err != nil {
-				return err
-			}
-			m.Single = new(ev)
-		case 1:
-			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
-			if err != nil {
-				return err
-			}
-			m.Rep = append(m.Rep, ev)
-		case 2:
-			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
-			if err != nil {
-				return err
-			}
-			m.Packed = append(m.Packed, ev)
-		case 3:
-			k, err := proto2ParseIntKey(mk, 32, "cotorp.test.proto2.ClosedEnums", "by_key")
-			if err != nil {
-				return err
-			}
-			ev, err := proto2ParseEnum[ClosedZero](class, tok, iv, ClosedZero_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.ClosedZero")
-			if err != nil {
-				return err
-			}
-			proto2MapSet(&m.ByKey, int32(k), ev)
-		case 4:
-			ev, err := proto2ParseEnum[Closed](class, tok, iv, Closed_value, "cotorp.test.proto2.ClosedEnums", "cotorp.test.proto2.Closed")
-			if err != nil {
-				return err
-			}
-			m.O = &ClosedEnums_InOneof{InOneof: ev}
+		switch key := kt.String(); key {
+		case "single":
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.ClosedEnums", &m.Single, proto2ClosedJSON)
+		case "rep":
+			err = proto2RepField(d, &seen[1], key, "cotorp.test.proto2.ClosedEnums", &m.Rep, false, proto2ClosedJSON)
+		case "packed":
+			err = proto2RepField(d, &seen[2], key, "cotorp.test.proto2.ClosedEnums", &m.Packed, false, proto2ClosedJSON)
+		case "byKey", "by_key":
+			err = proto2MapField(d, &seen[3], key, "cotorp.test.proto2.ClosedEnums", "by_key", &m.ByKey, false, proto2IntKey, proto2ClosedZeroJSON)
+		case "inOneof", "in_oneof":
+			o := new(ClosedEnums_InOneof)
+			err = proto2OneofField(d, &seen[4], &oneofs[0], key, "cotorp.test.proto2.ClosedEnums", "o", &m.O, isClosedEnums_O(o), &o.InOneof, false, proto2ClosedJSON)
+		default:
+			return errors.New("proto: cotorp.test.proto2.ClosedEnums: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
 
-var proto2ClosedEnumsJSONClasses = [5][2]int{{proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}, {proto2ClassEnum, 64}}
+func proto2ClosedZeroJSON(d *jsontext.Decoder, p *ClosedZero, name string) error {
+	return proto2JSONEnum(d, p, ClosedZero_value, name, "cotorp.test.proto2.ClosedZero", false)
+}
 
 type Packed struct {
 	PInt32   []int32
@@ -3068,64 +1733,28 @@ type Packed struct {
 }
 
 // Reset clears all fields of m.
-func (m *Packed) Reset() { *m = Packed{} }
+func (m *Packed) Reset()                { *m = Packed{} }
+func (m *Packed) z() *Packed            { return proto2If(m == nil, &proto2ZeroPacked, m) }
+func (m *Packed) GetPInt32() []int32    { return m.z().PInt32 }
+func (m *Packed) GetPSint64() []int64   { return m.z().PSint64 }
+func (m *Packed) GetPFixed32() []uint32 { return m.z().PFixed32 }
+func (m *Packed) GetPDouble() []float64 { return m.z().PDouble }
+func (m *Packed) GetPBool() []bool      { return m.z().PBool }
+func (m *Packed) GetUInt32() []int32    { return m.z().UInt32 }
 
-func (m *Packed) GetPInt32() []int32 {
-	return proto2Get(m, func(m *Packed) []int32 { return m.PInt32 })
-}
-func (m *Packed) GetPSint64() []int64 {
-	return proto2Get(m, func(m *Packed) []int64 { return m.PSint64 })
-}
-func (m *Packed) GetPFixed32() []uint32 {
-	return proto2Get(m, func(m *Packed) []uint32 { return m.PFixed32 })
-}
-func (m *Packed) GetPDouble() []float64 {
-	return proto2Get(m, func(m *Packed) []float64 { return m.PDouble })
-}
-func (m *Packed) GetPBool() []bool { return proto2Get(m, func(m *Packed) []bool { return m.PBool }) }
-func (m *Packed) GetUInt32() []int32 {
-	return proto2Get(m, func(m *Packed) []int32 { return m.UInt32 })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Packed) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Packed) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Packed) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Packed) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if len(m.PInt32) > 0 {
-		l := 0
-		for _, v := range m.PInt32 {
-			l += (bits.Len64(uint64(int64(v))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-		}
-		n += 1 + proto2SizeLen(l)
-	}
-	if len(m.PSint64) > 0 {
-		l := 0
-		for _, v := range m.PSint64 {
-			l += (bits.Len64((uint64((v)<<1)^uint64((v)>>63))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
-		}
-		n += 1 + proto2SizeLen(l)
-	}
-	if len(m.PFixed32) > 0 {
-		n += 1 + proto2SizeLen(len(m.PFixed32)*proto2Fixed32Size)
-	}
-	if len(m.PDouble) > 0 {
-		n += 1 + proto2SizeLen(len(m.PDouble)*proto2Fixed64Size)
-	}
-	if len(m.PBool) > 0 {
-		n += 1 + proto2SizeLen(len(m.PBool))
-	}
-	for _, v := range m.UInt32 {
-		n += 1 + (bits.Len64(uint64(int64(v))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizePacked(1, m.PInt32, proto2VarintLen)
+	n += proto2SizePacked(1, m.PSint64, proto2Sint64Len)
+	n += proto2SizeLenField(1, len(m.PFixed32)*proto2Fixed32Size)
+	n += proto2SizeLenField(1, len(m.PDouble)*proto2Fixed64Size)
+	n += proto2SizeLenField(1, len(m.PBool))
+	n += proto2SizeEach(1, m.UInt32, proto2VarintLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3133,23 +1762,13 @@ func (m *Packed) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Packed) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	for _, v := range slices.Backward(m.UInt32) {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64(v))), 6<<proto2TagTypeBits|proto2WireVarint)
 	}
@@ -3191,356 +1810,119 @@ func (m *Packed) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Packed) UnmarshalBinary(b []byte) error {
-	*m = Packed{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Packed) UnmarshalBinary(b []byte) error { *m = Packed{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Packed) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Packed) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			for len(v) > 0 {
-				x, n := binary.Uvarint(v)
-				if n <= 0 {
-					goto errParse
-				}
-				v, m.PInt32 = v[n:], append(m.PInt32, int32(x))
-			}
+			n = proto2PackedVarint(b, &m.PInt32)
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.PInt32 = b[n:], append(m.PInt32, int32(x))
+			n = proto2Varint(b, proto2Grow(&m.PInt32))
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			for len(v) > 0 {
-				x, n := binary.Uvarint(v)
-				if n <= 0 {
-					goto errParse
-				}
-				v, m.PSint64 = v[n:], append(m.PSint64, int64(x>>1)^-int64(x&1))
-			}
+			n = proto2PackedSint64(b, &m.PSint64)
 		case 2<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.PSint64 = b[n:], append(m.PSint64, int64(x>>1)^-int64(x&1))
+			n = proto2Sint64(b, proto2Grow(&m.PSint64))
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			if len(v)%proto2Fixed32Size != 0 {
-				goto errParse
-			}
-			if m.PFixed32 == nil {
-				m.PFixed32 = make([]uint32, 0, len(v)/proto2Fixed32Size)
-			}
-			for len(v) > 0 {
-				if len(v) < proto2Fixed32Size {
-					goto errParse
-				}
-				v, m.PFixed32 = v[proto2Fixed32Size:], append(m.PFixed32, binary.LittleEndian.Uint32(v))
-			}
+			n = proto2PackedFixed32(b, &m.PFixed32)
 		case 3<<proto2TagTypeBits | proto2WireFixed32:
-			if len(b) < proto2Fixed32Size {
-				goto errParse
-			}
-			b, m.PFixed32 = b[proto2Fixed32Size:], append(m.PFixed32, binary.LittleEndian.Uint32(b))
+			n = proto2Fixed32(b, proto2Grow(&m.PFixed32))
 		case 4<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			if len(v)%proto2Fixed64Size != 0 {
-				goto errParse
-			}
-			if m.PDouble == nil {
-				m.PDouble = make([]float64, 0, len(v)/proto2Fixed64Size)
-			}
-			for len(v) > 0 {
-				if len(v) < proto2Fixed64Size {
-					goto errParse
-				}
-				v, m.PDouble = v[proto2Fixed64Size:], append(m.PDouble, math.Float64frombits(binary.LittleEndian.Uint64(v)))
-			}
+			n = proto2PackedDouble(b, &m.PDouble)
 		case 4<<proto2TagTypeBits | proto2WireFixed64:
-			if len(b) < proto2Fixed64Size {
-				goto errParse
-			}
-			b, m.PDouble = b[proto2Fixed64Size:], append(m.PDouble, math.Float64frombits(binary.LittleEndian.Uint64(b)))
+			n = proto2Double(b, proto2Grow(&m.PDouble))
 		case 5<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			for len(v) > 0 {
-				x, n := binary.Uvarint(v)
-				if n <= 0 {
-					goto errParse
-				}
-				v, m.PBool = v[n:], append(m.PBool, x != 0)
-			}
+			n = proto2PackedBool(b, &m.PBool)
 		case 5<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.PBool = b[n:], append(m.PBool, x != 0)
+			n = proto2Bool(b, proto2Grow(&m.PBool))
 		case 6<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b = b[n:]
-			for len(v) > 0 {
-				x, n := binary.Uvarint(v)
-				if n <= 0 {
-					goto errParse
-				}
-				v, m.UInt32 = v[n:], append(m.UInt32, int32(x))
-			}
+			n = proto2PackedVarint(b, &m.UInt32)
 		case 6<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.UInt32 = b[n:], append(m.UInt32, int32(x))
+			n = proto2Varint(b, proto2Grow(&m.UInt32))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Packed) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Packed) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Packed) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Packed) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
-	if len(m.PInt32) > 0 {
-		b = append(b, ",\"pInt32\":["...)
-		for j := range m.PInt32 {
-			b = append(strconv.AppendInt(b, int64(m.PInt32[j]), 10), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.PSint64) > 0 {
-		b = append(b, ",\"pSint64\":["...)
-		for j := range m.PSint64 {
-			b = append(append(strconv.AppendInt(append(b, '"'), m.PSint64[j], 10), '"'), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.PFixed32) > 0 {
-		b = append(b, ",\"pFixed32\":["...)
-		for j := range m.PFixed32 {
-			b = append(strconv.AppendUint(b, uint64(m.PFixed32[j]), 10), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.PDouble) > 0 {
-		b = append(b, ",\"pDouble\":["...)
-		for j := range m.PDouble {
-			b = append(proto2AppendFloat(b, m.PDouble[j], 64), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.PBool) > 0 {
-		b = append(b, ",\"pBool\":["...)
-		for j := range m.PBool {
-			b = append(strconv.AppendBool(b, m.PBool[j]), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if len(m.UInt32) > 0 {
-		b = append(b, ",\"uInt32\":["...)
-		for j := range m.UInt32 {
-			b = append(strconv.AppendInt(b, int64(m.UInt32[j]), 10), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	return proto2CloseObject(b, start), nil
+	var err error
+	m, start := m.z(), len(b)
+	b, err = proto2AppendList(b, ",\"pInt32\":[", m.PInt32, func(v int32, b []byte) ([]byte, error) { return strconv.AppendInt(b, int64(v), 10), nil }, err)
+	b, err = proto2AppendList(b, ",\"pSint64\":[", m.PSint64, func(v int64, b []byte) ([]byte, error) {
+		return append(strconv.AppendInt(append(b, '"'), v, 10), '"'), nil
+	}, err)
+	b, err = proto2AppendList(b, ",\"pFixed32\":[", m.PFixed32, func(v uint32, b []byte) ([]byte, error) { return strconv.AppendUint(b, uint64(v), 10), nil }, err)
+	b, err = proto2AppendList(b, ",\"pDouble\":[", m.PDouble, func(v float64, b []byte) ([]byte, error) { return proto2AppendFloat(b, v, 64), nil }, err)
+	b, err = proto2AppendList(b, ",\"pBool\":[", m.PBool, func(v bool, b []byte) ([]byte, error) { return strconv.AppendBool(b, v), nil }, err)
+	b, err = proto2AppendList(b, ",\"uInt32\":[", m.UInt32, func(v int32, b []byte) ([]byte, error) { return strconv.AppendInt(b, int64(v), 10), nil }, err)
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Packed) UnmarshalJSON(b []byte) error {
-	*m = Packed{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Packed) UnmarshalJSON(b []byte) error { *m = Packed{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Packed) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Packed")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Packed", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Packed) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Packed{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Packed) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Packed", "object")
-	if !ok {
-		return err
-	}
-	seen, in, f := [6]bool{}, jsontext.KindInvalid, 0
-	for {
-		if in == jsontext.KindInvalid {
-			kt, more, err := proto2NextKey(d)
-			if !more {
-				return err
-			}
-			key := kt.String()
-			switch key {
-			case "pInt32", "p_int32":
-				f = 0
-			case "pSint64", "p_sint64":
-				f = 1
-			case "pFixed32", "p_fixed32":
-				f = 2
-			case "pDouble", "p_double":
-				f = 3
-			case "pBool", "p_bool":
-				f = 4
-			case "uInt32", "u_int32":
-				f = 5
-			default:
-				return errors.New("proto: cotorp.test.proto2.Packed: unknown field " + strconv.Quote(key))
-			}
-			if seen[f] {
-				return errors.New("proto: cotorp.test.proto2.Packed: duplicate field " + strconv.Quote(key))
-			}
-			seen[f] = true
-			if d.PeekKind() == jsontext.KindNull {
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			switch f {
-			case 0, 1, 2, 3, 4, 5:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Packed", "array"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginArray
-				continue
-			}
-		} else {
-			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
-				if _, err := d.ReadToken(); err != nil {
-					return err
-				}
-				in = jsontext.KindInvalid
-				continue
-			}
-			if d.PeekKind() == jsontext.KindNull {
-				return errors.New("proto: cotorp.test.proto2.Packed: null is not allowed in repeated fields or map values")
-			}
-		}
-		class, bits, iv, uv, fv, bv, tok := proto2PackedJSONClasses[f][0], proto2PackedJSONClasses[f][1], int64(0), uint64(0), float64(0), false, jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Packed")
-		case proto2ClassUnsigned:
-			uv, err = proto2ParseUint(tok, bits, "cotorp.test.proto2.Packed")
-		case proto2ClassFloat:
-			fv, err = proto2ParseFloat(tok, bits, "cotorp.test.proto2.Packed")
-		case proto2ClassBool:
-			bv, err = proto2ParseBool(tok, "cotorp.test.proto2.Packed")
-		}
+	var seen [6]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Packed"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.PInt32 = append(m.PInt32, int32(iv))
-		case 1:
-			m.PSint64 = append(m.PSint64, iv)
-		case 2:
-			m.PFixed32 = append(m.PFixed32, uint32(uv))
-		case 3:
-			m.PDouble = append(m.PDouble, fv)
-		case 4:
-			m.PBool = append(m.PBool, bv)
-		case 5:
-			m.UInt32 = append(m.UInt32, int32(iv))
+		switch key := kt.String(); key {
+		case "pInt32", "p_int32":
+			err = proto2RepField(d, &seen[0], key, "cotorp.test.proto2.Packed", &m.PInt32, false, proto2JSONInt)
+		case "pSint64", "p_sint64":
+			err = proto2RepField(d, &seen[1], key, "cotorp.test.proto2.Packed", &m.PSint64, false, proto2JSONInt)
+		case "pFixed32", "p_fixed32":
+			err = proto2RepField(d, &seen[2], key, "cotorp.test.proto2.Packed", &m.PFixed32, false, proto2JSONUint)
+		case "pDouble", "p_double":
+			err = proto2RepField(d, &seen[3], key, "cotorp.test.proto2.Packed", &m.PDouble, false, proto2JSONFloat)
+		case "pBool", "p_bool":
+			err = proto2RepField(d, &seen[4], key, "cotorp.test.proto2.Packed", &m.PBool, false, proto2JSONBool)
+		case "uInt32", "u_int32":
+			err = proto2RepField(d, &seen[5], key, "cotorp.test.proto2.Packed", &m.UInt32, false, proto2JSONInt)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Packed: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var proto2PackedJSONClasses = [6][2]int{{proto2ClassSigned, 32}, {proto2ClassSigned, 64}, {proto2ClassUnsigned, 32}, {proto2ClassFloat, 64}, {proto2ClassBool, 64}, {proto2ClassSigned, 32}}
 
 type Extendable struct {
 	Known *int32
@@ -3549,28 +1931,18 @@ type Extendable struct {
 }
 
 // Reset clears all fields of m.
-func (m *Extendable) Reset() { *m = Extendable{} }
+func (m *Extendable) Reset()          { *m = Extendable{} }
+func (m *Extendable) z() *Extendable  { return proto2If(m == nil, &proto2ZeroExtendable, m) }
+func (m *Extendable) GetKnown() int32 { return proto2Deref(m.z().Known, 0) }
 
-func (m *Extendable) GetKnown() int32 {
-	return proto2GetOr(m, func(m *Extendable) *int32 { return m.Known }, 0)
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Extendable) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Extendable) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Extendable) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Extendable) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Known != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.Known)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOpt(1, m.Known, proto2VarintLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3578,170 +1950,96 @@ func (m *Extendable) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Extendable) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Extendable) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.Known != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.Known)))), 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Extendable) UnmarshalBinary(b []byte) error {
 	*m = Extendable{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Extendable) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Extendable) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Known = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.Known))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Extendable) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Extendable) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Extendable) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Extendable) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.Known != nil {
 		b = strconv.AppendInt(append(b, ",\"known\":"...), int64((*m.Known)), 10)
 	}
 	return proto2CloseObject(b, start), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Extendable) UnmarshalJSON(b []byte) error {
-	*m = Extendable{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Extendable) UnmarshalJSON(b []byte) error { *m = Extendable{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Extendable) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Extendable")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Extendable", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Extendable) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Extendable{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Extendable) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Extendable", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [1]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
+	var seen [1]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Extendable"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
+		if err != nil {
 			return err
 		}
-		key := kt.String()
-		switch key {
+		switch key := kt.String(); key {
 		case "known":
-			f = 0
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Extendable", &m.Known, proto2JSONInt)
 		default:
 			return errors.New("proto: cotorp.test.proto2.Extendable: unknown field " + strconv.Quote(key))
 		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.Extendable: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv := proto2ClassSigned, 32, int64(0)
-		tok, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.Extendable")
-		}
-		if err != nil {
-			return err
-		}
-		m.Known = new(int32(iv))
 	}
+	return nil
 }
 
 type Scope struct {
@@ -3749,21 +2047,16 @@ type Scope struct {
 }
 
 // Reset clears all fields of m.
-func (m *Scope) Reset() { *m = Scope{} }
+func (m *Scope) Reset()    { *m = Scope{} }
+func (m *Scope) z() *Scope { return proto2If(m == nil, &proto2ZeroScope, m) }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Scope) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Scope) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Scope) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Scope) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3771,123 +2064,76 @@ func (m *Scope) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Scope) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Scope) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Scope) UnmarshalBinary(b []byte) error {
-	*m = Scope{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Scope) UnmarshalBinary(b []byte) error { *m = Scope{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Scope) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Scope) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err := proto2SkipField(b, t, depth)
-		if err != nil {
-			return err
+		n, err = proto2Unknown(b, t, depth, &m.unknownFields)
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Scope) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Scope) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Scope) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Scope) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	return proto2CloseObject(b, start), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Scope) UnmarshalJSON(b []byte) error {
-	*m = Scope{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Scope) UnmarshalJSON(b []byte) error { *m = Scope{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Scope) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Scope")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Scope", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Scope) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Scope{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Scope) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Scope", "object")
-	if !ok {
-		return err
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Scope"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
+		if err != nil {
+			return err
+		}
+		return errors.New("proto: cotorp.test.proto2.Scope: unknown field " + strconv.Quote(kt.String()))
 	}
-	kt, more, err := proto2NextKey(d)
-	if !more {
-		return err
-	}
-	return errors.New("proto: cotorp.test.proto2.Scope: unknown field " + strconv.Quote(kt.String()))
+	return nil
 }
 
 type Proto2Strings struct {
@@ -3900,40 +2146,22 @@ type Proto2Strings struct {
 }
 
 // Reset clears all fields of m.
-func (m *Proto2Strings) Reset() { *m = Proto2Strings{} }
+func (m *Proto2Strings) Reset()                      { *m = Proto2Strings{} }
+func (m *Proto2Strings) z() *Proto2Strings           { return proto2If(m == nil, &proto2ZeroProto2Strings, m) }
+func (m *Proto2Strings) GetS() string                { return proto2Deref(m.z().S, "") }
+func (m *Proto2Strings) GetRs() []string             { return m.z().Rs }
+func (m *Proto2Strings) GetShared() *commonpb.Shared { return m.z().Shared }
 
-func (m *Proto2Strings) GetS() string {
-	return proto2GetOr(m, func(m *Proto2Strings) *string { return m.S }, "")
-}
-func (m *Proto2Strings) GetRs() []string {
-	return proto2Get(m, func(m *Proto2Strings) []string { return m.Rs })
-}
-func (m *Proto2Strings) GetShared() *commonpb.Shared {
-	return proto2Get(m, func(m *Proto2Strings) *commonpb.Shared { return m.Shared })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Proto2Strings) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *Proto2Strings) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Proto2Strings) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Proto2Strings) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.S != nil {
-		n += 1 + proto2SizeLen(len((*m.S)))
-	}
-	for _, v := range m.Rs {
-		n += 1 + proto2SizeLen(len(v))
-	}
-	if m.Shared != nil {
-		n += 1 + proto2SizeLen(m.Shared.ProtoSize())
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOpt(1, m.S, proto2BytesLen)
+	n += proto2SizeEach(1, m.Rs, proto2BytesLen)
+	n += proto2SizeMsg(1, m.Shared, func(v *commonpb.Shared) int { return v.ProtoSize() })
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -3941,23 +2169,13 @@ func (m *Proto2Strings) MarshalBinary() ([]byte, error) { return m.AppendBinary(
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Proto2Strings) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.Shared != nil {
 		n, err := m.Shared.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -3974,218 +2192,99 @@ func (m *Proto2Strings) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Proto2Strings) UnmarshalBinary(b []byte) error {
 	*m = Proto2Strings{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Proto2Strings) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Proto2Strings) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireBytes:
-			x, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.S = b[n:], new(string(x))
+			n, err = proto2String(b, proto2New(&m.S), "")
 		case 2<<proto2TagTypeBits | proto2WireBytes:
-			x, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.Rs = b[n:], append(m.Rs, string(x))
+			n, err = proto2String(b, proto2Grow(&m.Rs), "")
 		case 3<<proto2TagTypeBits | proto2WireBytes:
-			v, n := proto2ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if err := proto2Alloc(&m.Shared).ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n = proto2ReadBytes(b)
+			err = proto2Alloc(&m.Shared).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Proto2Strings) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Proto2Strings) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Proto2Strings) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Proto2Strings) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.S != nil {
-		if b, err = jsontext.AppendQuote(append(b, ",\"s\":"...), (*m.S)); err != nil {
-			return nil, errors.New("proto: cotorp.test.proto2.Proto2Strings.s contains invalid UTF-8")
-		}
+		b, err = proto2Quote(append(b, ",\"s\":"...), (*m.S), err)
 	}
-	if len(m.Rs) > 0 {
-		b = append(b, ",\"rs\":["...)
-		for j := range m.Rs {
-			if b, err = jsontext.AppendQuote(b, m.Rs[j]); err != nil {
-				return nil, errors.New("proto: cotorp.test.proto2.Proto2Strings.rs contains invalid UTF-8")
-			}
-			b = append(b, ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	if m.Shared != nil {
-		if b, err = m.Shared.ProtoAppendJSON(append(b, ",\"shared\":"...)); err != nil {
-			return nil, err
-		}
-	}
-	return proto2CloseObject(b, start), nil
+	b, err = proto2AppendList(b, ",\"rs\":[", m.Rs, func(v string, b []byte) ([]byte, error) { return jsontext.AppendQuote(b, v) }, err)
+	b, err = proto2AppendMsg(b, ",\"shared\":", m.Shared, func(v *commonpb.Shared, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
+	return proto2CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Proto2Strings) UnmarshalJSON(b []byte) error {
 	*m = Proto2Strings{}
 	return m.ProtoMergeJSON(b)
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Proto2Strings) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.Proto2Strings")
+	return proto2MergeJSON(b, "cotorp.test.proto2.Proto2Strings", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Proto2Strings) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Proto2Strings{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Proto2Strings) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.Proto2Strings", "object")
-	if !ok {
-		return err
-	}
-	seen, in, f := [3]bool{}, jsontext.KindInvalid, 0
-	for {
-		if in == jsontext.KindInvalid {
-			kt, more, err := proto2NextKey(d)
-			if !more {
-				return err
-			}
-			key := kt.String()
-			switch key {
-			case "s":
-				f = 0
-			case "rs":
-				f = 1
-			case "shared":
-				f = 2
-			default:
-				return errors.New("proto: cotorp.test.proto2.Proto2Strings: unknown field " + strconv.Quote(key))
-			}
-			if seen[f] {
-				return errors.New("proto: cotorp.test.proto2.Proto2Strings: duplicate field " + strconv.Quote(key))
-			}
-			seen[f] = true
-			if d.PeekKind() == jsontext.KindNull {
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			switch f {
-			case 1:
-				if err := proto2ExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.proto2.Proto2Strings", "array"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginArray
-				continue
-			}
-		} else {
-			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
-				if _, err := d.ReadToken(); err != nil {
-					return err
-				}
-				in = jsontext.KindInvalid
-				continue
-			}
-			if d.PeekKind() == jsontext.KindNull {
-				return errors.New("proto: cotorp.test.proto2.Proto2Strings: null is not allowed in repeated fields or map values")
-			}
-		}
-		class, sv, tok := proto2Proto2StringsJSONClasses[f], "", jsontext.Token{}
-		if class != proto2ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case proto2ClassString:
-			sv, err = proto2ParseString(tok, "cotorp.test.proto2.Proto2Strings")
-		}
+	var seen [3]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.Proto2Strings"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.S = new(sv)
-		case 1:
-			m.Rs = append(m.Rs, sv)
-		case 2:
-			if err := proto2Alloc(&m.Shared).ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
+		switch key := kt.String(); key {
+		case "s":
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.Proto2Strings", &m.S, proto2JSONString)
+		case "rs":
+			err = proto2RepField(d, &seen[1], key, "cotorp.test.proto2.Proto2Strings", &m.Rs, false, proto2JSONString)
+		case "shared":
+			err = proto2Field(d, &seen[2], key, "cotorp.test.proto2.Proto2Strings", &m.Shared, proto2JSONMsg)
+		default:
+			return errors.New("proto: cotorp.test.proto2.Proto2Strings: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var proto2Proto2StringsJSONClasses = [3]int{proto2ClassString, proto2ClassString, proto2ClassNone}
 
 type ExtGroup struct {
 	G *int32
@@ -4194,26 +2293,18 @@ type ExtGroup struct {
 }
 
 // Reset clears all fields of m.
-func (m *ExtGroup) Reset() { *m = ExtGroup{} }
+func (m *ExtGroup) Reset()       { *m = ExtGroup{} }
+func (m *ExtGroup) z() *ExtGroup { return proto2If(m == nil, &proto2ZeroExtGroup, m) }
+func (m *ExtGroup) GetG() int32  { return proto2Deref(m.z().G, 0) }
 
-func (m *ExtGroup) GetG() int32 { return proto2GetOr(m, func(m *ExtGroup) *int32 { return m.G }, 0) }
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *ExtGroup) ProtoUnknownFields() []byte {
-	return proto2Get(m, func(m *ExtGroup) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *ExtGroup) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *ExtGroup) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.G != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.G)))|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += proto2SizeOpt(1, m.G, proto2VarintLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -4221,172 +2312,178 @@ func (m *ExtGroup) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) 
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *ExtGroup) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return proto2Appended(b, size, n, err)
+	return proto2AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *ExtGroup) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := proto2CopyUnknown(b, len(b), m.unknownFields)
 	if m.G != nil {
 		i = proto2PutVarint(b, proto2PutVarint(b, i, uint64(int64((*m.G)))), 1<<proto2TagTypeBits|proto2WireVarint)
 	}
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *ExtGroup) UnmarshalBinary(b []byte) error {
-	*m = ExtGroup{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *ExtGroup) UnmarshalBinary(b []byte) error { *m = ExtGroup{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *ExtGroup) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *ExtGroup) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= proto2MaxDepth {
-		return errors.New(proto2ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := proto2Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<proto2TagTypeBits | proto2WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.G = b[n:], new(int32(x))
+			n = proto2Varint(b, proto2New(&m.G))
 		default:
-			n, err := proto2SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = proto2Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(proto2ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(proto2ErrParse)
+	return proto2End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *ExtGroup) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *ExtGroup) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *ExtGroup) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return proto2WriteJSON(e, b, err)
+	return proto2MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *ExtGroup) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.G != nil {
 		b = strconv.AppendInt(append(b, ",\"g\":"...), int64((*m.G)), 10)
 	}
 	return proto2CloseObject(b, start), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *ExtGroup) UnmarshalJSON(b []byte) error {
-	*m = ExtGroup{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *ExtGroup) UnmarshalJSON(b []byte) error { *m = ExtGroup{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *ExtGroup) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return proto2EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.proto2.ExtGroup")
+	return proto2MergeJSON(b, "cotorp.test.proto2.ExtGroup", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *ExtGroup) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := proto2StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = ExtGroup{}
-	return m.ProtoMergeJSONFrom(d)
+	return proto2MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *ExtGroup) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := proto2OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.proto2.ExtGroup", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [1]bool{}, 0
-	for {
-		kt, more, err := proto2NextKey(d)
-		if !more {
+	var seen [1]bool
+	for kt, err := proto2OpenObject(d, "cotorp.test.proto2.ExtGroup"); kt.Kind() != jsontext.KindEndObject; kt, err = proto2NextKey(d, err) {
+		if err != nil {
 			return err
 		}
-		key := kt.String()
-		switch key {
+		switch key := kt.String(); key {
 		case "g":
-			f = 0
+			err = proto2OptField(d, &seen[0], key, "cotorp.test.proto2.ExtGroup", &m.G, proto2JSONInt)
 		default:
 			return errors.New("proto: cotorp.test.proto2.ExtGroup: unknown field " + strconv.Quote(key))
 		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.proto2.ExtGroup: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv := proto2ClassSigned, 32, int64(0)
-		tok, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		switch class {
-		case proto2ClassSigned:
-			iv, err = proto2ParseInt(tok, bits, "cotorp.test.proto2.ExtGroup")
-		}
-		if err != nil {
-			return err
-		}
-		m.G = new(int32(iv))
 	}
+	return nil
 }
 
+var (
+	proto2ZeroDefaults             Defaults
+	proto2ZeroRequired             Required
+	proto2ZeroRequired_Inner       Required_Inner
+	proto2ZeroGroups               Groups
+	proto2ZeroGroups_OptGroup      Groups_OptGroup
+	proto2ZeroGroups_RepGroup      Groups_RepGroup
+	proto2ZeroGroups_RepGroup_Deep Groups_RepGroup_Deep
+	proto2ZeroClosedEnums          ClosedEnums
+	proto2ZeroPacked               Packed
+	proto2ZeroExtendable           Extendable
+	proto2ZeroScope                Scope
+	proto2ZeroProto2Strings        Proto2Strings
+	proto2ZeroExtGroup             ExtGroup
+)
+
+func proto2SizeLen(l int) int           { return l + proto2VarintLen(l) }
+func proto2SizeLenField(tag, l int) int { return proto2If(l == 0, 0, tag+proto2SizeLen(l)) }
+func proto2SizePresentBytes(tag int, v []byte) int {
+	return proto2If(v == nil, 0, tag+proto2SizeLen(len(v)))
+}
+func proto2SizeMsg[T any](tag int, p *T, size func(*T) int) int {
+	if p == nil {
+		return 0
+	}
+	return tag + proto2SizeLen(size(p))
+}
+func proto2SizeMsgs[T any](tag int, s []*T, size func(*T) int) (n int) {
+	for _, v := range s {
+		n += tag + proto2SizeLen(size(v))
+	}
+	return n
+}
+func proto2SizeOpt[T any](tag int, p *T, size func(T) int) int {
+	if p == nil {
+		return 0
+	}
+	return tag + size(*p)
+}
+func proto2SizeOptFixed[T any](tag, size int, p *T) int { return proto2If(p == nil, 0, tag+size) }
+func proto2SizePacked[T any](tag int, s []T, size func(T) int) int {
+	if len(s) == 0 {
+		return 0
+	}
+	l := 0
+	for _, v := range s {
+		l += size(v)
+	}
+	return tag + proto2SizeLen(l)
+}
+func proto2SizeEach[T any](tag int, s []T, size func(T) int) (n int) {
+	for _, v := range s {
+		n += tag + size(v)
+	}
+	return n
+}
+func proto2VarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+}
+func proto2Sint32Len(v int32) int {
+	return (bits.Len64(uint64(uint32((v)<<1)^uint32((v)>>31))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+}
+func proto2Sint64Len(v int64) int {
+	return (bits.Len64((uint64((v)<<1)^uint64((v)>>63))|1) + proto2VarintPayloadBits - 1) / proto2VarintPayloadBits
+}
+func proto2BytesLen[T ~string | ~[]byte](v T) int { return proto2SizeLen(len(v)) }
+func proto2CopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
+	}
+	return i
+}
+func proto2AppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
 func proto2PutVarint(b []byte, i int, u uint64) int {
 	if u < proto2VarintContBit {
 		b[i-1] = byte(u)
@@ -4396,17 +2493,14 @@ func proto2PutVarint(b []byte, i int, u uint64) int {
 	binary.PutUvarint(b[i:], u)
 	return i
 }
-
 func proto2PutFixed32(b []byte, i int, u uint32) int {
 	binary.LittleEndian.PutUint32(b[i-proto2Fixed32Size:], u)
 	return i - proto2Fixed32Size
 }
-
 func proto2PutFixed64(b []byte, i int, u uint64) int {
 	binary.LittleEndian.PutUint64(b[i-proto2Fixed64Size:], u)
 	return i - proto2Fixed64Size
 }
-
 func proto2PutBool(b []byte, i int, v bool) int {
 	b[i-1] = 0
 	if v {
@@ -4414,85 +2508,6 @@ func proto2PutBool(b []byte, i int, v bool) int {
 	}
 	return i - 1
 }
-
-func proto2SizeLen(l int) int {
-	return l + (bits.Len64(uint64(l)|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits
-}
-
-func proto2ReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-
-func proto2SkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & proto2TagTypeMask {
-	case proto2WireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case proto2WireFixed64:
-		if len(b) >= proto2Fixed64Size {
-			return proto2Fixed64Size, nil
-		}
-	case proto2WireBytes:
-		if _, n := proto2ReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case proto2WireStartGroup:
-		return proto2SkipGroup(b, int32(t>>proto2TagTypeBits), depth)
-	case proto2WireFixed32:
-		if len(b) >= proto2Fixed32Size {
-			return proto2Fixed32Size, nil
-		}
-	}
-	return 0, errors.New(proto2ErrParse)
-}
-
-func proto2SkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [proto2SkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > proto2MaxDepth {
-			return 0, errors.New(proto2ErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>proto2TagTypeBits == 0 || t>>proto2TagTypeBits > proto2MaxFieldNumber {
-			return 0, errors.New(proto2ErrParse)
-		}
-		n += k
-		switch t & proto2TagTypeMask {
-		case proto2WireStartGroup:
-			open = append(open, int32(t>>proto2TagTypeBits))
-		case proto2WireEndGroup:
-			if open[len(open)-1] != int32(t>>proto2TagTypeBits) {
-				return 0, errors.New(proto2ErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := proto2SkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func proto2Appended(b []byte, size, n int, err error) ([]byte, error) {
-	if err == nil && n != size {
-		err = errors.New("proto: message size changed during marshal")
-	}
-	if err != nil {
-		return b, err
-	}
-	return b[:len(b)+size], nil
-}
-
 func proto2SortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	for k := range m {
 		keys = append(keys, k)
@@ -4500,37 +2515,257 @@ func proto2SortedKeys[K cmp.Ordered, V any](m map[K]V, keys []K) []K {
 	slices.Sort(keys)
 	return keys
 }
-
-func proto2Get[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func proto2If[T any](c bool, a, b T) T {
+	if c {
+		return a
 	}
-	return t
+	return b
 }
-
-func proto2GetOr[M, T any](m *M, f func(*M) *T, def T) T {
-	if m != nil {
-		if p := f(m); p != nil {
-			return *p
+func proto2Depth(depth int) error {
+	if depth >= proto2MaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func proto2ReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func proto2SkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>proto2TagTypeBits
+	switch wt := t & proto2TagTypeMask; {
+	case num == 0 || num > proto2MaxFieldNumber:
+	case wt == proto2WireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == proto2WireBytes:
+		_, n = proto2ReadBytes(b)
+	case wt == proto2WireStartGroup:
+		return proto2SkipGroup(b, int32(num), depth+1)
+	case wt == proto2WireFixed64 || wt == proto2WireFixed32:
+		n = proto2If(wt == proto2WireFixed64, proto2Fixed64Size, proto2Fixed32Size)
+		n = proto2If(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(proto2ErrParse)
+	}
+	return n, nil
+}
+func proto2SkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, proto2Depth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(proto2ErrParse)
 		}
+		if n += k; t == uint64(num)<<proto2TagTypeBits|proto2WireEndGroup {
+			return n, nil
+		}
+		k, err = proto2SkipField(b[n:], t, depth)
+		n += k
 	}
-	return def
+	return 0, err
 }
-
+func proto2Unknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := proto2SkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func proto2End(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(proto2ErrParse)
+	}
+	return err
+}
+func proto2Varint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
+	u, n := binary.Uvarint(b)
+	*p = T(u)
+	return n
+}
+func proto2Sint32(b []byte, p *int32) int {
+	u, n := binary.Uvarint(b)
+	*p = int32(uint32(u)>>1) ^ -int32(u&1)
+	return n
+}
+func proto2Sint64(b []byte, p *int64) int {
+	u, n := binary.Uvarint(b)
+	*p = int64(u>>1) ^ -int64(u&1)
+	return n
+}
+func proto2Bool(b []byte, p *bool) int { u, n := binary.Uvarint(b); *p = u != 0; return n }
+func proto2Fixed32[T ~uint32 | ~int32](b []byte, p *T) int {
+	if len(b) < proto2Fixed32Size {
+		return -1
+	}
+	*p = T(binary.LittleEndian.Uint32(b))
+	return proto2Fixed32Size
+}
+func proto2Fixed64[T ~uint64 | ~int64](b []byte, p *T) int {
+	if len(b) < proto2Fixed64Size {
+		return -1
+	}
+	*p = T(binary.LittleEndian.Uint64(b))
+	return proto2Fixed64Size
+}
+func proto2Float(b []byte, p *float32) int {
+	if len(b) < proto2Fixed32Size {
+		return -1
+	}
+	*p = math.Float32frombits(binary.LittleEndian.Uint32(b))
+	return proto2Fixed32Size
+}
+func proto2Double(b []byte, p *float64) int {
+	if len(b) < proto2Fixed64Size {
+		return -1
+	}
+	*p = math.Float64frombits(binary.LittleEndian.Uint64(b))
+	return proto2Fixed64Size
+}
+func proto2Bytes(b []byte, p *[]byte) int {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1
+	}
+	*p = append([]byte{}, b[k:k+int(ln)]...)
+	return k + int(ln)
+}
+func proto2String(b []byte, p *string, errUTF8 string) (int, error) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1, nil
+	}
+	x := b[k : k+int(ln)]
+	if errUTF8 != "" && !utf8.Valid(x) {
+		return 0, errors.New(errUTF8)
+	}
+	*p = string(x)
+	return k + int(ln), nil
+}
+func proto2PackedVarint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, s *[]T) int {
+	x, n := proto2ReadBytes(b)
+	if n < 0 {
+		return -1
+	}
+	for len(x) > 0 {
+		u, k := binary.Uvarint(x)
+		if k <= 0 {
+			return -1
+		}
+		x, *s = x[k:], append(*s, T(u))
+	}
+	return n
+}
+func proto2PackedSint64(b []byte, s *[]int64) int {
+	x, n := proto2ReadBytes(b)
+	if n < 0 {
+		return -1
+	}
+	for len(x) > 0 {
+		u, k := binary.Uvarint(x)
+		if k <= 0 {
+			return -1
+		}
+		x, *s = x[k:], append(*s, int64(u>>1)^-int64(u&1))
+	}
+	return n
+}
+func proto2PackedBool(b []byte, s *[]bool) int {
+	x, n := proto2ReadBytes(b)
+	if n < 0 {
+		return -1
+	}
+	for len(x) > 0 {
+		u, k := binary.Uvarint(x)
+		if k <= 0 {
+			return -1
+		}
+		x, *s = x[k:], append(*s, u != 0)
+	}
+	return n
+}
+func proto2PackedFixed32[T ~uint32 | ~int32](b []byte, s *[]T) int {
+	x, n := proto2ReadBytes(b)
+	if n < 0 || len(x)%proto2Fixed32Size != 0 {
+		return -1
+	}
+	if *s == nil {
+		*s = make([]T, 0, len(x)/proto2Fixed32Size)
+	}
+	for ; len(x) > 0; x = x[proto2Fixed32Size:] {
+		*s = append(*s, T(binary.LittleEndian.Uint32(x)))
+	}
+	return n
+}
+func proto2PackedDouble(b []byte, s *[]float64) int {
+	x, n := proto2ReadBytes(b)
+	if n < 0 || len(x)%proto2Fixed64Size != 0 {
+		return -1
+	}
+	if *s == nil {
+		*s = make([]float64, 0, len(x)/proto2Fixed64Size)
+	}
+	for ; len(x) > 0; x = x[proto2Fixed64Size:] {
+		*s = append(*s, math.Float64frombits(binary.LittleEndian.Uint64(x)))
+	}
+	return n
+}
+func proto2ClosedEnum[E interface {
+	~int32
+	IsValid() bool
+}](b []byte, unk *[]byte, tag uint64, set func(E)) int {
+	u, n := binary.Uvarint(b)
+	if n <= 0 {
+		return -1
+	}
+	if e := E(u); e.IsValid() {
+		set(e)
+	} else {
+		*unk = append(binary.AppendUvarint(*unk, tag), b[:n]...)
+	}
+	return n
+}
+func proto2PackedClosedEnum[E interface {
+	~int32
+	IsValid() bool
+}](b []byte, unk *[]byte, tag uint64, set func(E)) int {
+	x, n := proto2ReadBytes(b)
+	if n < 0 {
+		return -1
+	}
+	for len(x) > 0 {
+		k := proto2ClosedEnum(x, unk, tag, set)
+		if k <= 0 {
+			return -1
+		}
+		x = x[k:]
+	}
+	return n
+}
+func proto2Group(b []byte, num int32, depth int) ([]byte, int, error) {
+	n, err := proto2SkipGroup(b, num, depth)
+	if err != nil {
+		return nil, 0, err
+	}
+	return b[:n-(bits.Len64(uint64(num)<<proto2TagTypeBits|proto2WireEndGroup|1)+proto2VarintPayloadBits-1)/proto2VarintPayloadBits], n, nil
+}
+func proto2New[T any](p **T) *T   { *p = new(T); return *p }
+func proto2Grow[T any](s *[]T) *T { var z T; *s = append(*s, z); return &(*s)[len(*s)-1] }
 func proto2Alloc[T any](p **T) *T {
 	if *p == nil {
 		*p = new(T)
 	}
 	return *p
 }
-
 func proto2MapSet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
 	}
 	(*m)[k] = v
 }
-
 func proto2Invert[K, V comparable](m map[K]V) map[V]K {
 	r := make(map[V]K, len(m))
 	for k, v := range m {
@@ -4538,21 +2773,31 @@ func proto2Invert[K, V comparable](m map[K]V) map[V]K {
 	}
 	return r
 }
-
 func proto2EnumString(names map[int32]string, v int32) string {
 	if s, ok := names[v]; ok {
 		return s
 	}
 	return strconv.Itoa(int(v))
 }
-
-func proto2WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func proto2Deref[T any](p *T, def T) T {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+func proto2BytesOr(v, def []byte) []byte {
+	if v != nil {
+		return v
+	}
+	return append([]byte(nil), def...)
+}
+func proto2MarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
 func proto2AppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	if s, ok := names[v]; ok {
 		b = append(b, '"')
@@ -4561,7 +2806,6 @@ func proto2AppendEnum(b []byte, v int32, names map[int32]string) []byte {
 	}
 	return strconv.AppendInt(b, int64(v), 10)
 }
-
 func proto2AppendFloat(b []byte, f float64, bits int) []byte {
 	switch {
 	case math.IsNaN(f):
@@ -4573,7 +2817,49 @@ func proto2AppendFloat(b []byte, f float64, bits int) []byte {
 	}
 	return jsontext.AppendFloat(b, f, bits)
 }
-
+func proto2Quote(b []byte, s string, err error) ([]byte, error) {
+	if err != nil {
+		return b, err
+	}
+	return jsontext.AppendQuote(b, s)
+}
+func proto2AppendMsg[T any](b []byte, lit string, p *T, f func(*T, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || p == nil {
+		return b, err
+	}
+	return f(p, append(b, lit...))
+}
+func proto2AppendList[T any](b []byte, lit string, s []T, f func(T, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || len(s) == 0 {
+		return b, err
+	}
+	b = append(b, lit...)
+	for _, v := range s {
+		if b, err = f(v, b); err != nil {
+			return b, err
+		}
+		b = append(b, ',')
+	}
+	b[len(b)-1] = ']'
+	return b, nil
+}
+func proto2AppendMap[K cmp.Ordered, V any](b []byte, lit string, m map[K]V, fk func(K, []byte) ([]byte, error), fv func(V, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || len(m) == 0 {
+		return b, err
+	}
+	b = append(b, lit...)
+	for _, k := range proto2SortedKeys(m, make([]K, 0, len(m))) {
+		if b, err = fk(k, b); err != nil {
+			return b, err
+		}
+		if b, err = fv(m[k], append(b, ':')); err != nil {
+			return b, err
+		}
+		b = append(b, ',')
+	}
+	b[len(b)-1] = '}'
+	return b, nil
+}
 func proto2CloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -4581,9 +2867,9 @@ func proto2CloseObject(b []byte, start int) []byte {
 	b[start] = '{'
 	return append(b, '}')
 }
-
-func proto2EndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func proto2MergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -4591,26 +2877,20 @@ func proto2EndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func proto2MergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := proto2StrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func proto2StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func proto2OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
-	if d.PeekKind() == jsontext.KindNull {
-		return false, d.SkipValue()
-	}
-	err := proto2ExpectJSON(d, kind, name, what)
-	return err == nil, err
-}
-
 func proto2ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -4621,26 +2901,226 @@ func proto2ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string
 	}
 	return nil
 }
-
-func proto2NextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
-	if d.PeekKind() == jsontext.KindEndObject {
-		_, err := d.ReadToken()
-		return jsontext.Token{}, false, err
+func proto2OpenObject(d *jsontext.Decoder, name string) (jsontext.Token, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return jsontext.EndObject, d.SkipValue()
 	}
+	return proto2NextKey(d, proto2ExpectJSON(d, jsontext.KindBeginObject, name, "object"))
+}
+func proto2NextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
+	if err != nil {
+		return jsontext.Token{}, err
+	}
+	return d.ReadToken()
+}
+func proto2Field[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	return parse(d, p, name)
+}
+func proto2OptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p **T, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return parse(d, proto2New(p), name)
+}
+func proto2RepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return proto2JSONArray(d, s, name, nullOK, parse)
+}
+func proto2MapField[K comparable, V any](d *jsontext.Decoder, seen *bool, key, name, field string, m *map[K]V, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
+	if *seen {
+		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return proto2JSONMap(d, m, name, field, nullOK, pk, pv)
+}
+func proto2OneofField[I, T any](d *jsontext.Decoder, seen, oneof *bool, key, name, oneofName string, p *I, w I, v *T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return proto2JSONError(name, proto2ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	if !nullOK && d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	if *oneof {
+		return proto2JSONError(name, "multiple fields set for oneof "+oneofName)
+	}
+	*oneof, *p = true, w
+	return parse(d, v, name)
+}
+func proto2JSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
+	if err := proto2ExpectJSON(d, jsontext.KindBeginArray, name, "array"); err != nil {
+		return err
+	}
+	for d.PeekKind() != jsontext.KindEndArray {
+		if !nullOK && d.PeekKind() == jsontext.KindNull {
+			return proto2JSONError(name, proto2ErrNullElement)
+		}
+		if err := parse(d, proto2Grow(s), name); err != nil {
+			return err
+		}
+	}
+	_, err := d.ReadToken()
+	return err
+}
+func proto2JSONMap[K comparable, V any](d *jsontext.Decoder, m *map[K]V, name, field string, nullOK bool, pk func(string, string, string) (K, error), pv func(*jsontext.Decoder, *V, string) error) error {
+	if err := proto2ExpectJSON(d, jsontext.KindBeginObject, name, "object"); err != nil {
+		return err
+	}
+	for d.PeekKind() != jsontext.KindEndObject {
+		kt, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		k, err := pk(kt.String(), name, field)
+		if err != nil {
+			return err
+		}
+		if !nullOK && d.PeekKind() == jsontext.KindNull {
+			return proto2JSONError(name, proto2ErrNullElement)
+		}
+		var v V
+		if err := pv(d, &v, name); err != nil {
+			return err
+		}
+		proto2MapSet(m, k, v)
+	}
+	_, err := d.ReadToken()
+	return err
+}
+func proto2JSONInt[T ~int32 | ~int64](d *jsontext.Decoder, p *T, name string) error {
 	tok, err := d.ReadToken()
-	return tok, err == nil, err
-}
-
-func proto2EnumClass(k jsontext.Kind) (int, int) {
-	switch k {
-	case jsontext.KindNull:
-		return proto2ClassNone, 0
-	case jsontext.KindString:
-		return proto2ClassEnum, 0
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
 	}
-	return proto2ClassSigned, 32
+	bits := 64
+	if T(1)<<31 < 0 {
+		bits = 32
+	}
+	v, err := proto2ParseInt(tok, bits, name)
+	*p = T(v)
+	return err
 }
-
+func proto2JSONUint[T ~uint32 | ~uint64](d *jsontext.Decoder, p *T, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	bits := 64
+	if ^T(0)>>31 == 1 {
+		bits = 32
+	}
+	v, err := proto2ParseUint(tok, bits, name)
+	*p = T(v)
+	return err
+}
+func proto2JSONFloat[T ~float32 | ~float64](d *jsontext.Decoder, p *T, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	bits := 64
+	if float64(T(1)/T(3)) != 1.0/3 {
+		bits = 32
+	}
+	v, err := proto2ParseFloat(tok, bits, name)
+	*p = T(v)
+	return err
+}
+func proto2JSONBool(d *jsontext.Decoder, p *bool, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	switch tok.Kind() {
+	case jsontext.KindTrue:
+		*p = true
+	case jsontext.KindFalse:
+		*p = false
+	default:
+		return proto2JSONError(name, "invalid boolean "+tok.String())
+	}
+	return nil
+}
+func proto2JSONString(d *jsontext.Decoder, p *string, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	if tok.Kind() != jsontext.KindString {
+		return proto2JSONError(name, "invalid string "+tok.String())
+	}
+	*p = tok.String()
+	return nil
+}
+func proto2JSONBytes(d *jsontext.Decoder, p *[]byte, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
+		enc := base64.StdEncoding
+		if strings.ContainsAny(s, "-_") {
+			enc = base64.URLEncoding
+		}
+		if len(s)%proto2Base64Quantum != 0 {
+			enc = enc.WithPadding(base64.NoPadding)
+		}
+		if *p, err = enc.DecodeString(s); err == nil {
+			return nil
+		}
+	}
+	return proto2JSONError(name, "invalid bytes "+s)
+}
+func proto2JSONEnum[E ~int32](d *jsontext.Decoder, p *E, values map[string]int32, name, enum string, nullOK bool) error {
+	tok, err := d.ReadToken()
+	if err != nil {
+		return err
+	}
+	switch tok.Kind() {
+	case jsontext.KindNull:
+		if nullOK {
+			*p = 0
+		}
+		return nil
+	case jsontext.KindString:
+		s := tok.String()
+		if n, ok := values[s]; ok {
+			*p = E(n)
+			return nil
+		}
+		return proto2JSONError(name, "invalid value for enum "+enum+": "+strconv.Quote(s))
+	}
+	v, err := proto2ParseInt(tok, 32, name)
+	*p = E(v)
+	return err
+}
+func proto2JSONMsg[T any, PT interface {
+	*T
+	ProtoMergeJSONFrom(*jsontext.Decoder) error
+}](d *jsontext.Decoder, p **T, _ string) error {
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return PT(proto2Alloc(p)).ProtoMergeJSONFrom(d)
+}
 func proto2ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := proto2JSONNumber(tok, name)
 	if err != nil {
@@ -4655,7 +3135,6 @@ func proto2ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	}
 	return n.Int64(), nil
 }
-
 func proto2ParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
 	s, err := proto2JSONNumber(tok, name)
 	if err != nil {
@@ -4670,7 +3149,6 @@ func proto2ParseUint(tok jsontext.Token, bits int, name string) (uint64, error) 
 	}
 	return n.Uint64(), nil
 }
-
 func proto2ExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > proto2MaxJSONExponent || e < -proto2MaxJSONExponent {
@@ -4683,7 +3161,6 @@ func proto2ExactInt(s string) *big.Int {
 	}
 	return r.Num()
 }
-
 func proto2ParseFloat(tok jsontext.Token, bits int, name string) (float64, error) {
 	if tok.Kind() == jsontext.KindString {
 		switch tok.String() {
@@ -4705,7 +3182,6 @@ func proto2ParseFloat(tok jsontext.Token, bits int, name string) (float64, error
 	}
 	return v, nil
 }
-
 func proto2JSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -4713,64 +3189,16 @@ func proto2JSONNumber(tok jsontext.Token, name string) (string, error) {
 	}
 	return s, nil
 }
-
-func proto2ParseBool(tok jsontext.Token, name string) (bool, error) {
-	switch tok.Kind() {
-	case jsontext.KindTrue:
-		return true, nil
-	case jsontext.KindFalse:
-		return false, nil
+func proto2IntKey[K ~int32 | ~int64](s, name, field string) (K, error) {
+	bits := 64
+	if K(1)<<31 < 0 {
+		bits = 32
 	}
-	return false, proto2JSONError(name, "invalid boolean "+tok.String())
-}
-
-func proto2ParseString(tok jsontext.Token, name string) (string, error) {
-	if tok.Kind() != jsontext.KindString {
-		return "", proto2JSONError(name, "invalid string "+tok.String())
-	}
-	return tok.String(), nil
-}
-
-func proto2ParseBytes(tok jsontext.Token, name string) ([]byte, error) {
-	s := tok.String()
-	if tok.Kind() == jsontext.KindString {
-		enc := base64.StdEncoding
-		if strings.ContainsAny(s, "-_") {
-			enc = base64.URLEncoding
-		}
-		if len(s)%proto2Base64Quantum != 0 {
-			enc = enc.WithPadding(base64.NoPadding)
-		}
-		if by, err := enc.DecodeString(s); err == nil {
-			return by, nil
-		}
-	}
-	return nil, proto2JSONError(name, "invalid bytes "+s)
-}
-
-func proto2ParseEnum[E ~int32](class int, tok jsontext.Token, iv int64, values map[string]int32, name, enum string) (E, error) {
-	switch class {
-	case proto2ClassEnum:
-		s := tok.String()
-		n, ok := values[s]
-		if !ok {
-			return 0, proto2JSONError(name, "invalid value for enum "+enum+": "+strconv.Quote(s))
-		}
-		return E(n), nil
-	case proto2ClassSigned:
-		return E(iv), nil
-	}
-	return 0, nil
-}
-
-func proto2ParseIntKey(s string, bits int, name, field string) (int64, error) {
 	k, err := strconv.ParseInt(s, 10, bits)
 	if err != nil {
 		return 0, proto2JSONError(name, "invalid map key for field "+field+": "+strconv.Quote(s))
 	}
-	return k, nil
+	return K(k), nil
 }
-
-func proto2JSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
-}
+func proto2StringKey(s, _, _ string) (string, error) { return s, nil }
+func proto2JSONError(name, msg string) error         { return errors.New("proto: " + name + ": " + msg) }

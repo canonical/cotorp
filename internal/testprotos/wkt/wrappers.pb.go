@@ -5,6 +5,7 @@ package wktpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json/jsontext"
@@ -35,16 +36,8 @@ const (
 	wrappersVarintPayloadBits       = 7
 	wrappersVarintContBit           = 0x80
 	wrappersMaxDepth                = 10000
-	wrappersSkipStackSize           = 16
-	wrappersClassSigned             = 1
-	wrappersClassUnsigned           = 2
-	wrappersClassFloat              = 3
-	wrappersClassBool               = 4
-	wrappersClassString             = 5
-	wrappersClassBytes              = 6
 	wrappersMaxJSONExponent         = 100
 	wrappersBase64Quantum           = 4
-	wrappersErrDepth                = "proto: exceeded maximum recursion depth"
 	wrappersErrParse                = "proto: cannot parse invalid wire-format data"
 	wrappersStringValueValueErrUTF8 = "proto: field google.protobuf.StringValue.value contains invalid UTF-8"
 	wrappersErrInvalidInteger       = "invalid integer "
@@ -65,28 +58,18 @@ type DoubleValue struct {
 }
 
 // Reset clears all fields of m.
-func (m *DoubleValue) Reset() { *m = DoubleValue{} }
+func (m *DoubleValue) Reset()            { *m = DoubleValue{} }
+func (m *DoubleValue) z() *DoubleValue   { return wrappersIf(m == nil, &wrappersZeroDoubleValue, m) }
+func (m *DoubleValue) GetValue() float64 { return m.z().Value }
 
-func (m *DoubleValue) GetValue() float64 {
-	return wrappersGet(m, func(m *DoubleValue) float64 { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *DoubleValue) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *DoubleValue) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *DoubleValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *DoubleValue) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if math.Float64bits(m.Value) != 0 {
-		n += 1 + wrappersFixed64Size
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeFixed(1, wrappersFixed64Size, math.Float64bits(m.Value) != 0)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -94,138 +77,78 @@ func (m *DoubleValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(ni
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *DoubleValue) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *DoubleValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if math.Float64bits(m.Value) != 0 {
-		i = wrappersPutVarint(b, wrappersPutFixed64(b, i, math.Float64bits(m.Value)), 1<<wrappersTagTypeBits|wrappersWireFixed64)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutFixed64Field(b, i, math.Float64bits(m.Value), 1<<wrappersTagTypeBits|wrappersWireFixed64)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *DoubleValue) UnmarshalBinary(b []byte) error {
 	*m = DoubleValue{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *DoubleValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *DoubleValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireFixed64:
-			if len(b) < wrappersFixed64Size {
-				goto errParse
-			}
-			b, m.Value = b[wrappersFixed64Size:], math.Float64frombits(binary.LittleEndian.Uint64(b))
+			n = wrappersDouble(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *DoubleValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *DoubleValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *DoubleValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *DoubleValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return wrappersAppendFloat(b, m.GetValue(), 64), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *DoubleValue) UnmarshalJSON(b []byte) error {
-	*m = DoubleValue{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *DoubleValue) UnmarshalJSON(b []byte) error { *m = DoubleValue{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *DoubleValue) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.DoubleValue")
+	return wrappersMergeJSON(b, "google.protobuf.DoubleValue", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *DoubleValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = DoubleValue{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *DoubleValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bits, fv := wrappersClassFloat, 64, float64(0)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassFloat:
-		fv, err = wrappersParseFloat(tok, bits, "google.protobuf.DoubleValue")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = fv
-	return nil
+	return wrappersJSONFloat(d, &m.Value, "google.protobuf.DoubleValue")
 }
 
 // Wrapper message for `float`.
@@ -242,28 +165,18 @@ type FloatValue struct {
 }
 
 // Reset clears all fields of m.
-func (m *FloatValue) Reset() { *m = FloatValue{} }
+func (m *FloatValue) Reset()            { *m = FloatValue{} }
+func (m *FloatValue) z() *FloatValue    { return wrappersIf(m == nil, &wrappersZeroFloatValue, m) }
+func (m *FloatValue) GetValue() float32 { return m.z().Value }
 
-func (m *FloatValue) GetValue() float32 {
-	return wrappersGet(m, func(m *FloatValue) float32 { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *FloatValue) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *FloatValue) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *FloatValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *FloatValue) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if math.Float32bits(m.Value) != 0 {
-		n += 1 + wrappersFixed32Size
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeFixed(1, wrappersFixed32Size, math.Float32bits(m.Value) != 0)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -271,138 +184,78 @@ func (m *FloatValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *FloatValue) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *FloatValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if math.Float32bits(m.Value) != 0 {
-		i = wrappersPutVarint(b, wrappersPutFixed32(b, i, math.Float32bits(m.Value)), 1<<wrappersTagTypeBits|wrappersWireFixed32)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutFixed32Field(b, i, math.Float32bits(m.Value), 1<<wrappersTagTypeBits|wrappersWireFixed32)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *FloatValue) UnmarshalBinary(b []byte) error {
 	*m = FloatValue{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *FloatValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *FloatValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireFixed32:
-			if len(b) < wrappersFixed32Size {
-				goto errParse
-			}
-			b, m.Value = b[wrappersFixed32Size:], math.Float32frombits(binary.LittleEndian.Uint32(b))
+			n = wrappersFloat(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *FloatValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *FloatValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *FloatValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *FloatValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return wrappersAppendFloat(b, float64(m.GetValue()), 32), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *FloatValue) UnmarshalJSON(b []byte) error {
-	*m = FloatValue{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *FloatValue) UnmarshalJSON(b []byte) error { *m = FloatValue{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *FloatValue) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.FloatValue")
+	return wrappersMergeJSON(b, "google.protobuf.FloatValue", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *FloatValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = FloatValue{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *FloatValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bits, fv := wrappersClassFloat, 32, float64(0)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassFloat:
-		fv, err = wrappersParseFloat(tok, bits, "google.protobuf.FloatValue")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = float32(fv)
-	return nil
+	return wrappersJSONFloat(d, &m.Value, "google.protobuf.FloatValue")
 }
 
 // Wrapper message for `int64`.
@@ -419,28 +272,18 @@ type Int64Value struct {
 }
 
 // Reset clears all fields of m.
-func (m *Int64Value) Reset() { *m = Int64Value{} }
+func (m *Int64Value) Reset()          { *m = Int64Value{} }
+func (m *Int64Value) z() *Int64Value  { return wrappersIf(m == nil, &wrappersZeroInt64Value, m) }
+func (m *Int64Value) GetValue() int64 { return m.z().Value }
 
-func (m *Int64Value) GetValue() int64 {
-	return wrappersGet(m, func(m *Int64Value) int64 { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Int64Value) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *Int64Value) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Int64Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Int64Value) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Value != 0 {
-		n += 1 + (bits.Len64(uint64(m.Value)|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeVarint(1, uint64(m.Value))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -448,139 +291,78 @@ func (m *Int64Value) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Int64Value) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Int64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Value != 0 {
-		i = wrappersPutVarint(b, wrappersPutVarint(b, i, uint64(m.Value)), 1<<wrappersTagTypeBits|wrappersWireVarint)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutVarintField(b, i, uint64(m.Value), 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Int64Value) UnmarshalBinary(b []byte) error {
 	*m = Int64Value{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Int64Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Int64Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], int64(x)
+			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Int64Value) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Int64Value) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Int64Value) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Int64Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return append(strconv.AppendInt(append(b, '"'), m.GetValue(), 10), '"'), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Int64Value) UnmarshalJSON(b []byte) error {
-	*m = Int64Value{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Int64Value) UnmarshalJSON(b []byte) error { *m = Int64Value{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Int64Value) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Int64Value")
+	return wrappersMergeJSON(b, "google.protobuf.Int64Value", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Int64Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Int64Value{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Int64Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bits, iv := wrappersClassSigned, 64, int64(0)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassSigned:
-		iv, err = wrappersParseInt(tok, bits, "google.protobuf.Int64Value")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = iv
-	return nil
+	return wrappersJSONInt(d, &m.Value, "google.protobuf.Int64Value")
 }
 
 // Wrapper message for `uint64`.
@@ -597,28 +379,18 @@ type UInt64Value struct {
 }
 
 // Reset clears all fields of m.
-func (m *UInt64Value) Reset() { *m = UInt64Value{} }
+func (m *UInt64Value) Reset()           { *m = UInt64Value{} }
+func (m *UInt64Value) z() *UInt64Value  { return wrappersIf(m == nil, &wrappersZeroUInt64Value, m) }
+func (m *UInt64Value) GetValue() uint64 { return m.z().Value }
 
-func (m *UInt64Value) GetValue() uint64 {
-	return wrappersGet(m, func(m *UInt64Value) uint64 { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *UInt64Value) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *UInt64Value) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *UInt64Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *UInt64Value) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Value != 0 {
-		n += 1 + (bits.Len64(m.Value|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeVarint(1, m.Value)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -626,139 +398,78 @@ func (m *UInt64Value) MarshalBinary() ([]byte, error) { return m.AppendBinary(ni
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *UInt64Value) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *UInt64Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Value != 0 {
-		i = wrappersPutVarint(b, wrappersPutVarint(b, i, m.Value), 1<<wrappersTagTypeBits|wrappersWireVarint)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutVarintField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *UInt64Value) UnmarshalBinary(b []byte) error {
 	*m = UInt64Value{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *UInt64Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *UInt64Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], x
+			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *UInt64Value) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *UInt64Value) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *UInt64Value) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *UInt64Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return append(strconv.AppendUint(append(b, '"'), m.GetValue(), 10), '"'), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *UInt64Value) UnmarshalJSON(b []byte) error {
-	*m = UInt64Value{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *UInt64Value) UnmarshalJSON(b []byte) error { *m = UInt64Value{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *UInt64Value) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.UInt64Value")
+	return wrappersMergeJSON(b, "google.protobuf.UInt64Value", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *UInt64Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = UInt64Value{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *UInt64Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bits, uv := wrappersClassUnsigned, 64, uint64(0)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassUnsigned:
-		uv, err = wrappersParseUint(tok, bits, "google.protobuf.UInt64Value")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = uv
-	return nil
+	return wrappersJSONUint(d, &m.Value, "google.protobuf.UInt64Value")
 }
 
 // Wrapper message for `int32`.
@@ -775,28 +486,18 @@ type Int32Value struct {
 }
 
 // Reset clears all fields of m.
-func (m *Int32Value) Reset() { *m = Int32Value{} }
+func (m *Int32Value) Reset()          { *m = Int32Value{} }
+func (m *Int32Value) z() *Int32Value  { return wrappersIf(m == nil, &wrappersZeroInt32Value, m) }
+func (m *Int32Value) GetValue() int32 { return m.z().Value }
 
-func (m *Int32Value) GetValue() int32 {
-	return wrappersGet(m, func(m *Int32Value) int32 { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Int32Value) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *Int32Value) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Int32Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Int32Value) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Value != 0 {
-		n += 1 + (bits.Len64(uint64(int64(m.Value))|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeVarint(1, uint64(int64(m.Value)))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -804,139 +505,78 @@ func (m *Int32Value) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Int32Value) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Int32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Value != 0 {
-		i = wrappersPutVarint(b, wrappersPutVarint(b, i, uint64(int64(m.Value))), 1<<wrappersTagTypeBits|wrappersWireVarint)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutVarintField(b, i, uint64(int64(m.Value)), 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Int32Value) UnmarshalBinary(b []byte) error {
 	*m = Int32Value{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Int32Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Int32Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], int32(x)
+			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Int32Value) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Int32Value) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Int32Value) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Int32Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return strconv.AppendInt(b, int64(m.GetValue()), 10), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Int32Value) UnmarshalJSON(b []byte) error {
-	*m = Int32Value{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Int32Value) UnmarshalJSON(b []byte) error { *m = Int32Value{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Int32Value) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Int32Value")
+	return wrappersMergeJSON(b, "google.protobuf.Int32Value", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Int32Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Int32Value{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Int32Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bits, iv := wrappersClassSigned, 32, int64(0)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassSigned:
-		iv, err = wrappersParseInt(tok, bits, "google.protobuf.Int32Value")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = int32(iv)
-	return nil
+	return wrappersJSONInt(d, &m.Value, "google.protobuf.Int32Value")
 }
 
 // Wrapper message for `uint32`.
@@ -953,28 +593,18 @@ type UInt32Value struct {
 }
 
 // Reset clears all fields of m.
-func (m *UInt32Value) Reset() { *m = UInt32Value{} }
+func (m *UInt32Value) Reset()           { *m = UInt32Value{} }
+func (m *UInt32Value) z() *UInt32Value  { return wrappersIf(m == nil, &wrappersZeroUInt32Value, m) }
+func (m *UInt32Value) GetValue() uint32 { return m.z().Value }
 
-func (m *UInt32Value) GetValue() uint32 {
-	return wrappersGet(m, func(m *UInt32Value) uint32 { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *UInt32Value) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *UInt32Value) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *UInt32Value) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *UInt32Value) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Value != 0 {
-		n += 1 + (bits.Len64(uint64(m.Value)|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeVarint(1, uint64(m.Value))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -982,139 +612,78 @@ func (m *UInt32Value) MarshalBinary() ([]byte, error) { return m.AppendBinary(ni
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *UInt32Value) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *UInt32Value) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Value != 0 {
-		i = wrappersPutVarint(b, wrappersPutVarint(b, i, uint64(m.Value)), 1<<wrappersTagTypeBits|wrappersWireVarint)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutVarintField(b, i, uint64(m.Value), 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *UInt32Value) UnmarshalBinary(b []byte) error {
 	*m = UInt32Value{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *UInt32Value) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *UInt32Value) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], uint32(x)
+			n = wrappersVarint(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *UInt32Value) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *UInt32Value) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *UInt32Value) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *UInt32Value) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return strconv.AppendUint(b, uint64(m.GetValue()), 10), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *UInt32Value) UnmarshalJSON(b []byte) error {
-	*m = UInt32Value{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *UInt32Value) UnmarshalJSON(b []byte) error { *m = UInt32Value{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *UInt32Value) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.UInt32Value")
+	return wrappersMergeJSON(b, "google.protobuf.UInt32Value", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *UInt32Value) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = UInt32Value{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *UInt32Value) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bits, uv := wrappersClassUnsigned, 32, uint64(0)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassUnsigned:
-		uv, err = wrappersParseUint(tok, bits, "google.protobuf.UInt32Value")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = uint32(uv)
-	return nil
+	return wrappersJSONUint(d, &m.Value, "google.protobuf.UInt32Value")
 }
 
 // Wrapper message for `bool`.
@@ -1131,28 +700,18 @@ type BoolValue struct {
 }
 
 // Reset clears all fields of m.
-func (m *BoolValue) Reset() { *m = BoolValue{} }
+func (m *BoolValue) Reset()         { *m = BoolValue{} }
+func (m *BoolValue) z() *BoolValue  { return wrappersIf(m == nil, &wrappersZeroBoolValue, m) }
+func (m *BoolValue) GetValue() bool { return m.z().Value }
 
-func (m *BoolValue) GetValue() bool {
-	return wrappersGet(m, func(m *BoolValue) bool { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *BoolValue) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *BoolValue) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *BoolValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *BoolValue) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Value {
-		n += 1 + 1
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeBool(1, m.Value)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1160,139 +719,75 @@ func (m *BoolValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil)
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *BoolValue) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *BoolValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Value {
-		i = wrappersPutVarint(b, wrappersPutBool(b, i, m.Value), 1<<wrappersTagTypeBits|wrappersWireVarint)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutBoolField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *BoolValue) UnmarshalBinary(b []byte) error {
-	*m = BoolValue{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *BoolValue) UnmarshalBinary(b []byte) error { *m = BoolValue{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *BoolValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *BoolValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], x != 0
+			n = wrappersBool(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *BoolValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *BoolValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *BoolValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *BoolValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return strconv.AppendBool(b, m.GetValue()), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *BoolValue) UnmarshalJSON(b []byte) error {
-	*m = BoolValue{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *BoolValue) UnmarshalJSON(b []byte) error { *m = BoolValue{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *BoolValue) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.BoolValue")
+	return wrappersMergeJSON(b, "google.protobuf.BoolValue", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *BoolValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = BoolValue{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *BoolValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, bv := wrappersClassBool, false
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassBool:
-		bv, err = wrappersParseBool(tok, "google.protobuf.BoolValue")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = bv
-	return nil
+	return wrappersJSONBool(d, &m.Value, "google.protobuf.BoolValue")
 }
 
 // Wrapper message for `string`.
@@ -1309,28 +804,18 @@ type StringValue struct {
 }
 
 // Reset clears all fields of m.
-func (m *StringValue) Reset() { *m = StringValue{} }
+func (m *StringValue) Reset()           { *m = StringValue{} }
+func (m *StringValue) z() *StringValue  { return wrappersIf(m == nil, &wrappersZeroStringValue, m) }
+func (m *StringValue) GetValue() string { return m.z().Value }
 
-func (m *StringValue) GetValue() string {
-	return wrappersGet(m, func(m *StringValue) string { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *StringValue) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *StringValue) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *StringValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *StringValue) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if len(m.Value) > 0 {
-		n += 1 + wrappersSizeLen(len(m.Value))
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeLenField(1, len(m.Value))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1338,149 +823,81 @@ func (m *StringValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(ni
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *StringValue) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *StringValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	if err := wrappersCheckUTF8(m.Value, wrappersStringValueValueErrUTF8, nil); err != nil {
+		return 0, err
 	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if len(m.Value) > 0 {
-		if !utf8.ValidString(m.Value) {
-			return 0, errors.New(wrappersStringValueValueErrUTF8)
-		}
-		i = wrappersPutVarint(b, wrappersPutVarint(b, i-copy(b[i-len(m.Value):], m.Value), uint64(len(m.Value))), 1<<wrappersTagTypeBits|wrappersWireBytes)
-	}
+	i = wrappersPutStringField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireBytes)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *StringValue) UnmarshalBinary(b []byte) error {
 	*m = StringValue{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *StringValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *StringValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireBytes:
-			x, n := wrappersReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if !utf8.Valid(x) {
-				return errors.New(wrappersStringValueValueErrUTF8)
-			}
-			b, m.Value = b[n:], string(x)
+			n, err = wrappersString(b, &m.Value, wrappersStringValueValueErrUTF8)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *StringValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *StringValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *StringValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *StringValue) ProtoAppendJSON(b []byte) ([]byte, error) {
-	var err error
-	if b, err = jsontext.AppendQuote(b, m.GetValue()); err != nil {
-		return nil, errors.New("proto: google.protobuf.StringValue.value contains invalid UTF-8")
-	}
-	return b, nil
+	return wrappersQuote(b, m.GetValue(), nil)
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *StringValue) UnmarshalJSON(b []byte) error {
-	*m = StringValue{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *StringValue) UnmarshalJSON(b []byte) error { *m = StringValue{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *StringValue) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.StringValue")
+	return wrappersMergeJSON(b, "google.protobuf.StringValue", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *StringValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = StringValue{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *StringValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, sv := wrappersClassString, ""
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassString:
-		sv, err = wrappersParseString(tok, "google.protobuf.StringValue")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = sv
-	return nil
+	return wrappersJSONString(d, &m.Value, "google.protobuf.StringValue")
 }
 
 // Wrapper message for `bytes`.
@@ -1497,28 +914,18 @@ type BytesValue struct {
 }
 
 // Reset clears all fields of m.
-func (m *BytesValue) Reset() { *m = BytesValue{} }
+func (m *BytesValue) Reset()           { *m = BytesValue{} }
+func (m *BytesValue) z() *BytesValue   { return wrappersIf(m == nil, &wrappersZeroBytesValue, m) }
+func (m *BytesValue) GetValue() []byte { return m.z().Value }
 
-func (m *BytesValue) GetValue() []byte {
-	return wrappersGet(m, func(m *BytesValue) []byte { return m.Value })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *BytesValue) ProtoUnknownFields() []byte {
-	return wrappersGet(m, func(m *BytesValue) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *BytesValue) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *BytesValue) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if len(m.Value) > 0 {
-		n += 1 + wrappersSizeLen(len(m.Value))
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += wrappersSizeLenField(1, len(m.Value))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -1526,238 +933,117 @@ func (m *BytesValue) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *BytesValue) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return wrappersAppended(b, size, n, err)
+	return wrappersAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *BytesValue) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if len(m.Value) > 0 {
-		i = wrappersPutVarint(b, wrappersPutVarint(b, i-copy(b[i-len(m.Value):], m.Value), uint64(len(m.Value))), 1<<wrappersTagTypeBits|wrappersWireBytes)
-	}
+	m = m.z()
+	i := wrappersCopyUnknown(b, len(b), m.unknownFields)
+	i = wrappersPutBytesField(b, i, m.Value, 1<<wrappersTagTypeBits|wrappersWireBytes)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *BytesValue) UnmarshalBinary(b []byte) error {
 	*m = BytesValue{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *BytesValue) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *BytesValue) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= wrappersMaxDepth {
-		return errors.New(wrappersErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := wrappersDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<wrappersTagTypeBits | wrappersWireBytes:
-			x, n := wrappersReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], append([]byte{}, x...)
+			n = wrappersBytes(b, &m.Value)
 		default:
-			n, err := wrappersSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = wrappersUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(wrappersErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(wrappersErrParse)
+	return wrappersEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *BytesValue) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *BytesValue) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *BytesValue) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return wrappersWriteJSON(e, b, err)
+	return wrappersMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *BytesValue) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return append(base64.StdEncoding.AppendEncode(append(b, '"'), m.GetValue()), '"'), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *BytesValue) UnmarshalJSON(b []byte) error {
-	*m = BytesValue{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *BytesValue) UnmarshalJSON(b []byte) error { *m = BytesValue{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *BytesValue) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return wrappersEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.BytesValue")
+	return wrappersMergeJSON(b, "google.protobuf.BytesValue", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *BytesValue) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := wrappersStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = BytesValue{}
-	return m.ProtoMergeJSONFrom(d)
+	return wrappersMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *BytesValue) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	if d.PeekKind() == jsontext.KindNull {
-		return d.SkipValue()
-	}
-	class, by := wrappersClassBytes, []byte(nil)
-	tok, err := d.ReadToken()
-	if err != nil {
-		return err
-	}
-	switch class {
-	case wrappersClassBytes:
-		by, err = wrappersParseBytes(tok, "google.protobuf.BytesValue")
-	}
-	if err != nil {
-		return err
-	}
-	m.Value = by
-	return nil
+	return wrappersJSONBytes(d, &m.Value, "google.protobuf.BytesValue")
 }
 
-func wrappersPutVarint(b []byte, i int, u uint64) int {
-	if u < wrappersVarintContBit {
-		b[i-1] = byte(u)
-		return i - 1
+var (
+	wrappersZeroDoubleValue DoubleValue
+	wrappersZeroFloatValue  FloatValue
+	wrappersZeroInt64Value  Int64Value
+	wrappersZeroUInt64Value UInt64Value
+	wrappersZeroInt32Value  Int32Value
+	wrappersZeroUInt32Value UInt32Value
+	wrappersZeroBoolValue   BoolValue
+	wrappersZeroStringValue StringValue
+	wrappersZeroBytesValue  BytesValue
+)
+
+func wrappersSizeLen(l int) int { return l + wrappersVarintLen(l) }
+func wrappersSizeVarint(tag int, u uint64) int {
+	return wrappersIf(u == 0, 0, tag+wrappersVarintLen(u))
+}
+func wrappersSizeBool(tag int, v bool) int          { return wrappersIf(v, tag+1, 0) }
+func wrappersSizeFixed(tag, size int, set bool) int { return wrappersIf(set, tag+size, 0) }
+func wrappersSizeLenField(tag, l int) int           { return wrappersIf(l == 0, 0, tag+wrappersSizeLen(l)) }
+func wrappersVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
+}
+func wrappersCheckUTF8(s, msg string, err error) error {
+	if len(s) > 0 && !utf8.ValidString(s) {
+		return errors.New(msg)
 	}
-	i -= (bits.Len64(u|1) + wrappersVarintPayloadBits - 1) / wrappersVarintPayloadBits
-	binary.PutUvarint(b[i:], u)
+	return err
+}
+func wrappersCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
+	}
 	return i
 }
-
-func wrappersPutFixed32(b []byte, i int, u uint32) int {
-	binary.LittleEndian.PutUint32(b[i-wrappersFixed32Size:], u)
-	return i - wrappersFixed32Size
-}
-
-func wrappersPutFixed64(b []byte, i int, u uint64) int {
-	binary.LittleEndian.PutUint64(b[i-wrappersFixed64Size:], u)
-	return i - wrappersFixed64Size
-}
-
-func wrappersPutBool(b []byte, i int, v bool) int {
-	b[i-1] = 0
-	if v {
-		b[i-1] = 1
-	}
-	return i - 1
-}
-
-func wrappersSizeLen(l int) int {
-	return l + (bits.Len64(uint64(l)|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits
-}
-
-func wrappersReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-
-func wrappersSkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & wrappersTagTypeMask {
-	case wrappersWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case wrappersWireFixed64:
-		if len(b) >= wrappersFixed64Size {
-			return wrappersFixed64Size, nil
-		}
-	case wrappersWireBytes:
-		if _, n := wrappersReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case wrappersWireStartGroup:
-		return wrappersSkipGroup(b, int32(t>>wrappersTagTypeBits), depth)
-	case wrappersWireFixed32:
-		if len(b) >= wrappersFixed32Size {
-			return wrappersFixed32Size, nil
-		}
-	}
-	return 0, errors.New(wrappersErrParse)
-}
-
-func wrappersSkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [wrappersSkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > wrappersMaxDepth {
-			return 0, errors.New(wrappersErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>wrappersTagTypeBits == 0 || t>>wrappersTagTypeBits > wrappersMaxFieldNumber {
-			return 0, errors.New(wrappersErrParse)
-		}
-		n += k
-		switch t & wrappersTagTypeMask {
-		case wrappersWireStartGroup:
-			open = append(open, int32(t>>wrappersTagTypeBits))
-		case wrappersWireEndGroup:
-			if open[len(open)-1] != int32(t>>wrappersTagTypeBits) {
-				return 0, errors.New(wrappersErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := wrappersSkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func wrappersAppended(b []byte, size, n int, err error) ([]byte, error) {
+func wrappersAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
 	}
@@ -1766,21 +1052,192 @@ func wrappersAppended(b []byte, size, n int, err error) ([]byte, error) {
 	}
 	return b[:len(b)+size], nil
 }
-
-func wrappersGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func wrappersPutVarintField(b []byte, i int, u uint64, tag byte) int {
+	if u == 0 {
+		return i
 	}
-	return t
+	i -= (bits.Len64(u|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= wrappersVarintContBit; u >>= wrappersVarintPayloadBits {
+		b[p] = byte(u) | wrappersVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
 }
-
-func wrappersWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func wrappersPutStringField(b []byte, i int, v string, tag byte) int {
+	if len(v) == 0 {
+		return i
+	}
+	i -= copy(b[i-len(v):], v)
+	u := uint64(len(v))
+	i -= (bits.Len64(u|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= wrappersVarintContBit; u >>= wrappersVarintPayloadBits {
+		b[p] = byte(u) | wrappersVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
+}
+func wrappersPutBytesField(b []byte, i int, v []byte, tag byte) int {
+	if len(v) == 0 {
+		return i
+	}
+	i -= copy(b[i-len(v):], v)
+	u := uint64(len(v))
+	i -= (bits.Len64(u|1)+wrappersVarintPayloadBits-1)/wrappersVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= wrappersVarintContBit; u >>= wrappersVarintPayloadBits {
+		b[p] = byte(u) | wrappersVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
+}
+func wrappersPutFixed32Field(b []byte, i int, u uint32, tag byte) int {
+	if u == 0 {
+		return i
+	}
+	binary.LittleEndian.PutUint32(b[i-wrappersFixed32Size:], u)
+	i -= wrappersFixed32Size + 1
+	b[i] = tag
+	return i
+}
+func wrappersPutFixed64Field(b []byte, i int, u uint64, tag byte) int {
+	if u == 0 {
+		return i
+	}
+	binary.LittleEndian.PutUint64(b[i-wrappersFixed64Size:], u)
+	i -= wrappersFixed64Size + 1
+	b[i] = tag
+	return i
+}
+func wrappersPutBoolField(b []byte, i int, v bool, tag byte) int {
+	if !v {
+		return i
+	}
+	i -= 2
+	b[i] = tag
+	b[i+1] = 1
+	return i
+}
+func wrappersIf[T any](c bool, a, b T) T {
+	if c {
+		return a
+	}
+	return b
+}
+func wrappersDepth(depth int) error {
+	if depth >= wrappersMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func wrappersReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func wrappersSkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>wrappersTagTypeBits
+	switch wt := t & wrappersTagTypeMask; {
+	case num == 0 || num > wrappersMaxFieldNumber:
+	case wt == wrappersWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == wrappersWireBytes:
+		_, n = wrappersReadBytes(b)
+	case wt == wrappersWireStartGroup:
+		return wrappersSkipGroup(b, int32(num), depth+1)
+	case wt == wrappersWireFixed64 || wt == wrappersWireFixed32:
+		n = wrappersIf(wt == wrappersWireFixed64, wrappersFixed64Size, wrappersFixed32Size)
+		n = wrappersIf(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(wrappersErrParse)
+	}
+	return n, nil
+}
+func wrappersSkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, wrappersDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(wrappersErrParse)
+		}
+		if n += k; t == uint64(num)<<wrappersTagTypeBits|wrappersWireEndGroup {
+			return n, nil
+		}
+		k, err = wrappersSkipField(b[n:], t, depth)
+		n += k
+	}
+	return 0, err
+}
+func wrappersUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := wrappersSkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func wrappersEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(wrappersErrParse)
+	}
+	return err
+}
+func wrappersVarint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
+	u, n := binary.Uvarint(b)
+	*p = T(u)
+	return n
+}
+func wrappersBool(b []byte, p *bool) int { u, n := binary.Uvarint(b); *p = u != 0; return n }
+func wrappersFloat(b []byte, p *float32) int {
+	if len(b) < wrappersFixed32Size {
+		return -1
+	}
+	*p = math.Float32frombits(binary.LittleEndian.Uint32(b))
+	return wrappersFixed32Size
+}
+func wrappersDouble(b []byte, p *float64) int {
+	if len(b) < wrappersFixed64Size {
+		return -1
+	}
+	*p = math.Float64frombits(binary.LittleEndian.Uint64(b))
+	return wrappersFixed64Size
+}
+func wrappersBytes(b []byte, p *[]byte) int {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1
+	}
+	*p = append([]byte{}, b[k:k+int(ln)]...)
+	return k + int(ln)
+}
+func wrappersString(b []byte, p *string, errUTF8 string) (int, error) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1, nil
+	}
+	x := b[k : k+int(ln)]
+	if errUTF8 != "" && !utf8.Valid(x) {
+		return 0, errors.New(errUTF8)
+	}
+	*p = string(x)
+	return k + int(ln), nil
+}
+func wrappersMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
 func wrappersAppendFloat(b []byte, f float64, bits int) []byte {
 	switch {
 	case math.IsNaN(f):
@@ -1792,9 +1249,15 @@ func wrappersAppendFloat(b []byte, f float64, bits int) []byte {
 	}
 	return jsontext.AppendFloat(b, f, bits)
 }
-
-func wrappersEndJSON(d *jsontext.Decoder, err error, name string) error {
+func wrappersQuote(b []byte, s string, err error) ([]byte, error) {
 	if err != nil {
+		return b, err
+	}
+	return jsontext.AppendQuote(b, s)
+}
+func wrappersMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -1802,18 +1265,105 @@ func wrappersEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func wrappersMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := wrappersStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func wrappersStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
+func wrappersJSONInt[T ~int32 | ~int64](d *jsontext.Decoder, p *T, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	bits := 64
+	if T(1)<<31 < 0 {
+		bits = 32
+	}
+	v, err := wrappersParseInt(tok, bits, name)
+	*p = T(v)
+	return err
+}
+func wrappersJSONUint[T ~uint32 | ~uint64](d *jsontext.Decoder, p *T, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	bits := 64
+	if ^T(0)>>31 == 1 {
+		bits = 32
+	}
+	v, err := wrappersParseUint(tok, bits, name)
+	*p = T(v)
+	return err
+}
+func wrappersJSONFloat[T ~float32 | ~float64](d *jsontext.Decoder, p *T, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	bits := 64
+	if float64(T(1)/T(3)) != 1.0/3 {
+		bits = 32
+	}
+	v, err := wrappersParseFloat(tok, bits, name)
+	*p = T(v)
+	return err
+}
+func wrappersJSONBool(d *jsontext.Decoder, p *bool, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	switch tok.Kind() {
+	case jsontext.KindTrue:
+		*p = true
+	case jsontext.KindFalse:
+		*p = false
+	default:
+		return wrappersJSONError(name, "invalid boolean "+tok.String())
+	}
+	return nil
+}
+func wrappersJSONString(d *jsontext.Decoder, p *string, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	if tok.Kind() != jsontext.KindString {
+		return wrappersJSONError(name, "invalid string "+tok.String())
+	}
+	*p = tok.String()
+	return nil
+}
+func wrappersJSONBytes(d *jsontext.Decoder, p *[]byte, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
+		enc := base64.StdEncoding
+		if strings.ContainsAny(s, "-_") {
+			enc = base64.URLEncoding
+		}
+		if len(s)%wrappersBase64Quantum != 0 {
+			enc = enc.WithPadding(base64.NoPadding)
+		}
+		if *p, err = enc.DecodeString(s); err == nil {
+			return nil
+		}
+	}
+	return wrappersJSONError(name, "invalid bytes "+s)
+}
 func wrappersParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := wrappersJSONNumber(tok, name)
 	if err != nil {
@@ -1828,7 +1378,6 @@ func wrappersParseInt(tok jsontext.Token, bits int, name string) (int64, error) 
 	}
 	return n.Int64(), nil
 }
-
 func wrappersParseUint(tok jsontext.Token, bits int, name string) (uint64, error) {
 	s, err := wrappersJSONNumber(tok, name)
 	if err != nil {
@@ -1843,7 +1392,6 @@ func wrappersParseUint(tok jsontext.Token, bits int, name string) (uint64, error
 	}
 	return n.Uint64(), nil
 }
-
 func wrappersExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > wrappersMaxJSONExponent || e < -wrappersMaxJSONExponent {
@@ -1856,7 +1404,6 @@ func wrappersExactInt(s string) *big.Int {
 	}
 	return r.Num()
 }
-
 func wrappersParseFloat(tok jsontext.Token, bits int, name string) (float64, error) {
 	if tok.Kind() == jsontext.KindString {
 		switch tok.String() {
@@ -1878,7 +1425,6 @@ func wrappersParseFloat(tok jsontext.Token, bits int, name string) (float64, err
 	}
 	return v, nil
 }
-
 func wrappersJSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -1886,41 +1432,4 @@ func wrappersJSONNumber(tok jsontext.Token, name string) (string, error) {
 	}
 	return s, nil
 }
-
-func wrappersParseBool(tok jsontext.Token, name string) (bool, error) {
-	switch tok.Kind() {
-	case jsontext.KindTrue:
-		return true, nil
-	case jsontext.KindFalse:
-		return false, nil
-	}
-	return false, wrappersJSONError(name, "invalid boolean "+tok.String())
-}
-
-func wrappersParseString(tok jsontext.Token, name string) (string, error) {
-	if tok.Kind() != jsontext.KindString {
-		return "", wrappersJSONError(name, "invalid string "+tok.String())
-	}
-	return tok.String(), nil
-}
-
-func wrappersParseBytes(tok jsontext.Token, name string) ([]byte, error) {
-	s := tok.String()
-	if tok.Kind() == jsontext.KindString {
-		enc := base64.StdEncoding
-		if strings.ContainsAny(s, "-_") {
-			enc = base64.URLEncoding
-		}
-		if len(s)%wrappersBase64Quantum != 0 {
-			enc = enc.WithPadding(base64.NoPadding)
-		}
-		if by, err := enc.DecodeString(s); err == nil {
-			return by, nil
-		}
-	}
-	return nil, wrappersJSONError(name, "invalid bytes "+s)
-}
-
-func wrappersJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
-}
+func wrappersJSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }

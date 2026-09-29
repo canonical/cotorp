@@ -5,6 +5,7 @@ package wktpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -31,7 +32,6 @@ const (
 	timestampVarintPayloadBits      = 7
 	timestampVarintContBit          = 0x80
 	timestampMaxDepth               = 10000
-	timestampSkipStackSize          = 16
 	timestampMinTimestampSeconds    = -62135596800
 	timestampMaxTimestampSeconds    = 253402300799
 	timestampNanosPerSecond         = 1000000000
@@ -39,7 +39,6 @@ const (
 	timestampNanosPerMicro          = 1000
 	timestampMicrosPerSecond        = 1000000
 	timestampMillisPerSecond        = 1000
-	timestampErrDepth               = "proto: exceeded maximum recursion depth"
 	timestampErrParse               = "proto: cannot parse invalid wire-format data"
 	timestampTimestampErrOutOfRange = "proto: google.protobuf.Timestamp: timestamp out of range"
 )
@@ -149,34 +148,20 @@ type Timestamp struct {
 }
 
 // Reset clears all fields of m.
-func (m *Timestamp) Reset() { *m = Timestamp{} }
+func (m *Timestamp) Reset()            { *m = Timestamp{} }
+func (m *Timestamp) z() *Timestamp     { return timestampIf(m == nil, &timestampZeroTimestamp, m) }
+func (m *Timestamp) GetSeconds() int64 { return m.z().Seconds }
+func (m *Timestamp) GetNanos() int32   { return m.z().Nanos }
 
-func (m *Timestamp) GetSeconds() int64 {
-	return timestampGet(m, func(m *Timestamp) int64 { return m.Seconds })
-}
-func (m *Timestamp) GetNanos() int32 {
-	return timestampGet(m, func(m *Timestamp) int32 { return m.Nanos })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Timestamp) ProtoUnknownFields() []byte {
-	return timestampGet(m, func(m *Timestamp) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Timestamp) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Timestamp) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Seconds != 0 {
-		n += 1 + (bits.Len64(uint64(m.Seconds)|1)+timestampVarintPayloadBits-1)/timestampVarintPayloadBits
-	}
-	if m.Nanos != 0 {
-		n += 1 + (bits.Len64(uint64(int64(m.Nanos))|1)+timestampVarintPayloadBits-1)/timestampVarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += timestampSizeVarint(1, uint64(m.Seconds))
+	n += timestampSizeVarint(1, uint64(int64(m.Nanos)))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -184,98 +169,57 @@ func (m *Timestamp) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil)
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Timestamp) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return timestampAppended(b, size, n, err)
+	return timestampAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Timestamp) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Nanos != 0 {
-		i = timestampPutVarint(b, timestampPutVarint(b, i, uint64(int64(m.Nanos))), 2<<timestampTagTypeBits|timestampWireVarint)
-	}
-	if m.Seconds != 0 {
-		i = timestampPutVarint(b, timestampPutVarint(b, i, uint64(m.Seconds)), 1<<timestampTagTypeBits|timestampWireVarint)
-	}
+	m = m.z()
+	i := timestampCopyUnknown(b, len(b), m.unknownFields)
+	i = timestampPutVarintField(b, i, uint64(int64(m.Nanos)), 2<<timestampTagTypeBits|timestampWireVarint)
+	i = timestampPutVarintField(b, i, uint64(m.Seconds), 1<<timestampTagTypeBits|timestampWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Timestamp) UnmarshalBinary(b []byte) error {
-	*m = Timestamp{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Timestamp) UnmarshalBinary(b []byte) error { *m = Timestamp{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Timestamp) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Timestamp) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= timestampMaxDepth {
-		return errors.New(timestampErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>timestampTagTypeBits == 0 || t>>timestampTagTypeBits > timestampMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := timestampDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<timestampTagTypeBits | timestampWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Seconds = b[n:], int64(x)
+			n = timestampVarint(b, &m.Seconds)
 		case 2<<timestampTagTypeBits | timestampWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Nanos = b[n:], int32(x)
+			n = timestampVarint(b, &m.Nanos)
 		default:
-			n, err := timestampSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = timestampUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(timestampErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(timestampErrParse)
+	return timestampEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Timestamp) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Timestamp) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Timestamp) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return timestampWriteJSON(e, b, err)
+	return timestampMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Timestamp) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var s int64
 	var ns int32
@@ -303,34 +247,21 @@ func (m *Timestamp) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return b, nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Timestamp) UnmarshalJSON(b []byte) error {
-	*m = Timestamp{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Timestamp) UnmarshalJSON(b []byte) error { *m = Timestamp{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Timestamp) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return timestampEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Timestamp")
+	return timestampMergeJSON(b, "google.protobuf.Timestamp", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Timestamp) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := timestampStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Timestamp{}
-	return m.ProtoMergeJSONFrom(d)
+	return timestampMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Timestamp) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -355,81 +286,25 @@ func (m *Timestamp) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func timestampPutVarint(b []byte, i int, u uint64) int {
-	if u < timestampVarintContBit {
-		b[i-1] = byte(u)
-		return i - 1
+var (
+	timestampZeroTimestamp Timestamp
+)
+
+func timestampSizeVarint(tag int, u uint64) int {
+	return timestampIf(u == 0, 0, tag+timestampVarintLen(u))
+}
+func timestampVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + timestampVarintPayloadBits - 1) / timestampVarintPayloadBits
+}
+func timestampCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
 	}
-	i -= (bits.Len64(u|1) + timestampVarintPayloadBits - 1) / timestampVarintPayloadBits
-	binary.PutUvarint(b[i:], u)
 	return i
 }
-
-func timestampReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-
-func timestampSkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & timestampTagTypeMask {
-	case timestampWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case timestampWireFixed64:
-		if len(b) >= timestampFixed64Size {
-			return timestampFixed64Size, nil
-		}
-	case timestampWireBytes:
-		if _, n := timestampReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case timestampWireStartGroup:
-		return timestampSkipGroup(b, int32(t>>timestampTagTypeBits), depth)
-	case timestampWireFixed32:
-		if len(b) >= timestampFixed32Size {
-			return timestampFixed32Size, nil
-		}
-	}
-	return 0, errors.New(timestampErrParse)
-}
-
-func timestampSkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [timestampSkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > timestampMaxDepth {
-			return 0, errors.New(timestampErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>timestampTagTypeBits == 0 || t>>timestampTagTypeBits > timestampMaxFieldNumber {
-			return 0, errors.New(timestampErrParse)
-		}
-		n += k
-		switch t & timestampTagTypeMask {
-		case timestampWireStartGroup:
-			open = append(open, int32(t>>timestampTagTypeBits))
-		case timestampWireEndGroup:
-			if open[len(open)-1] != int32(t>>timestampTagTypeBits) {
-				return 0, errors.New(timestampErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := timestampSkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func timestampAppended(b []byte, size, n int, err error) ([]byte, error) {
+func timestampAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
 	}
@@ -438,23 +313,101 @@ func timestampAppended(b []byte, size, n int, err error) ([]byte, error) {
 	}
 	return b[:len(b)+size], nil
 }
-
-func timestampGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func timestampPutVarintField(b []byte, i int, u uint64, tag byte) int {
+	if u == 0 {
+		return i
 	}
-	return t
+	i -= (bits.Len64(u|1)+timestampVarintPayloadBits-1)/timestampVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= timestampVarintContBit; u >>= timestampVarintPayloadBits {
+		b[p] = byte(u) | timestampVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
 }
-
-func timestampWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func timestampIf[T any](c bool, a, b T) T {
+	if c {
+		return a
+	}
+	return b
+}
+func timestampDepth(depth int) error {
+	if depth >= timestampMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func timestampReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func timestampSkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>timestampTagTypeBits
+	switch wt := t & timestampTagTypeMask; {
+	case num == 0 || num > timestampMaxFieldNumber:
+	case wt == timestampWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == timestampWireBytes:
+		_, n = timestampReadBytes(b)
+	case wt == timestampWireStartGroup:
+		return timestampSkipGroup(b, int32(num), depth+1)
+	case wt == timestampWireFixed64 || wt == timestampWireFixed32:
+		n = timestampIf(wt == timestampWireFixed64, timestampFixed64Size, timestampFixed32Size)
+		n = timestampIf(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(timestampErrParse)
+	}
+	return n, nil
+}
+func timestampSkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, timestampDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(timestampErrParse)
+		}
+		if n += k; t == uint64(num)<<timestampTagTypeBits|timestampWireEndGroup {
+			return n, nil
+		}
+		k, err = timestampSkipField(b[n:], t, depth)
+		n += k
+	}
+	return 0, err
+}
+func timestampUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := timestampSkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func timestampEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(timestampErrParse)
+	}
+	return err
+}
+func timestampVarint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
+	u, n := binary.Uvarint(b)
+	*p = T(u)
+	return n
+}
+func timestampMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
-func timestampEndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func timestampMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -462,18 +415,18 @@ func timestampEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func timestampMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := timestampStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func timestampStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func timestampJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
-}
+func timestampJSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }

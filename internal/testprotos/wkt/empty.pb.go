@@ -5,6 +5,7 @@ package wktpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -27,8 +28,6 @@ const (
 	emptyFixed32Size    = 4
 	emptyFixed64Size    = 8
 	emptyMaxDepth       = 10000
-	emptySkipStackSize  = 16
-	emptyErrDepth       = "proto: exceeded maximum recursion depth"
 	emptyErrParse       = "proto: cannot parse invalid wire-format data"
 )
 
@@ -44,21 +43,16 @@ type Empty struct {
 }
 
 // Reset clears all fields of m.
-func (m *Empty) Reset() { *m = Empty{} }
+func (m *Empty) Reset()    { *m = Empty{} }
+func (m *Empty) z() *Empty { return emptyIf(m == nil, &emptyZeroEmpty, m) }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Empty) ProtoUnknownFields() []byte {
-	return emptyGet(m, func(m *Empty) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Empty) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Empty) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -66,190 +60,91 @@ func (m *Empty) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Empty) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return emptyAppended(b, size, n, err)
+	return emptyAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Empty) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := emptyCopyUnknown(b, len(b), m.unknownFields)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Empty) UnmarshalBinary(b []byte) error {
-	*m = Empty{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Empty) UnmarshalBinary(b []byte) error { *m = Empty{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Empty) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Empty) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= emptyMaxDepth {
-		return errors.New(emptyErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>emptyTagTypeBits == 0 || t>>emptyTagTypeBits > emptyMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := emptyDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
-		n, err := emptySkipField(b, t, depth)
-		if err != nil {
-			return err
+		n, err = emptyUnknown(b, t, depth, &m.unknownFields)
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(emptyErrParse))
 		}
-		m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
 		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(emptyErrParse)
+	return emptyEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Empty) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Empty) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Empty) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return emptyWriteJSON(e, b, err)
+	return emptyMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Empty) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	return emptyCloseObject(b, start), nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Empty) UnmarshalJSON(b []byte) error {
-	*m = Empty{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Empty) UnmarshalJSON(b []byte) error { *m = Empty{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Empty) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return emptyEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Empty")
+	return emptyMergeJSON(b, "google.protobuf.Empty", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Empty) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := emptyStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Empty{}
-	return m.ProtoMergeJSONFrom(d)
+	return emptyMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Empty) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := emptyOpenJSON(d, jsontext.KindBeginObject, "google.protobuf.Empty", "object")
-	if !ok {
-		return err
+	for kt, err := emptyOpenObject(d, "google.protobuf.Empty"); kt.Kind() != jsontext.KindEndObject; kt, err = emptyNextKey(d, err) {
+		if err != nil {
+			return err
+		}
+		return errors.New("proto: google.protobuf.Empty: unknown field " + strconv.Quote(kt.String()))
 	}
-	kt, more, err := emptyNextKey(d)
-	if !more {
-		return err
-	}
-	return errors.New("proto: google.protobuf.Empty: unknown field " + strconv.Quote(kt.String()))
+	return nil
 }
 
-func emptyReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
+var (
+	emptyZeroEmpty Empty
+)
 
-func emptySkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & emptyTagTypeMask {
-	case emptyWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case emptyWireFixed64:
-		if len(b) >= emptyFixed64Size {
-			return emptyFixed64Size, nil
-		}
-	case emptyWireBytes:
-		if _, n := emptyReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case emptyWireStartGroup:
-		return emptySkipGroup(b, int32(t>>emptyTagTypeBits), depth)
-	case emptyWireFixed32:
-		if len(b) >= emptyFixed32Size {
-			return emptyFixed32Size, nil
-		}
+func emptyCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
 	}
-	return 0, errors.New(emptyErrParse)
+	return i
 }
-
-func emptySkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [emptySkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > emptyMaxDepth {
-			return 0, errors.New(emptyErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>emptyTagTypeBits == 0 || t>>emptyTagTypeBits > emptyMaxFieldNumber {
-			return 0, errors.New(emptyErrParse)
-		}
-		n += k
-		switch t & emptyTagTypeMask {
-		case emptyWireStartGroup:
-			open = append(open, int32(t>>emptyTagTypeBits))
-		case emptyWireEndGroup:
-			if open[len(open)-1] != int32(t>>emptyTagTypeBits) {
-				return 0, errors.New(emptyErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := emptySkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func emptyAppended(b []byte, size, n int, err error) ([]byte, error) {
+func emptyAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
 	}
@@ -258,21 +153,79 @@ func emptyAppended(b []byte, size, n int, err error) ([]byte, error) {
 	}
 	return b[:len(b)+size], nil
 }
-
-func emptyGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func emptyIf[T any](c bool, a, b T) T {
+	if c {
+		return a
 	}
-	return t
+	return b
 }
-
-func emptyWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func emptyDepth(depth int) error {
+	if depth >= emptyMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func emptyReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func emptySkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>emptyTagTypeBits
+	switch wt := t & emptyTagTypeMask; {
+	case num == 0 || num > emptyMaxFieldNumber:
+	case wt == emptyWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == emptyWireBytes:
+		_, n = emptyReadBytes(b)
+	case wt == emptyWireStartGroup:
+		return emptySkipGroup(b, int32(num), depth+1)
+	case wt == emptyWireFixed64 || wt == emptyWireFixed32:
+		n = emptyIf(wt == emptyWireFixed64, emptyFixed64Size, emptyFixed32Size)
+		n = emptyIf(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(emptyErrParse)
+	}
+	return n, nil
+}
+func emptySkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, emptyDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(emptyErrParse)
+		}
+		if n += k; t == uint64(num)<<emptyTagTypeBits|emptyWireEndGroup {
+			return n, nil
+		}
+		k, err = emptySkipField(b[n:], t, depth)
+		n += k
+	}
+	return 0, err
+}
+func emptyUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := emptySkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func emptyEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(emptyErrParse)
+	}
+	return err
+}
+func emptyMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
 func emptyCloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -280,9 +233,9 @@ func emptyCloseObject(b []byte, start int) []byte {
 	b[start] = '{'
 	return append(b, '}')
 }
-
-func emptyEndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func emptyMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -290,26 +243,20 @@ func emptyEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func emptyMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := emptyStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func emptyStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func emptyOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
-	if d.PeekKind() == jsontext.KindNull {
-		return false, d.SkipValue()
-	}
-	err := emptyExpectJSON(d, kind, name, what)
-	return err == nil, err
-}
-
 func emptyExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -320,16 +267,16 @@ func emptyExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string)
 	}
 	return nil
 }
-
-func emptyNextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
-	if d.PeekKind() == jsontext.KindEndObject {
-		_, err := d.ReadToken()
-		return jsontext.Token{}, false, err
+func emptyOpenObject(d *jsontext.Decoder, name string) (jsontext.Token, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return jsontext.EndObject, d.SkipValue()
 	}
-	tok, err := d.ReadToken()
-	return tok, err == nil, err
+	return emptyNextKey(d, emptyExpectJSON(d, jsontext.KindBeginObject, name, "object"))
 }
-
-func emptyJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
+func emptyNextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
+	if err != nil {
+		return jsontext.Token{}, err
+	}
+	return d.ReadToken()
 }
+func emptyJSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }

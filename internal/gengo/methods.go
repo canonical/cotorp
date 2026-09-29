@@ -10,19 +10,18 @@ import (
 	"github.com/canonical/cotorp/internal/desc"
 )
 
-// This file generates the wire-format methods. Encoding and decoding logic
-// is emitted inline, except for code shared by every message (writing
-// varints, reading length-delimited values and skipping unknown fields),
-// which calls the file's helper functions (see helpers.go).
+// This file generates the wire-format methods. Each field is sized and
+// decoded by one call to a helper function (see helpers.go), and written by
+// one call where an inlinable writer exists for its kind and tag size
+// (implicit-presence scalars); other fields are written inline under their
+// presence check.
 
 // --- Size -----------------------------------------------------------------
 
 func (fg *fileGen) genSize(mi *messageInfo) {
 	fg.P("// ProtoSize returns the size of the wire-format encoding of m.")
 	fg.P("func (m *", mi.goName, ") ProtoSize() (n int) {")
-	fg.P("if m == nil {")
-	fg.P("return 0")
-	fg.P("}")
+	fg.P("m = m.z()")
 	done := map[*oneofInfo]bool{}
 	for _, fi := range mi.byNum {
 		if oi := fi.oneof; oi != nil {
@@ -33,30 +32,52 @@ func (fg *fileGen) genSize(mi *messageInfo) {
 			fg.P("switch o := m.", oi.goName, ".(type) {")
 			for _, of := range oi.fields {
 				fg.P("case *", of.wrapper, ":")
-				fg.sizeSingular(of.f, "o."+of.goName)
+				fg.P("n += ", fg.sizeSingular(of.f, "o."+of.goName))
 			}
 			fg.P("}")
 			continue
 		}
 		fg.sizeField(fi)
 	}
-	fg.P("n += len(m.unknownFields)")
-	fg.P("return n")
+	fg.P("return n + len(m.unknownFields)")
 	fg.P("}")
 	fg.P()
 }
 
-// sizeSingular emits code adding the size of a present singular value v.
-func (fg *fileGen) sizeSingular(f *desc.Field, v string) {
+// sizeSingular returns an expression for the size of a present singular
+// value v of field f, with its tag.
+func (fg *fileGen) sizeSingular(f *desc.Field, v string) string {
 	ts := tagSize(f.Number, wireType(f))
 	switch {
 	case f.Kind == desc.KindMessage && f.Delimited:
-		fg.P("n += ", 2*ts, " + ", v, ".ProtoSize()")
+		return fmt.Sprint(2*ts, " + ", v, ".ProtoSize()")
 	case f.Kind == desc.KindMessage:
-		fg.P("n += ", ts, " + ", fg.fn("SizeLen"), "(", v, ".ProtoSize())")
-	default:
-		fg.P("n += ", ts, " + ", fg.sizeExpr(f.Kind, v))
+		return fmt.Sprint(ts, " + ", fg.fn("SizeLen"), "(", v, ".ProtoSize())")
 	}
+	return fmt.Sprint(ts, " + ", fg.sizeExpr(f.Kind, v))
+}
+
+// sizeFunc returns a function literal calling ProtoSize on a message of
+// f's type. After the size helper is inlined, the compiler calls the method
+// directly; a method expression would be called through a func value.
+func (fg *fileGen) sizeFunc(f *desc.Field) string {
+	return "func(v " + fg.scalarGoType(f) + ") int { return v.ProtoSize() }"
+}
+
+// lenFunc returns the helper computing the encoded size of a value of kind
+// k without its tag, for the kinds whose size is not fixed.
+func (fg *fileGen) lenFunc(k desc.Kind) string {
+	switch k {
+	case desc.KindSint32:
+		return fg.fn("Sint32Len")
+	case desc.KindSint64:
+		return fg.fn("Sint64Len")
+	case desc.KindString, desc.KindBytes:
+		return fg.fn("BytesLen")
+	case desc.KindBool:
+		return fg.fn("BoolLen")
+	}
+	return fg.fn("VarintLen")
 }
 
 func (fg *fileGen) sizeField(fi *fieldInfo) {
@@ -91,39 +112,44 @@ func (fg *fileGen) sizeField(fi *fieldInfo) {
 		fg.P("}")
 	case f.Repeated && f.Packed:
 		pts := tagSize(f.Number, wireBytes)
-		fg.P("if len(", fv, ") > 0 {")
-		if fs := fixedSize(f.Kind); fs == 1 {
-			fg.P("n += ", pts, " + ", fg.fn("SizeLen"), "(len(", fv, "))")
-		} else if fs > 0 {
-			fg.P("n += ", pts, " + ", fg.fn("SizeLen"), "(len(", fv, ") * ", fg.fixedSizeExpr(f.Kind), ")")
-		} else {
-			fg.P("l := 0")
-			fg.P("for _, v := range ", fv, " {")
-			fg.P("l += ", fg.sizeExpr(f.Kind, "v"))
-			fg.P("}")
-			fg.P("n += ", pts, " + ", fg.fn("SizeLen"), "(l)")
+		switch fs := fixedSize(f.Kind); {
+		case fs == 1:
+			fg.P("n += ", fg.fn("SizeLenField"), "(", pts, ", len(", fv, "))")
+		case fs > 0:
+			fg.P("n += ", fg.fn("SizeLenField"), "(", pts, ", len(", fv, ")*", fg.fixedSizeExpr(f.Kind), ")")
+		default:
+			fg.P("n += ", fg.fn("SizePacked"), "(", pts, ", ", fv, ", ", fg.lenFunc(f.Kind), ")")
 		}
-		fg.P("}")
-	case f.Repeated:
-		if fixedSize(f.Kind) > 0 {
-			fg.P("n += len(", fv, ") * (", ts, " + ", fg.fixedSizeExpr(f.Kind), ")")
-			return
-		}
+	case f.Repeated && f.Kind == desc.KindMessage && f.Delimited:
 		fg.P("for _, v := range ", fv, " {")
-		fg.sizeSingular(f, "v")
+		fg.P("n += ", fg.sizeSingular(f, "v"))
 		fg.P("}")
-	case f.Kind == desc.KindMessage, f.HasPresence && f.Kind == desc.KindBytes:
+	case f.Repeated && f.Kind == desc.KindMessage:
+		fg.P("n += ", fg.fn("SizeMsgs"), "(", ts, ", ", fv, ", ", fg.sizeFunc(f), ")")
+	case f.Repeated && fixedSize(f.Kind) > 0:
+		fg.P("n += len(", fv, ") * (", ts, " + ", fg.fixedSizeExpr(f.Kind), ")")
+	case f.Repeated:
+		fg.P("n += ", fg.fn("SizeEach"), "(", ts, ", ", fv, ", ", fg.lenFunc(f.Kind), ")")
+	case f.Kind == desc.KindMessage && f.Delimited:
 		fg.P("if ", fv, " != nil {")
-		fg.sizeSingular(f, fv)
+		fg.P("n += ", fg.sizeSingular(f, fv))
 		fg.P("}")
+	case f.Kind == desc.KindMessage:
+		fg.P("n += ", fg.fn("SizeMsg"), "(", ts, ", ", fv, ", ", fg.sizeFunc(f), ")")
+	case f.HasPresence && f.Kind == desc.KindBytes:
+		fg.P("n += ", fg.fn("SizePresentBytes"), "(", ts, ", ", fv, ")")
+	case f.HasPresence && fixedSize(f.Kind) > 0:
+		fg.P("n += ", fg.fn("SizeOptFixed"), "(", ts, ", ", fg.fixedSizeExpr(f.Kind), ", ", fv, ")")
 	case f.HasPresence:
-		fg.P("if ", fv, " != nil {")
-		fg.sizeSingular(f, "(*"+fv+")")
-		fg.P("}")
+		fg.P("n += ", fg.fn("SizeOpt"), "(", ts, ", ", fv, ", ", fg.lenFunc(f.Kind), ")")
+	case f.Kind == desc.KindBool:
+		fg.P("n += ", fg.fn("SizeBool"), "(", ts, ", ", fv, ")")
+	case fixedSize(f.Kind) > 0:
+		fg.P("n += ", fg.fn("SizeFixed"), "(", ts, ", ", fg.fixedSizeExpr(f.Kind), ", ", fg.nonZeroExpr(f.Kind, fv), ")")
+	case f.Kind == desc.KindString, f.Kind == desc.KindBytes:
+		fg.P("n += ", fg.fn("SizeLenField"), "(", ts, ", len(", fv, "))")
 	default:
-		fg.P("if ", fg.nonZeroExpr(f.Kind, fv), " {")
-		fg.sizeSingular(f, fv)
-		fg.P("}")
+		fg.P("n += ", fg.fn("SizeVarint"), "(", ts, ", ", varintExpr(f.Kind, fv), ")")
 	}
 }
 
@@ -142,40 +168,57 @@ func (fg *fileGen) genMarshal(mi *messageInfo) {
 		fg.P("return b, err")
 		fg.P("}")
 	}
-	fg.P("size := m.ProtoSize()")
-	fg.P("b = ", fg.std("slices"), ".Grow(b, size)")
-	fg.P("n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])")
-	fg.P("return ", fg.fn("Appended"), "(b, size, n, err)")
+	fg.P("return ", fg.fn("AppendBinary"), "(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)")
 	fg.P("}")
 	fg.P()
 
-	body := fg.capture(func() {
-		for _, fi := range slices.Backward(mi.byNum) {
-			if fi.oneof != nil {
-				fg.P("if o, ok := m.", fi.oneof.goName, ".(*", fi.wrapper, "); ok {")
-				fg.marshalSingular(fi.f, "o."+fi.goName)
-				fg.P("}")
-				continue
-			}
-			fg.marshalField(fi)
-		}
-	})
-	fg.P("// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be")
-	fg.P("// at least m.ProtoSize() bytes long, and returns the number of bytes")
-	fg.P("// written. It does not check required fields.")
+	fg.P("// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.")
 	fg.P("func (m *", name, ") ProtoMarshalToSizedBuffer(b []byte) (int, error) {")
-	fg.P("if m == nil {")
-	fg.P("return 0, nil")
-	fg.P("}")
-	fg.P("i := len(b)")
-	// Guarded, because copy is not free when there is nothing to copy.
-	fg.P("if len(m.unknownFields) > 0 {")
-	fg.P("i -= copy(b[i-len(m.unknownFields):], m.unknownFields)")
-	fg.P("}")
-	fg.buf.WriteString(body)
+	fg.P("m = m.z()")
+	fg.P("i := ", fg.fn("CopyUnknown"), "(b, len(b), m.unknownFields)")
+	fg.checkStrings(mi, "0, err", func(f *desc.Field) bool { return f.ValidateUTF8 })
+	for _, fi := range slices.Backward(mi.byNum) {
+		if fi.oneof != nil {
+			fg.P("if o, ok := m.", fi.oneof.goName, ".(*", fi.wrapper, "); ok {")
+			fg.marshalSingular(fi.f, "o."+fi.goName, true)
+			fg.P("}")
+			continue
+		}
+		fg.marshalField(fi)
+	}
 	fg.P("return len(b) - i, nil")
 	fg.P("}")
 	fg.P()
+}
+
+// checkStrings emits one check that the singular string fields of mi
+// selected by validate hold valid UTF-8, returning ret on failure. Repeated
+// and map strings are checked where they are written. Fields with presence
+// are read through their getters, which handle nil pointers.
+func (fg *fileGen) checkStrings(mi *messageInfo, ret string, validate func(*desc.Field) bool) {
+	chain := "nil"
+	for _, fi := range mi.fields {
+		f := fi.f
+		if f.Kind != desc.KindString || f.IsMap || f.Repeated || !validate(f) {
+			continue
+		}
+		v := "m." + fi.goName
+		if fi.oneof != nil || f.HasPresence {
+			v = "m." + fi.getter + "()"
+		}
+		chain = fg.fn("CheckUTF8") + "(" + v + ", " + fg.utf8Err(f) + ", " + chain + ")"
+	}
+	if chain == "nil" {
+		return
+	}
+	fg.P("if err := ", chain, "; err != nil {")
+	fg.P("return ", ret)
+	fg.P("}")
+}
+
+// utf8Err returns the string expression for f's invalid UTF-8 error message.
+func (fg *fileGen) utf8Err(f *desc.Field) string {
+	return fg.errString(fg.owner(f.FullName)+"ErrUTF8", fmt.Sprintf(errInvalidUTF8F, f.FullName))
 }
 
 // tag returns a constant expression for the tag of field f with wire type
@@ -192,7 +235,8 @@ func (fg *fileGen) putLen(f *desc.Field) string {
 }
 
 // marshalSingular emits code writing present value v (with tag) of field f.
-func (fg *fileGen) marshalSingular(f *desc.Field, v string) {
+// checked reports that strings were validated by checkStrings.
+func (fg *fileGen) marshalSingular(f *desc.Field, v string, checked bool) {
 	if f.Kind == desc.KindMessage {
 		if f.Delimited {
 			fg.P("i = ", fg.putVarint("i", fg.tag(f, wireEndGroup)))
@@ -208,9 +252,9 @@ func (fg *fileGen) marshalSingular(f *desc.Field, v string) {
 		}
 		return
 	}
-	if f.Kind == desc.KindString && f.ValidateUTF8 {
+	if f.Kind == desc.KindString && f.ValidateUTF8 && !checked {
 		fg.P("if !", fg.std("unicode/utf8"), ".ValidString(", v, ") {")
-		fg.P("return 0, ", fg.errExpr(fg.owner(f.FullName)+"ErrUTF8", fmt.Sprintf(errInvalidUTF8F, f.FullName)))
+		fg.P("return 0, ", fg.std("errors"), ".New(", fg.utf8Err(f), ")")
 		fg.P("}")
 	}
 	fg.P("i = ", fg.putVarint(fg.putScalar(f.Kind, v), fg.tag(f, wireType(f))))
@@ -223,8 +267,8 @@ func (fg *fileGen) marshalField(fi *fieldInfo) {
 	case f.IsMap:
 		entry := func() {
 			fg.P("start := i")
-			fg.marshalSingular(f.MapValue, "v")
-			fg.marshalSingular(f.MapKey, "k")
+			fg.marshalSingular(f.MapValue, "v", false)
+			fg.marshalSingular(f.MapKey, "k", false)
 			fg.P("i = ", fg.putLen(f))
 		}
 		fg.P("if len(", fv, ") > 0 {")
@@ -254,86 +298,186 @@ func (fg *fileGen) marshalField(fi *fieldInfo) {
 		fg.P("}")
 	case f.Repeated:
 		fg.P("for _, v := range ", fg.std("slices"), ".Backward(", fv, ") {")
-		fg.marshalSingular(f, "v")
+		fg.marshalSingular(f, "v", false)
 		fg.P("}")
 	case f.Kind == desc.KindMessage, f.HasPresence && f.Kind == desc.KindBytes:
 		fg.P("if ", fv, " != nil {")
-		fg.marshalSingular(f, fv)
+		fg.marshalSingular(f, fv, true)
 		fg.P("}")
 	case f.HasPresence:
 		fg.P("if ", fv, " != nil {")
-		fg.marshalSingular(f, "(*"+fv+")")
+		fg.marshalSingular(f, "(*"+fv+")", true)
 		fg.P("}")
 	default:
+		if call, ok := fg.putField(f, fv); ok {
+			fg.P("i = ", call)
+			return
+		}
 		fg.P("if ", fg.nonZeroExpr(f.Kind, fv), " {")
-		fg.marshalSingular(f, fv)
+		fg.marshalSingular(f, fv, true)
 		fg.P("}")
 	}
+}
+
+// putField returns a call writing implicit-presence scalar field f (value
+// fv) with its tag if the value is set, when an inlinable helper exists for
+// its kind and tag size (see genPutVarintFieldN).
+func (fg *fileGen) putField(f *desc.Field, fv string) (string, bool) {
+	tag := fg.tag(f, wireType(f))
+	var h, v string
+	switch f.Kind {
+	case desc.KindString:
+		h, v = "PutStringField", fv
+	case desc.KindBytes:
+		h, v = "PutBytesField", fv
+	case desc.KindBool:
+		h, v = "PutBoolField", fv
+	case desc.KindDouble:
+		h, v = "PutFixed64Field", fg.std("math")+".Float64bits("+fv+")"
+	case desc.KindFixed64, desc.KindSfixed64:
+		h, v = "PutFixed64Field", "uint64("+fv+")"
+	case desc.KindFloat:
+		h, v = "PutFixed32Field", fg.std("math")+".Float32bits("+fv+")"
+	case desc.KindFixed32, desc.KindSfixed32:
+		h, v = "PutFixed32Field", "uint32("+fv+")"
+	case desc.KindMessage:
+		return "", false
+	default:
+		h, v = "PutVarintField", varintExpr(f.Kind, fv)
+	}
+	switch tagSize(f.Number, wireType(f)) {
+	case 1:
+	case 2:
+		if f.Kind == desc.KindString || f.Kind == desc.KindBytes {
+			return "", false
+		}
+		h += "2"
+	default:
+		return "", false
+	}
+	return fg.fn(h) + "(b, i, " + v + ", " + tag + ")", true
 }
 
 // --- Unmarshal ------------------------------------------------------------
 
+// ProtoMergeDepth reads one tag per iteration and decodes the field with a
+// helper that returns the length consumed, or zero or less if the value is
+// malformed. Decoding that can fail with a specific error (invalid UTF-8,
+// nested messages) also sets err. Both are checked once, after the switch.
 func (fg *fileGen) genUnmarshal(mi *messageInfo) {
 	name := mi.goName
+	bin := fg.std("encoding/binary")
 
-	fg.P("// UnmarshalBinary replaces the contents of m with the decoded")
-	fg.P("// wire-format message in b.")
-	fg.P("func (m *", name, ") UnmarshalBinary(b []byte) error {")
-	fg.P("*m = ", name, "{}")
+	merge := "m.ProtoMergeDepth(b, 0)"
 	if mi.m.HasRequired() {
-		fg.P("return ", fg.std("cmp"), ".Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())")
-	} else {
-		fg.P("return m.ProtoMergeDepth(b, 0)")
+		merge = fg.std("cmp") + ".Or(m.ProtoMergeDepth(b, 0), m.ProtoCheckInitialized())"
 	}
-	fg.P("}")
+	fg.P("// UnmarshalBinary replaces the contents of m with the wire-format message in b.")
+	fg.P("func (m *", name, ") UnmarshalBinary(b []byte) error { *m = ", name, "{}; return ", merge, " }")
 	fg.P()
-	fg.P("// ProtoMerge decodes the wire-format message in b and merges it into m.")
-	fg.P("// It does not check required fields.")
+	fg.P("// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.")
 	fg.P("func (m *", name, ") ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }")
 	fg.P()
-	fg.P("// ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.")
-	fg.P("func (m *", name, ") ProtoMergeDepth(b []byte, depth int) error {")
-	fg.P("if depth >= ", fg.c("MaxDepth"), " {")
-	fg.P("return ", fg.errExpr("ErrDepth", errDepthMsg))
-	fg.P("}")
-	fg.P("for len(b) > 0 {")
-	fg.P("t, n := ", fg.std("encoding/binary"), ".Uvarint(b)")
-	fg.emitCheckTag("t", "n")
-	fg.P("start := b")
-	fg.P("b = b[n:]")
-	if len(mi.byNum) > 0 {
-		fg.P("switch t {")
+	fg.usesX = false
+	cases := fg.capture(func() {
 		for _, fi := range mi.byNum {
 			fg.unmarshalField(fi)
 		}
+	})
+	fg.P("// ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.")
+	fg.P("func (m *", name, ") ProtoMergeDepth(b []byte, depth int) error {")
+	// The depth error stops the loop before its first iteration.
+	if fg.usesX {
+		fg.P("var x, err = []byte(nil), ", fg.fn("Depth"), "(depth)")
+	} else {
+		fg.P("err := ", fg.fn("Depth"), "(depth)")
+	}
+	fg.P("for t, n := ", bin, ".Uvarint(b); n > 0 && err == nil; t, n = ", bin, ".Uvarint(b) {")
+	fg.P("b = b[n:]")
+	if len(mi.byNum) > 0 {
+		fg.P("switch t {")
+		fg.buf.WriteString(cases)
 		fg.P("default:")
 	}
-	fg.P("n, err := ", fg.fn("SkipField"), "(b, t, depth)")
-	fg.P("if err != nil {")
-	fg.P("return err")
-	fg.P("}")
-	fg.P("m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)")
-	fg.P("b = b[n:]")
+	fg.P("n, err = ", fg.fn("Unknown"), "(b, t, depth, &m.unknownFields)")
 	if len(mi.byNum) > 0 {
 		fg.P("}")
 	}
+	fg.emitDecodeCheck("n")
+	fg.P("b = b[n:]")
 	fg.P("}")
-	fg.P("return nil")
-	fg.P("errParse:")
-	fg.P("return ", fg.errExpr("ErrParse", errParseMsg))
+	fg.P("return ", fg.fn("End"), "(b, err)")
 	fg.P("}")
 	fg.P()
 }
 
-// appendUnknownVarint emits code preserving raw varint x of field f as an
-// unknown field; it is used for unrecognized closed-enum values.
-func (fg *fileGen) appendUnknownVarint(f *desc.Field) {
-	bin := fg.std("encoding/binary")
-	fg.P("m.unknownFields = ", bin, ".AppendUvarint(", bin, ".AppendUvarint(m.unknownFields, ", fg.tagExpr(fg.fieldNum(f), wireVarint), "), x)")
+// emitDecodeCheck emits the check of a decoder's result: length n and err.
+func (fg *fileGen) emitDecodeCheck(n string) {
+	fg.P("if ", n, " <= 0 || err != nil {")
+	fg.P("return ", fg.std("cmp"), ".Or(err, ", fg.errExpr("ErrParse", errParseMsg), ")")
+	fg.P("}")
 }
 
 func isClosedEnum(f *desc.Field) bool {
 	return f.Kind == desc.KindEnum && f.EnumType.Closed
+}
+
+// decoder returns the helper call decoding a value of f's kind from buf
+// into the pointer expression dst, and whether it also returns an error.
+func (fg *fileGen) decoder(f *desc.Field, buf, dst string) (string, bool) {
+	var h string
+	switch f.Kind {
+	case desc.KindString:
+		msg := `""`
+		if f.ValidateUTF8 {
+			msg = fg.utf8Err(f)
+		}
+		return fg.fn("String") + "(" + buf + ", " + dst + ", " + msg + ")", true
+	case desc.KindBytes:
+		h = "Bytes"
+	case desc.KindBool:
+		h = "Bool"
+	case desc.KindSint32:
+		h = "Sint32"
+	case desc.KindSint64:
+		h = "Sint64"
+	case desc.KindFixed32, desc.KindSfixed32:
+		h = "Fixed32"
+	case desc.KindFixed64, desc.KindSfixed64:
+		h = "Fixed64"
+	case desc.KindFloat:
+		h = "Float"
+	case desc.KindDouble:
+		h = "Double"
+	default:
+		h = "Varint"
+	}
+	return fg.fn(h) + "(" + buf + ", " + dst + ")", false
+}
+
+// packedDecoder returns the helper call decoding a packed field of f's kind
+// from b into the slice at dst.
+func (fg *fileGen) packedDecoder(f *desc.Field, dst string) string {
+	var h string
+	switch f.Kind {
+	case desc.KindBool:
+		h = "PackedBool"
+	case desc.KindSint32:
+		h = "PackedSint32"
+	case desc.KindSint64:
+		h = "PackedSint64"
+	case desc.KindFixed32, desc.KindSfixed32:
+		h = "PackedFixed32"
+	case desc.KindFixed64, desc.KindSfixed64:
+		h = "PackedFixed64"
+	case desc.KindFloat:
+		h = "PackedFloat"
+	case desc.KindDouble:
+		h = "PackedDouble"
+	default:
+		h = "PackedVarint"
+	}
+	return fg.fn(h) + "(b, " + dst + ")"
 }
 
 // unmarshalField emits the cases of the ProtoMergeDepth tag switch that
@@ -348,102 +492,98 @@ func (fg *fileGen) unmarshalField(fi *fieldInfo) {
 		fg.unmarshalMap(fi)
 		return
 	case f.Kind == desc.KindMessage:
-		// Obtain the target message, then merge into it.
-		mv := "mv"
-		target := func() {
-			switch {
-			case fi.oneof != nil:
-				fg.P("var mv *", fg.msgType(f.MessageType))
-				fg.P("if o, ok := m.", fi.oneof.goName, ".(*", fi.wrapper, "); ok && o.", fi.goName, " != nil {")
-				fg.P("mv = o.", fi.goName)
-				fg.P("} else {")
-				fg.P("mv = &", fg.msgType(f.MessageType), "{}")
-				fg.P("m.", fi.oneof.goName, " = &", fi.wrapper, "{", fi.goName, ": mv}")
-				fg.P("}")
-			case f.Repeated:
-				fg.P("mv := &", fg.msgType(f.MessageType), "{}")
-				fg.P(fv, " = append(", fv, ", mv)")
-			default:
-				mv = fg.fn("Alloc") + "(&" + fv + ")"
-			}
-		}
+		fg.usesX = true
 		if f.Delimited {
 			fg.P("case ", fg.tagExpr(num, wireStartGroup), ":")
-			fg.P("n, err := ", fg.fn("SkipGroup"), "(b, ", num, ", depth)")
-			fg.P("if err != nil {")
-			fg.P("return err")
-			fg.P("}")
-			target()
-			fg.P("if err := ", mv, ".ProtoMergeDepth(b[:n-", tagSize(f.Number, wireEndGroup), "], depth+1); err != nil {")
-			fg.P("return err")
-			fg.P("}")
-			fg.P("b = b[n:]")
-			return
+			fg.P("x, n, err = ", fg.fn("Group"), "(b, ", num, ", depth)")
+		} else {
+			fg.P("case ", fg.tagExpr(num, wireBytes), ":")
+			fg.P("x, n = ", fg.fn("ReadBytes"), "(b)")
 		}
-		fg.P("case ", fg.tagExpr(num, wireBytes), ":")
-		fg.decBytes("v", "b")
-		target()
-		fg.P("if err := ", mv, ".ProtoMergeDepth(v, depth+1); err != nil {")
-		fg.P("return err")
-		fg.P("}")
-		fg.P("b = b[n:]")
+		// Obtain the target message, then merge into it. x is nil after a
+		// failure, which merges nothing.
+		var mv string
+		switch {
+		case fi.oneof != nil:
+			mv = "mv"
+			fg.P("var mv *", fg.msgType(f.MessageType))
+			fg.P("if o, ok := m.", fi.oneof.goName, ".(*", fi.wrapper, "); ok && o.", fi.goName, " != nil {")
+			fg.P("mv = o.", fi.goName)
+			fg.P("} else {")
+			fg.P("mv = &", fg.msgType(f.MessageType), "{}")
+			fg.P("m.", fi.oneof.goName, " = &", fi.wrapper, "{", fi.goName, ": mv}")
+			fg.P("}")
+		case f.Repeated:
+			mv = fg.fn("Alloc") + "(" + fg.fn("Grow") + "(&" + fv + "))"
+		default:
+			mv = fg.fn("Alloc") + "(&" + fv + ")"
+		}
+		if f.Delimited {
+			fg.P("err = ", fg.std("cmp"), ".Or(err, ", mv, ".ProtoMergeDepth(x, depth+1))")
+		} else {
+			fg.P("err = ", mv, ".ProtoMergeDepth(x, depth+1)")
+		}
 		return
 	}
 
+	if isClosedEnum(f) {
+		fg.unmarshalClosedEnum(fi)
+		return
+	}
 	if f.Repeated && f.Kind.Packable() {
 		// Accept packed encoding regardless of the declared form.
 		fg.P("case ", fg.tagExpr(num, wireBytes), ":")
-		fg.decBytes("v", "b")
-		fg.P("b = b[n:]")
-		if fixedSize(f.Kind) > 1 {
-			fs := fg.fixedSizeExpr(f.Kind)
-			fg.P("if len(v)%", fs, " != 0 {")
-			fg.P("goto errParse")
-			fg.P("}")
-			fg.P("if ", fv, " == nil {")
-			fg.P(fv, " = make([]", fg.scalarGoType(f), ", 0, len(v)/", fs, ")")
-			fg.P("}")
-		}
-		fg.P("for len(v) > 0 {")
-		expr, n := fg.decodeScalar(f, "v")
-		if isClosedEnum(f) {
-			fg.P("v = v[", n, ":]")
-			fg.P("if e := ", expr, "; !e.IsValid() {")
-			fg.appendUnknownVarint(f)
-			fg.P("} else {")
-			fg.P(fv, " = append(", fv, ", e)")
-			fg.P("}")
-		} else {
-			fg.P("v, ", fv, " = v[", n, ":], append(", fv, ", ", expr, ")")
-		}
-		fg.P("}")
+		fg.P("n = ", fg.packedDecoder(f, "&"+fv))
 	}
-
 	fg.P("case ", fg.tagExpr(num, wireType(f)), ":")
-	expr, n := fg.decodeScalar(f, "b")
-	// Advance b in the same statement as the assignment, unless a closed
-	// enum value must be checked first.
-	adv := "b, "
-	advExpr := "b[" + n + ":], "
-	if isClosedEnum(f) {
-		fg.P("b = b[", n, ":]")
-		fg.P("e := ", expr)
-		fg.P("if !e.IsValid() {")
-		fg.appendUnknownVarint(f)
-		fg.P("continue")
-		fg.P("}")
-		expr, adv, advExpr = "e", "", ""
-	}
 	switch {
 	case fi.oneof != nil:
-		fg.P(adv, "m.", fi.oneof.goName, " = ", advExpr, "&", fi.wrapper, "{", fi.goName, ": ", expr, "}")
+		fg.P("o := new(", fi.wrapper, ")")
+		if call, hasErr := fg.decoder(f, "b", "&o."+fi.goName); hasErr {
+			fg.P("n, err = ", call)
+			fg.P("m.", fi.oneof.goName, " = o")
+		} else {
+			fg.P("n, m.", fi.oneof.goName, " = ", call, ", o")
+		}
+		return
 	case f.Repeated:
-		fg.P(adv, fv, " = ", advExpr, "append(", fv, ", ", expr, ")")
+		fv = fg.fn("Grow") + "(&" + fv + ")"
 	case f.HasPresence && f.Kind != desc.KindBytes:
-		fg.P(adv, fv, " = ", advExpr, "new(", expr, ")")
+		fv = fg.fn("New") + "(&" + fv + ")"
 	default:
-		fg.P(adv, fv, " = ", advExpr, expr)
+		fv = "&" + fv
 	}
+	if call, hasErr := fg.decoder(f, "b", fv); hasErr {
+		fg.P("n, err = ", call)
+	} else {
+		fg.P("n = ", call)
+	}
+}
+
+// unmarshalClosedEnum emits the cases decoding closed enum field fi, whose
+// unrecognized values are kept as unknown fields by the ClosedEnum helpers.
+func (fg *fileGen) unmarshalClosedEnum(fi *fieldInfo) {
+	f := fi.f
+	fv := "m." + fi.goName
+	num := fg.fieldNum(f)
+	var set string
+	switch {
+	case fi.oneof != nil:
+		set = "m." + fi.oneof.goName + " = &" + fi.wrapper + "{" + fi.goName + ": e}"
+	case f.Repeated:
+		set = fv + " = append(" + fv + ", e)"
+	case f.HasPresence:
+		set = fv + " = new(e)"
+	default:
+		set = fv + " = e"
+	}
+	args := "(b, &m.unknownFields, " + fg.tagExpr(num, wireVarint) + ", func(e " + fg.enumType(f.EnumType) + ") { " + set + " })"
+	if f.Repeated {
+		fg.P("case ", fg.tagExpr(num, wireBytes), ":")
+		fg.P("n = ", fg.fn("PackedClosedEnum"), args)
+	}
+	fg.P("case ", fg.tagExpr(num, wireVarint), ":")
+	fg.P("n = ", fg.fn("ClosedEnum"), args)
 }
 
 // typedZero returns the zero value of scalar field f's Go type as a typed
@@ -463,65 +603,69 @@ func (fg *fileGen) typedZero(f *desc.Field) string {
 }
 
 // unmarshalMap emits the ProtoMergeDepth case that decodes one entry of map
-// field fi.
+// field fi, with the same loop as a message.
 func (fg *fileGen) unmarshalMap(fi *fieldInfo) {
 	f := fi.f
 	key, val := f.MapKey, f.MapValue
+	bin := fg.std("encoding/binary")
+	fg.usesX = true
 	fg.P("case ", fg.tagExpr(fg.fieldNum(f), wireBytes), ":")
-	fg.decBytes("v", "b")
+	fg.P("x, n = ", fg.fn("ReadBytes"), "(b)")
 	fg.P("mk, mv := ", fg.typedZero(key), ", ", fg.typedZero(val))
-	fg.P("for len(v) > 0 {")
-	fg.P("t, n := ", fg.std("encoding/binary"), ".Uvarint(v)")
-	fg.emitCheckTag("t", "n")
-	fg.P("v = v[n:]")
+	if val.Kind == desc.KindMessage {
+		fg.P("var v []byte")
+	}
+	fg.P("for t, k := ", bin, ".Uvarint(x); k > 0; t, k = ", bin, ".Uvarint(x) {")
+	fg.P("x = x[k:]")
 	fg.P("switch t {")
 	fg.P("case ", fg.tagExpr(fg.fieldNum(key), wireType(key)), ":")
-	kexpr, kn := fg.decodeScalar(key, "v")
-	fg.P("v, mk = v[", kn, ":], ", kexpr)
+	if call, hasErr := fg.decoder(key, "x", "&mk"); hasErr {
+		fg.P("k, err = ", call)
+	} else {
+		fg.P("k = ", call)
+	}
 	fg.P("case ", fg.tagExpr(fg.fieldNum(val), wireType(val)), ":")
 	if val.Kind == desc.KindMessage {
-		fg.decBytes("x", "v")
-		fg.P("if err := ", fg.fn("Alloc"), "(&mv).ProtoMergeDepth(x, depth+1); err != nil {")
-		fg.P("return err")
-		fg.P("}")
-		fg.P("v = v[n:]")
+		fg.P("v, k = ", fg.fn("ReadBytes"), "(x)")
+		fg.P("err = ", fg.fn("Alloc"), "(&mv).ProtoMergeDepth(v, depth+1)")
+	} else if call, hasErr := fg.decoder(val, "x", "&mv"); hasErr {
+		fg.P("k, err = ", call)
 	} else {
-		vexpr, vn := fg.decodeScalar(val, "v")
-		fg.P("v, mv = v[", vn, ":], ", vexpr)
+		fg.P("k = ", call)
 	}
 	fg.P("default:")
-	fg.P("n, err := ", fg.fn("SkipField"), "(v, t, depth)")
-	fg.P("if err != nil {")
-	fg.P("return err")
+	fg.P("k, err = ", fg.fn("SkipField"), "(x, t, depth)")
 	fg.P("}")
-	fg.P("v = v[n:]")
-	fg.P("}")
+	fg.emitDecodeCheck("k")
+	fg.P("x = x[k:]")
 	fg.P("}")
 	if val.Kind == desc.KindMessage {
 		fg.P(fg.fn("Alloc"), "(&mv)")
 	}
+	set := fg.fn("MapSet") + "(&m." + fi.goName + ", mk, mv)"
 	if isClosedEnum(val) {
-		fg.P("if !mv.IsValid() {")
-		fg.P("m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)")
-		fg.P("b = b[n:]")
-		fg.P("continue")
+		fg.P("if mv.IsValid() {")
+		fg.P(set)
+		fg.P("} else {")
+		fg.P("m.unknownFields = append(", bin, ".AppendUvarint(m.unknownFields, t), b[:n]...)")
 		fg.P("}")
+	} else {
+		fg.P(set)
 	}
-	fg.P(fg.fn("MapSet"), "(&m.", fi.goName, ", mk, mv)")
-	fg.P("b = b[n:]")
+	fg.P("err = ", fg.fn("End"), "(x, err)")
 }
 
 // --- Required fields --------------------------------------------------------
 
 func (fg *fileGen) genCheckInitialized(mi *messageInfo) {
-	fg.P("// ProtoCheckInitialized returns an error if any required field in m")
-	fg.P("// or its sub-messages is not set.")
+	fg.P("// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.")
 	if !mi.m.HasRequired() {
 		fg.P("func (m *", mi.goName, ") ProtoCheckInitialized() error { return nil }")
 		fg.P()
 		return
 	}
 	fg.P("func (m *", mi.goName, ") ProtoCheckInitialized() error {")
+	// Unset sub-messages are checked through nil receivers, which pass.
 	fg.P("if m == nil {")
 	fg.P("return nil")
 	fg.P("}")

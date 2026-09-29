@@ -5,6 +5,7 @@ package wktpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -30,9 +31,7 @@ const (
 	anyVarintPayloadBits = 7
 	anyVarintContBit     = 0x80
 	anyMaxDepth          = 10000
-	anySkipStackSize     = 16
 	anyAnyTypeUrlErrUTF8 = "proto: field google.protobuf.Any.type_url contains invalid UTF-8"
-	anyErrDepth          = "proto: exceeded maximum recursion depth"
 	anyErrParse          = "proto: cannot parse invalid wire-format data"
 	anyAnyErrUnsupported = "proto: google.protobuf.Any: JSON requires a type registry, which cotorp-generated code does not have"
 )
@@ -105,30 +104,20 @@ type Any struct {
 }
 
 // Reset clears all fields of m.
-func (m *Any) Reset() { *m = Any{} }
+func (m *Any) Reset()             { *m = Any{} }
+func (m *Any) z() *Any            { return anyIf(m == nil, &anyZeroAny, m) }
+func (m *Any) GetTypeUrl() string { return m.z().TypeUrl }
+func (m *Any) GetValue() []byte   { return m.z().Value }
 
-func (m *Any) GetTypeUrl() string { return anyGet(m, func(m *Any) string { return m.TypeUrl }) }
-func (m *Any) GetValue() []byte   { return anyGet(m, func(m *Any) []byte { return m.Value }) }
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Any) ProtoUnknownFields() []byte {
-	return anyGet(m, func(m *Any) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Any) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Any) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if len(m.TypeUrl) > 0 {
-		n += 1 + anySizeLen(len(m.TypeUrl))
-	}
-	if len(m.Value) > 0 {
-		n += 1 + anySizeLen(len(m.Value))
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += anySizeLenField(1, len(m.TypeUrl))
+	n += anySizeLenField(1, len(m.Value))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -136,136 +125,79 @@ func (m *Any) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Any) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return anyAppended(b, size, n, err)
+	return anyAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Any) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
+	m = m.z()
+	i := anyCopyUnknown(b, len(b), m.unknownFields)
+	if err := anyCheckUTF8(m.TypeUrl, anyAnyTypeUrlErrUTF8, nil); err != nil {
+		return 0, err
 	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if len(m.Value) > 0 {
-		i = anyPutVarint(b, anyPutVarint(b, i-copy(b[i-len(m.Value):], m.Value), uint64(len(m.Value))), 2<<anyTagTypeBits|anyWireBytes)
-	}
-	if len(m.TypeUrl) > 0 {
-		if !utf8.ValidString(m.TypeUrl) {
-			return 0, errors.New(anyAnyTypeUrlErrUTF8)
-		}
-		i = anyPutVarint(b, anyPutVarint(b, i-copy(b[i-len(m.TypeUrl):], m.TypeUrl), uint64(len(m.TypeUrl))), 1<<anyTagTypeBits|anyWireBytes)
-	}
+	i = anyPutBytesField(b, i, m.Value, 2<<anyTagTypeBits|anyWireBytes)
+	i = anyPutStringField(b, i, m.TypeUrl, 1<<anyTagTypeBits|anyWireBytes)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Any) UnmarshalBinary(b []byte) error {
-	*m = Any{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Any) UnmarshalBinary(b []byte) error { *m = Any{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Any) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Any) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= anyMaxDepth {
-		return errors.New(anyErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>anyTagTypeBits == 0 || t>>anyTagTypeBits > anyMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := anyDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<anyTagTypeBits | anyWireBytes:
-			x, n := anyReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if !utf8.Valid(x) {
-				return errors.New(anyAnyTypeUrlErrUTF8)
-			}
-			b, m.TypeUrl = b[n:], string(x)
+			n, err = anyString(b, &m.TypeUrl, anyAnyTypeUrlErrUTF8)
 		case 2<<anyTagTypeBits | anyWireBytes:
-			x, n := anyReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.Value = b[n:], append([]byte{}, x...)
+			n = anyBytes(b, &m.Value)
 		default:
-			n, err := anySkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = anyUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(anyErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(anyErrParse)
+	return anyEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Any) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Any) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Any) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return anyWriteJSON(e, b, err)
+	return anyMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Any) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return nil, errors.New(anyAnyErrUnsupported)
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Any) UnmarshalJSON(b []byte) error {
-	*m = Any{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Any) UnmarshalJSON(b []byte) error { *m = Any{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Any) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return anyEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Any")
+	return anyMergeJSON(b, "google.protobuf.Any", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Any) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := anyStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Any{}
-	return m.ProtoMergeJSONFrom(d)
+	return anyMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Any) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	if d.PeekKind() == jsontext.KindNull {
 		return d.SkipValue()
@@ -273,85 +205,30 @@ func (m *Any) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return errors.New(anyAnyErrUnsupported)
 }
 
-func anyPutVarint(b []byte, i int, u uint64) int {
-	if u < anyVarintContBit {
-		b[i-1] = byte(u)
-		return i - 1
+var (
+	anyZeroAny Any
+)
+
+func anySizeLen(l int) int           { return l + anyVarintLen(l) }
+func anySizeLenField(tag, l int) int { return anyIf(l == 0, 0, tag+anySizeLen(l)) }
+func anyVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + anyVarintPayloadBits - 1) / anyVarintPayloadBits
+}
+func anyCheckUTF8(s, msg string, err error) error {
+	if len(s) > 0 && !utf8.ValidString(s) {
+		return errors.New(msg)
 	}
-	i -= (bits.Len64(u|1) + anyVarintPayloadBits - 1) / anyVarintPayloadBits
-	binary.PutUvarint(b[i:], u)
+	return err
+}
+func anyCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
+	}
 	return i
 }
-
-func anySizeLen(l int) int {
-	return l + (bits.Len64(uint64(l)|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits
-}
-
-func anyReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-
-func anySkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & anyTagTypeMask {
-	case anyWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case anyWireFixed64:
-		if len(b) >= anyFixed64Size {
-			return anyFixed64Size, nil
-		}
-	case anyWireBytes:
-		if _, n := anyReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case anyWireStartGroup:
-		return anySkipGroup(b, int32(t>>anyTagTypeBits), depth)
-	case anyWireFixed32:
-		if len(b) >= anyFixed32Size {
-			return anyFixed32Size, nil
-		}
-	}
-	return 0, errors.New(anyErrParse)
-}
-
-func anySkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [anySkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > anyMaxDepth {
-			return 0, errors.New(anyErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>anyTagTypeBits == 0 || t>>anyTagTypeBits > anyMaxFieldNumber {
-			return 0, errors.New(anyErrParse)
-		}
-		n += k
-		switch t & anyTagTypeMask {
-		case anyWireStartGroup:
-			open = append(open, int32(t>>anyTagTypeBits))
-		case anyWireEndGroup:
-			if open[len(open)-1] != int32(t>>anyTagTypeBits) {
-				return 0, errors.New(anyErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := anySkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func anyAppended(b []byte, size, n int, err error) ([]byte, error) {
+func anyAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
 	}
@@ -360,23 +237,134 @@ func anyAppended(b []byte, size, n int, err error) ([]byte, error) {
 	}
 	return b[:len(b)+size], nil
 }
-
-func anyGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func anyPutStringField(b []byte, i int, v string, tag byte) int {
+	if len(v) == 0 {
+		return i
 	}
-	return t
+	i -= copy(b[i-len(v):], v)
+	u := uint64(len(v))
+	i -= (bits.Len64(u|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= anyVarintContBit; u >>= anyVarintPayloadBits {
+		b[p] = byte(u) | anyVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
 }
-
-func anyWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func anyPutBytesField(b []byte, i int, v []byte, tag byte) int {
+	if len(v) == 0 {
+		return i
+	}
+	i -= copy(b[i-len(v):], v)
+	u := uint64(len(v))
+	i -= (bits.Len64(u|1)+anyVarintPayloadBits-1)/anyVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= anyVarintContBit; u >>= anyVarintPayloadBits {
+		b[p] = byte(u) | anyVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
+}
+func anyIf[T any](c bool, a, b T) T {
+	if c {
+		return a
+	}
+	return b
+}
+func anyDepth(depth int) error {
+	if depth >= anyMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func anyReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func anySkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>anyTagTypeBits
+	switch wt := t & anyTagTypeMask; {
+	case num == 0 || num > anyMaxFieldNumber:
+	case wt == anyWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == anyWireBytes:
+		_, n = anyReadBytes(b)
+	case wt == anyWireStartGroup:
+		return anySkipGroup(b, int32(num), depth+1)
+	case wt == anyWireFixed64 || wt == anyWireFixed32:
+		n = anyIf(wt == anyWireFixed64, anyFixed64Size, anyFixed32Size)
+		n = anyIf(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(anyErrParse)
+	}
+	return n, nil
+}
+func anySkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, anyDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(anyErrParse)
+		}
+		if n += k; t == uint64(num)<<anyTagTypeBits|anyWireEndGroup {
+			return n, nil
+		}
+		k, err = anySkipField(b[n:], t, depth)
+		n += k
+	}
+	return 0, err
+}
+func anyUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := anySkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func anyEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(anyErrParse)
+	}
+	return err
+}
+func anyBytes(b []byte, p *[]byte) int {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1
+	}
+	*p = append([]byte{}, b[k:k+int(ln)]...)
+	return k + int(ln)
+}
+func anyString(b []byte, p *string, errUTF8 string) (int, error) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1, nil
+	}
+	x := b[k : k+int(ln)]
+	if errUTF8 != "" && !utf8.Valid(x) {
+		return 0, errors.New(errUTF8)
+	}
+	*p = string(x)
+	return k + int(ln), nil
+}
+func anyMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
-func anyEndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func anyMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -384,18 +372,18 @@ func anyEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func anyMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := anyStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func anyStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func anyJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
-}
+func anyJSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }

@@ -4,7 +4,6 @@
 package gengo
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 
@@ -258,89 +257,6 @@ func (fg *fileGen) nonZeroExpr(k desc.Kind, v string) string {
 		return "len(" + v + ") > 0"
 	}
 	return v + " != 0"
-}
-
-// decBytes emits code decoding a length-delimited value from buf into a new
-// variable dst, setting n to the consumed length. It must be used inside
-// ProtoMergeDepth, which defines the errParse label.
-func (fg *fileGen) decBytes(dst, buf string) {
-	fg.P(dst, ", n := ", fg.fn("ReadBytes"), "(", buf, ")")
-	fg.P("if n < 0 {")
-	fg.P("goto errParse")
-	fg.P("}")
-}
-
-// decodeScalar emits code checking that buf starts with a valid value of
-// f's kind, and returns an expression converting it to the Go type and the
-// length it occupies. Varints are decoded into x and length-delimited
-// values into x, with the length in n. It must be used inside
-// ProtoMergeDepth, which defines the errParse label.
-func (fg *fileGen) decodeScalar(f *desc.Field, buf string) (expr, length string) {
-	bin := fg.std("encoding/binary")
-	x := "x"
-	switch wireType(f) {
-	case wireVarint:
-		fg.P("x, n := ", bin, ".Uvarint(", buf, ")")
-		fg.P("if n <= 0 {")
-		fg.P("goto errParse")
-		fg.P("}")
-		length = "n"
-	case wireFixed32:
-		length = fg.c("Fixed32Size")
-		fg.P("if len(", buf, ") < ", length, " {")
-		fg.P("goto errParse")
-		fg.P("}")
-		x = bin + ".LittleEndian.Uint32(" + buf + ")"
-	case wireFixed64:
-		length = fg.c("Fixed64Size")
-		fg.P("if len(", buf, ") < ", length, " {")
-		fg.P("goto errParse")
-		fg.P("}")
-		x = bin + ".LittleEndian.Uint64(" + buf + ")"
-	case wireBytes:
-		fg.decBytes("x", buf)
-		length = "n"
-	}
-	switch f.Kind {
-	case desc.KindInt32, desc.KindSfixed32:
-		return "int32(" + x + ")", length
-	case desc.KindEnum:
-		return fg.enumType(f.EnumType) + "(int32(" + x + "))", length
-	case desc.KindUint32:
-		return "uint32(" + x + ")", length
-	case desc.KindInt64, desc.KindSfixed64:
-		return "int64(" + x + ")", length
-	case desc.KindUint64, desc.KindFixed64, desc.KindFixed32:
-		return x, length
-	case desc.KindSint32:
-		return "int32(uint32(x)>>1) ^ -int32(x&1)", length
-	case desc.KindSint64:
-		return "int64(x>>1) ^ -int64(x&1)", length
-	case desc.KindBool:
-		return "x != 0", length
-	case desc.KindFloat:
-		return fg.std("math") + ".Float32frombits(" + x + ")", length
-	case desc.KindDouble:
-		return fg.std("math") + ".Float64frombits(" + x + ")", length
-	case desc.KindString:
-		if f.ValidateUTF8 {
-			fg.P("if !", fg.std("unicode/utf8"), ".Valid(x) {")
-			fg.P("return ", fg.errExpr(fg.owner(f.FullName)+"ErrUTF8", fmt.Sprintf(errInvalidUTF8F, f.FullName)))
-			fg.P("}")
-		}
-		return "string(x)", length
-	case desc.KindBytes:
-		return "append([]byte{}, x...)", length
-	}
-	panic("decodeScalar: unexpected kind " + f.Kind.String())
-}
-
-// emitCheckTag emits code that validates a tag decoded into t and n.
-func (fg *fileGen) emitCheckTag(t, n string) {
-	tb := fg.c("TagTypeBits")
-	fg.P("if ", n, " <= 0 || ", t, ">>", tb, " == 0 || ", t, ">>", tb, " > ", fg.c("MaxFieldNumber"), " {")
-	fg.P("goto errParse")
-	fg.P("}")
 }
 
 // zeroExpr is the zero value literal for a field's singular Go type.

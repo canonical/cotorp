@@ -5,6 +5,7 @@ package otlppb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json/jsontext"
@@ -31,11 +32,8 @@ const (
 	idsVarintPayloadBits = 7
 	idsVarintContBit     = 0x80
 	idsMaxDepth          = 10000
-	idsSkipStackSize     = 16
-	idsClassNone         = 0
-	idsClassHex          = 7
-	idsErrDepth          = "proto: exceeded maximum recursion depth"
 	idsErrParse          = "proto: cannot parse invalid wire-format data"
+	idsErrDuplicateField = "duplicate field "
 )
 
 type Ids struct {
@@ -46,30 +44,20 @@ type Ids struct {
 }
 
 // Reset clears all fields of m.
-func (m *Ids) Reset() { *m = Ids{} }
+func (m *Ids) Reset()               { *m = Ids{} }
+func (m *Ids) z() *Ids              { return idsIf(m == nil, &idsZeroIds, m) }
+func (m *Ids) GetTraceId() []byte   { return m.z().TraceId }
+func (m *Ids) GetSpanIds() [][]byte { return m.z().SpanIds }
 
-func (m *Ids) GetTraceId() []byte   { return idsGet(m, func(m *Ids) []byte { return m.TraceId }) }
-func (m *Ids) GetSpanIds() [][]byte { return idsGet(m, func(m *Ids) [][]byte { return m.SpanIds }) }
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Ids) ProtoUnknownFields() []byte {
-	return idsGet(m, func(m *Ids) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Ids) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Ids) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if len(m.TraceId) > 0 {
-		n += 1 + idsSizeLen(len(m.TraceId))
-	}
-	for _, v := range m.SpanIds {
-		n += 1 + idsSizeLen(len(v))
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += idsSizeLenField(1, len(m.TraceId))
+	n += idsSizeEach(1, m.SpanIds, idsBytesLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -77,222 +65,135 @@ func (m *Ids) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Ids) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return idsAppended(b, size, n, err)
+	return idsAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Ids) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := idsCopyUnknown(b, len(b), m.unknownFields)
 	for _, v := range slices.Backward(m.SpanIds) {
 		i = idsPutVarint(b, idsPutVarint(b, i-copy(b[i-len(v):], v), uint64(len(v))), 2<<idsTagTypeBits|idsWireBytes)
 	}
-	if len(m.TraceId) > 0 {
-		i = idsPutVarint(b, idsPutVarint(b, i-copy(b[i-len(m.TraceId):], m.TraceId), uint64(len(m.TraceId))), 1<<idsTagTypeBits|idsWireBytes)
-	}
+	i = idsPutBytesField(b, i, m.TraceId, 1<<idsTagTypeBits|idsWireBytes)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Ids) UnmarshalBinary(b []byte) error {
-	*m = Ids{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Ids) UnmarshalBinary(b []byte) error { *m = Ids{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Ids) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Ids) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= idsMaxDepth {
-		return errors.New(idsErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>idsTagTypeBits == 0 || t>>idsTagTypeBits > idsMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := idsDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<idsTagTypeBits | idsWireBytes:
-			x, n := idsReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.TraceId = b[n:], append([]byte{}, x...)
+			n = idsBytes(b, &m.TraceId)
 		case 2<<idsTagTypeBits | idsWireBytes:
-			x, n := idsReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			b, m.SpanIds = b[n:], append(m.SpanIds, append([]byte{}, x...))
+			n = idsBytes(b, idsGrow(&m.SpanIds))
 		default:
-			n, err := idsSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = idsUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(idsErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(idsErrParse)
+	return idsEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Ids) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Ids) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Ids) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return idsWriteJSON(e, b, err)
+	return idsMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Ids) ProtoAppendJSON(b []byte) ([]byte, error) {
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	var err error
+	m, start := m.z(), len(b)
 	if len(m.TraceId) > 0 {
 		b = append(hex.AppendEncode(append(b, ",\"traceId\":\""...), m.TraceId), '"')
 	}
-	if len(m.SpanIds) > 0 {
-		b = append(b, ",\"spanIds\":["...)
-		for j := range m.SpanIds {
-			b = append(append(hex.AppendEncode(append(b, '"'), m.SpanIds[j]), '"'), ',')
-		}
-		b[len(b)-1] = ']'
-	}
-	return idsCloseObject(b, start), nil
+	b, err = idsAppendList(b, ",\"spanIds\":[", m.SpanIds, func(v []byte, b []byte) ([]byte, error) { return append(hex.AppendEncode(append(b, '"'), v), '"'), nil }, err)
+	return idsCloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Ids) UnmarshalJSON(b []byte) error {
-	*m = Ids{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Ids) UnmarshalJSON(b []byte) error { *m = Ids{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Ids) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return idsEndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.otlp.Ids")
+	return idsMergeJSON(b, "cotorp.test.otlp.Ids", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Ids) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := idsStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Ids{}
-	return m.ProtoMergeJSONFrom(d)
+	return idsMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Ids) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := idsOpenJSON(d, jsontext.KindBeginObject, "cotorp.test.otlp.Ids", "object")
-	if !ok {
-		return err
-	}
-	seen, in, f := [2]bool{}, jsontext.KindInvalid, 0
-	for {
-		if in == jsontext.KindInvalid {
-			kt, more, err := idsNextKey(d)
-			if !more {
-				return err
-			}
-			key := kt.String()
-			switch key {
-			case "traceId", "trace_id":
-				f = 0
-			case "spanIds", "span_ids":
-				f = 1
-			default:
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			if seen[f] {
-				return errors.New("proto: cotorp.test.otlp.Ids: duplicate field " + strconv.Quote(key))
-			}
-			seen[f] = true
-			if d.PeekKind() == jsontext.KindNull {
-				if err := d.SkipValue(); err != nil {
-					return err
-				}
-				continue
-			}
-			switch f {
-			case 1:
-				if err := idsExpectJSON(d, jsontext.KindBeginArray, "cotorp.test.otlp.Ids", "array"); err != nil {
-					return err
-				}
-				in = jsontext.KindBeginArray
-				continue
-			}
-		} else {
-			if k := d.PeekKind(); k == jsontext.KindEndArray || k == jsontext.KindEndObject {
-				if _, err := d.ReadToken(); err != nil {
-					return err
-				}
-				in = jsontext.KindInvalid
-				continue
-			}
-			if d.PeekKind() == jsontext.KindNull {
-				return errors.New("proto: cotorp.test.otlp.Ids: null is not allowed in repeated fields or map values")
-			}
-		}
-		class, by, tok := idsIdsJSONClasses[f], []byte(nil), jsontext.Token{}
-		if class != idsClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case idsClassHex:
-			by, err = idsParseHex(tok, "cotorp.test.otlp.Ids")
-		}
+	var seen [2]bool
+	for kt, err := idsOpenObject(d, "cotorp.test.otlp.Ids"); kt.Kind() != jsontext.KindEndObject; kt, err = idsNextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.TraceId = by
-		case 1:
-			m.SpanIds = append(m.SpanIds, by)
+		switch key := kt.String(); key {
+		case "traceId", "trace_id":
+			err = idsField(d, &seen[0], key, "cotorp.test.otlp.Ids", &m.TraceId, idsJSONHex)
+		case "spanIds", "span_ids":
+			err = idsRepField(d, &seen[1], key, "cotorp.test.otlp.Ids", &m.SpanIds, false, idsJSONHex)
+		default:
+			err = d.SkipValue()
 		}
 	}
+	return nil
 }
 
-var idsIdsJSONClasses = [2]int{idsClassHex, idsClassHex}
+var (
+	idsZeroIds Ids
+)
 
+func idsSizeLen(l int) int           { return l + idsVarintLen(l) }
+func idsSizeLenField(tag, l int) int { return idsIf(l == 0, 0, tag+idsSizeLen(l)) }
+func idsSizeEach[T any](tag int, s []T, size func(T) int) (n int) {
+	for _, v := range s {
+		n += tag + size(v)
+	}
+	return n
+}
+func idsVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + idsVarintPayloadBits - 1) / idsVarintPayloadBits
+}
+func idsBytesLen[T ~string | ~[]byte](v T) int { return idsSizeLen(len(v)) }
+func idsCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
+	}
+	return i
+}
+func idsAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
 func idsPutVarint(b []byte, i int, u uint64) int {
 	if u < idsVarintContBit {
 		b[i-1] = byte(u)
@@ -302,11 +203,34 @@ func idsPutVarint(b []byte, i int, u uint64) int {
 	binary.PutUvarint(b[i:], u)
 	return i
 }
-
-func idsSizeLen(l int) int {
-	return l + (bits.Len64(uint64(l)|1)+idsVarintPayloadBits-1)/idsVarintPayloadBits
+func idsPutBytesField(b []byte, i int, v []byte, tag byte) int {
+	if len(v) == 0 {
+		return i
+	}
+	i -= copy(b[i-len(v):], v)
+	u := uint64(len(v))
+	i -= (bits.Len64(u|1)+idsVarintPayloadBits-1)/idsVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= idsVarintContBit; u >>= idsVarintPayloadBits {
+		b[p] = byte(u) | idsVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
 }
-
+func idsIf[T any](c bool, a, b T) T {
+	if c {
+		return a
+	}
+	return b
+}
+func idsDepth(depth int) error {
+	if depth >= idsMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
 func idsReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -314,87 +238,83 @@ func idsReadBytes(b []byte) (v []byte, n int) {
 	}
 	return b[k : k+int(ln)], k + int(ln)
 }
-
 func idsSkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & idsTagTypeMask {
-	case idsWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case idsWireFixed64:
-		if len(b) >= idsFixed64Size {
-			return idsFixed64Size, nil
-		}
-	case idsWireBytes:
-		if _, n := idsReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case idsWireStartGroup:
-		return idsSkipGroup(b, int32(t>>idsTagTypeBits), depth)
-	case idsWireFixed32:
-		if len(b) >= idsFixed32Size {
-			return idsFixed32Size, nil
-		}
+	n, num := 0, t>>idsTagTypeBits
+	switch wt := t & idsTagTypeMask; {
+	case num == 0 || num > idsMaxFieldNumber:
+	case wt == idsWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == idsWireBytes:
+		_, n = idsReadBytes(b)
+	case wt == idsWireStartGroup:
+		return idsSkipGroup(b, int32(num), depth+1)
+	case wt == idsWireFixed64 || wt == idsWireFixed32:
+		n = idsIf(wt == idsWireFixed64, idsFixed64Size, idsFixed32Size)
+		n = idsIf(len(b) >= n, n, 0)
 	}
-	return 0, errors.New(idsErrParse)
-}
-
-func idsSkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [idsSkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > idsMaxDepth {
-			return 0, errors.New(idsErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>idsTagTypeBits == 0 || t>>idsTagTypeBits > idsMaxFieldNumber {
-			return 0, errors.New(idsErrParse)
-		}
-		n += k
-		switch t & idsTagTypeMask {
-		case idsWireStartGroup:
-			open = append(open, int32(t>>idsTagTypeBits))
-		case idsWireEndGroup:
-			if open[len(open)-1] != int32(t>>idsTagTypeBits) {
-				return 0, errors.New(idsErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := idsSkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
+	if n <= 0 {
+		return 0, errors.New(idsErrParse)
 	}
 	return n, nil
 }
-
-func idsAppended(b []byte, size, n int, err error) ([]byte, error) {
-	if err == nil && n != size {
-		err = errors.New("proto: message size changed during marshal")
+func idsSkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, idsDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(idsErrParse)
+		}
+		if n += k; t == uint64(num)<<idsTagTypeBits|idsWireEndGroup {
+			return n, nil
+		}
+		k, err = idsSkipField(b[n:], t, depth)
+		n += k
 	}
-	if err != nil {
-		return b, err
-	}
-	return b[:len(b)+size], nil
+	return 0, err
 }
-
-func idsGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func idsUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := idsSkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
 	}
-	return t
+	return n, err
 }
-
-func idsWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func idsEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(idsErrParse)
+	}
+	return err
+}
+func idsBytes(b []byte, p *[]byte) int {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1
+	}
+	*p = append([]byte{}, b[k:k+int(ln)]...)
+	return k + int(ln)
+}
+func idsGrow[T any](s *[]T) *T { var z T; *s = append(*s, z); return &(*s)[len(*s)-1] }
+func idsMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
+func idsAppendList[T any](b []byte, lit string, s []T, f func(T, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || len(s) == 0 {
+		return b, err
+	}
+	b = append(b, lit...)
+	for _, v := range s {
+		if b, err = f(v, b); err != nil {
+			return b, err
+		}
+		b = append(b, ',')
+	}
+	b[len(b)-1] = ']'
+	return b, nil
+}
 func idsCloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -402,9 +322,9 @@ func idsCloseObject(b []byte, start int) []byte {
 	b[start] = '{'
 	return append(b, '}')
 }
-
-func idsEndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func idsMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -412,26 +332,20 @@ func idsEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func idsMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := idsStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func idsStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func idsOpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
-	if d.PeekKind() == jsontext.KindNull {
-		return false, d.SkipValue()
-	}
-	err := idsExpectJSON(d, kind, name, what)
-	return err == nil, err
-}
-
 func idsExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -442,26 +356,61 @@ func idsExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) e
 	}
 	return nil
 }
-
-func idsNextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
-	if d.PeekKind() == jsontext.KindEndObject {
-		_, err := d.ReadToken()
-		return jsontext.Token{}, false, err
+func idsOpenObject(d *jsontext.Decoder, name string) (jsontext.Token, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return jsontext.EndObject, d.SkipValue()
 	}
-	tok, err := d.ReadToken()
-	return tok, err == nil, err
+	return idsNextKey(d, idsExpectJSON(d, jsontext.KindBeginObject, name, "object"))
 }
-
-func idsParseHex(tok jsontext.Token, name string) ([]byte, error) {
-	s := tok.String()
-	if tok.Kind() == jsontext.KindString {
-		if by, err := hex.DecodeString(s); err == nil {
-			return by, nil
+func idsNextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
+	if err != nil {
+		return jsontext.Token{}, err
+	}
+	return d.ReadToken()
+}
+func idsField[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return idsJSONError(name, idsErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	return parse(d, p, name)
+}
+func idsRepField[T any](d *jsontext.Decoder, seen *bool, key, name string, s *[]T, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return idsJSONError(name, idsErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return idsJSONArray(d, s, name, nullOK, parse)
+}
+func idsJSONArray[T any](d *jsontext.Decoder, s *[]T, name string, nullOK bool, parse func(*jsontext.Decoder, *T, string) error) error {
+	if err := idsExpectJSON(d, jsontext.KindBeginArray, name, "array"); err != nil {
+		return err
+	}
+	for d.PeekKind() != jsontext.KindEndArray {
+		if !nullOK && d.PeekKind() == jsontext.KindNull {
+			return idsJSONError(name, "null is not allowed in repeated fields or map values")
+		}
+		if err := parse(d, idsGrow(s), name); err != nil {
+			return err
 		}
 	}
-	return nil, idsJSONError(name, "invalid hex bytes "+s)
+	_, err := d.ReadToken()
+	return err
 }
-
-func idsJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
+func idsJSONHex(d *jsontext.Decoder, p *[]byte, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	s := tok.String()
+	if tok.Kind() == jsontext.KindString {
+		if *p, err = hex.DecodeString(s); err == nil {
+			return nil
+		}
+	}
+	return idsJSONError(name, "invalid hex bytes "+s)
 }
+func idsJSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }

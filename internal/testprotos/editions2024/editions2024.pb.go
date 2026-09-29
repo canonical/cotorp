@@ -5,6 +5,7 @@ package editions2024pb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -34,14 +35,10 @@ const (
 	editions2024VarintPayloadBits     = 7
 	editions2024VarintContBit         = 0x80
 	editions2024MaxDepth              = 10000
-	editions2024SkipStackSize         = 16
-	editions2024ClassNone             = 0
-	editions2024ClassSigned           = 1
-	editions2024ClassString           = 5
 	editions2024MaxJSONExponent       = 100
-	editions2024ErrDepth              = "proto: exceeded maximum recursion depth"
 	editions2024ErrParse              = "proto: cannot parse invalid wire-format data"
 	editions2024VisibleHiddenSErrUTF8 = "proto: field cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8"
+	editions2024ErrDuplicateField     = "duplicate field "
 )
 
 type Visible struct {
@@ -52,34 +49,20 @@ type Visible struct {
 }
 
 // Reset clears all fields of m.
-func (m *Visible) Reset() { *m = Visible{} }
+func (m *Visible) Reset()                     { *m = Visible{} }
+func (m *Visible) z() *Visible                { return editions2024If(m == nil, &editions2024ZeroVisible, m) }
+func (m *Visible) GetA() int32                { return editions2024Deref(m.z().A, 0) }
+func (m *Visible) GetHidden() *Visible_Hidden { return m.z().Hidden }
 
-func (m *Visible) GetA() int32 {
-	return editions2024GetOr(m, func(m *Visible) *int32 { return m.A }, 0)
-}
-func (m *Visible) GetHidden() *Visible_Hidden {
-	return editions2024Get(m, func(m *Visible) *Visible_Hidden { return m.Hidden })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Visible) ProtoUnknownFields() []byte {
-	return editions2024Get(m, func(m *Visible) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Visible) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Visible) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.A != nil {
-		n += 1 + (bits.Len64(uint64(int64((*m.A)))|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
-	}
-	if m.Hidden != nil {
-		n += 1 + editions2024SizeLen(m.Hidden.ProtoSize())
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += editions2024SizeOpt(1, m.A, editions2024VarintLen)
+	n += editions2024SizeMsg(1, m.Hidden, func(v *Visible_Hidden) int { return v.ProtoSize() })
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -87,23 +70,13 @@ func (m *Visible) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) }
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Visible) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return editions2024Appended(b, size, n, err)
+	return editions2024AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Visible) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
+	m = m.z()
+	i := editions2024CopyUnknown(b, len(b), m.unknownFields)
 	if m.Hidden != nil {
 		n, err := m.Hidden.ProtoMarshalToSizedBuffer(b[:i])
 		if err != nil {
@@ -117,175 +90,88 @@ func (m *Visible) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Visible) UnmarshalBinary(b []byte) error {
-	*m = Visible{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Visible) UnmarshalBinary(b []byte) error { *m = Visible{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Visible) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= editions2024MaxDepth {
-		return errors.New(editions2024ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	var x, err = []byte(nil), editions2024Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<editions2024TagTypeBits | editions2024WireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.A = b[n:], new(int32(x))
+			n = editions2024Varint(b, editions2024New(&m.A))
 		case 2<<editions2024TagTypeBits | editions2024WireBytes:
-			v, n := editions2024ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if err := editions2024Alloc(&m.Hidden).ProtoMergeDepth(v, depth+1); err != nil {
-				return err
-			}
-			b = b[n:]
+			x, n = editions2024ReadBytes(b)
+			err = editions2024Alloc(&m.Hidden).ProtoMergeDepth(x, depth+1)
 		default:
-			n, err := editions2024SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = editions2024Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(editions2024ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(editions2024ErrParse)
+	return editions2024End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Visible) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Visible) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Visible) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return editions2024WriteJSON(e, b, err)
+	return editions2024MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Visible) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.A != nil {
 		b = strconv.AppendInt(append(b, ",\"a\":"...), int64((*m.A)), 10)
 	}
-	if m.Hidden != nil {
-		if b, err = m.Hidden.ProtoAppendJSON(append(b, ",\"hidden\":"...)); err != nil {
-			return nil, err
-		}
-	}
-	return editions2024CloseObject(b, start), nil
+	b, err = editions2024AppendMsg(b, ",\"hidden\":", m.Hidden, func(v *Visible_Hidden, b []byte) ([]byte, error) { return v.ProtoAppendJSON(b) }, err)
+	return editions2024CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Visible) UnmarshalJSON(b []byte) error {
-	*m = Visible{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Visible) UnmarshalJSON(b []byte) error { *m = Visible{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Visible) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return editions2024EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.editions2024.Visible")
+	return editions2024MergeJSON(b, "cotorp.test.editions2024.Visible", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Visible) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := editions2024StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Visible{}
-	return m.ProtoMergeJSONFrom(d)
+	return editions2024MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Visible) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := editions2024OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.editions2024.Visible", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [2]bool{}, 0
-	for {
-		kt, more, err := editions2024NextKey(d)
-		if !more {
-			return err
-		}
-		key := kt.String()
-		switch key {
-		case "a":
-			f = 0
-		case "hidden":
-			f = 1
-		default:
-			return errors.New("proto: cotorp.test.editions2024.Visible: unknown field " + strconv.Quote(key))
-		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.editions2024.Visible: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, bits, iv, tok := editions2024VisibleJSONClasses[f][0], editions2024VisibleJSONClasses[f][1], int64(0), jsontext.Token{}
-		if class != editions2024ClassNone {
-			if tok, err = d.ReadToken(); err != nil {
-				return err
-			}
-		}
-		switch class {
-		case editions2024ClassSigned:
-			iv, err = editions2024ParseInt(tok, bits, "cotorp.test.editions2024.Visible")
-		}
+	var seen [2]bool
+	for kt, err := editions2024OpenObject(d, "cotorp.test.editions2024.Visible"); kt.Kind() != jsontext.KindEndObject; kt, err = editions2024NextKey(d, err) {
 		if err != nil {
 			return err
 		}
-		switch f {
-		case 0:
-			m.A = new(int32(iv))
-		case 1:
-			if err := editions2024Alloc(&m.Hidden).ProtoMergeJSONFrom(d); err != nil {
-				return err
-			}
+		switch key := kt.String(); key {
+		case "a":
+			err = editions2024OptField(d, &seen[0], key, "cotorp.test.editions2024.Visible", &m.A, editions2024JSONInt)
+		case "hidden":
+			err = editions2024Field(d, &seen[1], key, "cotorp.test.editions2024.Visible", &m.Hidden, editions2024JSONMsg)
+		default:
+			return errors.New("proto: cotorp.test.editions2024.Visible: unknown field " + strconv.Quote(key))
 		}
 	}
+	return nil
 }
-
-var editions2024VisibleJSONClasses = [2][2]int{{editions2024ClassSigned, 32}, {editions2024ClassNone, 64}}
 
 type Visible_Hidden struct {
 	S *string
@@ -295,27 +181,19 @@ type Visible_Hidden struct {
 
 // Reset clears all fields of m.
 func (m *Visible_Hidden) Reset() { *m = Visible_Hidden{} }
-
-func (m *Visible_Hidden) GetS() string {
-	return editions2024GetOr(m, func(m *Visible_Hidden) *string { return m.S }, "")
+func (m *Visible_Hidden) z() *Visible_Hidden {
+	return editions2024If(m == nil, &editions2024ZeroVisible_Hidden, m)
 }
+func (m *Visible_Hidden) GetS() string { return editions2024Deref(m.z().S, "") }
 
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Visible_Hidden) ProtoUnknownFields() []byte {
-	return editions2024Get(m, func(m *Visible_Hidden) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Visible_Hidden) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Visible_Hidden) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.S != nil {
-		n += 1 + editions2024SizeLen(len((*m.S)))
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += editions2024SizeOpt(1, m.S, editions2024BytesLen)
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -323,181 +201,150 @@ func (m *Visible_Hidden) MarshalBinary() ([]byte, error) { return m.AppendBinary
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Visible_Hidden) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return editions2024Appended(b, size, n, err)
+	return editions2024AppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Visible_Hidden) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
+	m = m.z()
+	i := editions2024CopyUnknown(b, len(b), m.unknownFields)
+	if err := editions2024CheckUTF8(m.GetS(), editions2024VisibleHiddenSErrUTF8, nil); err != nil {
+		return 0, err
 	}
 	if m.S != nil {
-		if !utf8.ValidString((*m.S)) {
-			return 0, errors.New(editions2024VisibleHiddenSErrUTF8)
-		}
 		i = editions2024PutVarint(b, editions2024PutVarint(b, i-copy(b[i-len((*m.S)):], (*m.S)), uint64(len((*m.S)))), 1<<editions2024TagTypeBits|editions2024WireBytes)
 	}
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
 func (m *Visible_Hidden) UnmarshalBinary(b []byte) error {
 	*m = Visible_Hidden{}
 	return m.ProtoMergeDepth(b, 0)
 }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Visible_Hidden) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Visible_Hidden) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= editions2024MaxDepth {
-		return errors.New(editions2024ErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := editions2024Depth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<editions2024TagTypeBits | editions2024WireBytes:
-			x, n := editions2024ReadBytes(b)
-			if n < 0 {
-				goto errParse
-			}
-			if !utf8.Valid(x) {
-				return errors.New(editions2024VisibleHiddenSErrUTF8)
-			}
-			b, m.S = b[n:], new(string(x))
+			n, err = editions2024String(b, editions2024New(&m.S), editions2024VisibleHiddenSErrUTF8)
 		default:
-			n, err := editions2024SkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = editions2024Unknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(editions2024ErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(editions2024ErrParse)
+	return editions2024End(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Visible_Hidden) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Visible_Hidden) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Visible_Hidden) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return editions2024WriteJSON(e, b, err)
+	return editions2024MarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Visible_Hidden) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var err error
-	if m == nil {
-		return append(b, "{}"...), nil
-	}
-	start := len(b)
+	m, start := m.z(), len(b)
 	if m.S != nil {
-		if b, err = jsontext.AppendQuote(append(b, ",\"s\":"...), (*m.S)); err != nil {
-			return nil, errors.New("proto: cotorp.test.editions2024.Visible.Hidden.s contains invalid UTF-8")
-		}
+		b, err = editions2024Quote(append(b, ",\"s\":"...), (*m.S), err)
 	}
-	return editions2024CloseObject(b, start), nil
+	return editions2024CloseObject(b, start), err
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
 func (m *Visible_Hidden) UnmarshalJSON(b []byte) error {
 	*m = Visible_Hidden{}
 	return m.ProtoMergeJSON(b)
 }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Visible_Hidden) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return editions2024EndJSON(d, m.ProtoMergeJSONFrom(d), "cotorp.test.editions2024.Visible.Hidden")
+	return editions2024MergeJSON(b, "cotorp.test.editions2024.Visible.Hidden", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Visible_Hidden) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := editions2024StrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Visible_Hidden{}
-	return m.ProtoMergeJSONFrom(d)
+	return editions2024MergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Visible_Hidden) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
-	ok, err := editions2024OpenJSON(d, jsontext.KindBeginObject, "cotorp.test.editions2024.Visible.Hidden", "object")
-	if !ok {
-		return err
-	}
-	seen, f := [1]bool{}, 0
-	for {
-		kt, more, err := editions2024NextKey(d)
-		if !more {
+	var seen [1]bool
+	for kt, err := editions2024OpenObject(d, "cotorp.test.editions2024.Visible.Hidden"); kt.Kind() != jsontext.KindEndObject; kt, err = editions2024NextKey(d, err) {
+		if err != nil {
 			return err
 		}
-		key := kt.String()
-		switch key {
+		switch key := kt.String(); key {
 		case "s":
-			f = 0
+			err = editions2024OptField(d, &seen[0], key, "cotorp.test.editions2024.Visible.Hidden", &m.S, editions2024JSONString)
 		default:
 			return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: unknown field " + strconv.Quote(key))
 		}
-		if seen[f] {
-			return errors.New("proto: cotorp.test.editions2024.Visible.Hidden: duplicate field " + strconv.Quote(key))
-		}
-		seen[f] = true
-		if d.PeekKind() == jsontext.KindNull {
-			if err := d.SkipValue(); err != nil {
-				return err
-			}
-			continue
-		}
-		class, sv := editions2024ClassString, ""
-		tok, err := d.ReadToken()
-		if err != nil {
-			return err
-		}
-		switch class {
-		case editions2024ClassString:
-			sv, err = editions2024ParseString(tok, "cotorp.test.editions2024.Visible.Hidden")
-		}
-		if err != nil {
-			return err
-		}
-		m.S = new(sv)
 	}
+	return nil
 }
 
+var (
+	editions2024ZeroVisible        Visible
+	editions2024ZeroVisible_Hidden Visible_Hidden
+)
+
+func editions2024SizeLen(l int) int { return l + editions2024VarintLen(l) }
+func editions2024SizeMsg[T any](tag int, p *T, size func(*T) int) int {
+	if p == nil {
+		return 0
+	}
+	return tag + editions2024SizeLen(size(p))
+}
+func editions2024SizeOpt[T any](tag int, p *T, size func(T) int) int {
+	if p == nil {
+		return 0
+	}
+	return tag + size(*p)
+}
+func editions2024VarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + editions2024VarintPayloadBits - 1) / editions2024VarintPayloadBits
+}
+func editions2024BytesLen[T ~string | ~[]byte](v T) int { return editions2024SizeLen(len(v)) }
+func editions2024CheckUTF8(s, msg string, err error) error {
+	if len(s) > 0 && !utf8.ValidString(s) {
+		return errors.New(msg)
+	}
+	return err
+}
+func editions2024CopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
+	}
+	return i
+}
+func editions2024AppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
+	if err == nil && n != size {
+		err = errors.New("proto: message size changed during marshal")
+	}
+	if err != nil {
+		return b, err
+	}
+	return b[:len(b)+size], nil
+}
 func editions2024PutVarint(b []byte, i int, u uint64) int {
 	if u < editions2024VarintContBit {
 		b[i-1] = byte(u)
@@ -507,11 +354,18 @@ func editions2024PutVarint(b []byte, i int, u uint64) int {
 	binary.PutUvarint(b[i:], u)
 	return i
 }
-
-func editions2024SizeLen(l int) int {
-	return l + (bits.Len64(uint64(l)|1)+editions2024VarintPayloadBits-1)/editions2024VarintPayloadBits
+func editions2024If[T any](c bool, a, b T) T {
+	if c {
+		return a
+	}
+	return b
 }
-
+func editions2024Depth(depth int) error {
+	if depth >= editions2024MaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
 func editions2024ReadBytes(b []byte) (v []byte, n int) {
 	ln, k := binary.Uvarint(b)
 	if k <= 0 || ln > uint64(len(b)-k) {
@@ -519,103 +373,102 @@ func editions2024ReadBytes(b []byte) (v []byte, n int) {
 	}
 	return b[k : k+int(ln)], k + int(ln)
 }
-
 func editions2024SkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & editions2024TagTypeMask {
-	case editions2024WireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case editions2024WireFixed64:
-		if len(b) >= editions2024Fixed64Size {
-			return editions2024Fixed64Size, nil
-		}
-	case editions2024WireBytes:
-		if _, n := editions2024ReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case editions2024WireStartGroup:
-		return editions2024SkipGroup(b, int32(t>>editions2024TagTypeBits), depth)
-	case editions2024WireFixed32:
-		if len(b) >= editions2024Fixed32Size {
-			return editions2024Fixed32Size, nil
-		}
+	n, num := 0, t>>editions2024TagTypeBits
+	switch wt := t & editions2024TagTypeMask; {
+	case num == 0 || num > editions2024MaxFieldNumber:
+	case wt == editions2024WireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == editions2024WireBytes:
+		_, n = editions2024ReadBytes(b)
+	case wt == editions2024WireStartGroup:
+		return editions2024SkipGroup(b, int32(num), depth+1)
+	case wt == editions2024WireFixed64 || wt == editions2024WireFixed32:
+		n = editions2024If(wt == editions2024WireFixed64, editions2024Fixed64Size, editions2024Fixed32Size)
+		n = editions2024If(len(b) >= n, n, 0)
 	}
-	return 0, errors.New(editions2024ErrParse)
-}
-
-func editions2024SkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [editions2024SkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > editions2024MaxDepth {
-			return 0, errors.New(editions2024ErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>editions2024TagTypeBits == 0 || t>>editions2024TagTypeBits > editions2024MaxFieldNumber {
-			return 0, errors.New(editions2024ErrParse)
-		}
-		n += k
-		switch t & editions2024TagTypeMask {
-		case editions2024WireStartGroup:
-			open = append(open, int32(t>>editions2024TagTypeBits))
-		case editions2024WireEndGroup:
-			if open[len(open)-1] != int32(t>>editions2024TagTypeBits) {
-				return 0, errors.New(editions2024ErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := editions2024SkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
+	if n <= 0 {
+		return 0, errors.New(editions2024ErrParse)
 	}
 	return n, nil
 }
-
-func editions2024Appended(b []byte, size, n int, err error) ([]byte, error) {
-	if err == nil && n != size {
-		err = errors.New("proto: message size changed during marshal")
-	}
-	if err != nil {
-		return b, err
-	}
-	return b[:len(b)+size], nil
-}
-
-func editions2024Get[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
-	}
-	return t
-}
-
-func editions2024GetOr[M, T any](m *M, f func(*M) *T, def T) T {
-	if m != nil {
-		if p := f(m); p != nil {
-			return *p
+func editions2024SkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, editions2024Depth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(editions2024ErrParse)
 		}
+		if n += k; t == uint64(num)<<editions2024TagTypeBits|editions2024WireEndGroup {
+			return n, nil
+		}
+		k, err = editions2024SkipField(b[n:], t, depth)
+		n += k
 	}
-	return def
+	return 0, err
 }
-
+func editions2024Unknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := editions2024SkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func editions2024End(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(editions2024ErrParse)
+	}
+	return err
+}
+func editions2024Varint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
+	u, n := binary.Uvarint(b)
+	*p = T(u)
+	return n
+}
+func editions2024String(b []byte, p *string, errUTF8 string) (int, error) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return -1, nil
+	}
+	x := b[k : k+int(ln)]
+	if errUTF8 != "" && !utf8.Valid(x) {
+		return 0, errors.New(errUTF8)
+	}
+	*p = string(x)
+	return k + int(ln), nil
+}
+func editions2024New[T any](p **T) *T { *p = new(T); return *p }
 func editions2024Alloc[T any](p **T) *T {
 	if *p == nil {
 		*p = new(T)
 	}
 	return *p
 }
-
-func editions2024WriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func editions2024Deref[T any](p *T, def T) T {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+func editions2024MarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
+func editions2024Quote(b []byte, s string, err error) ([]byte, error) {
+	if err != nil {
+		return b, err
+	}
+	return jsontext.AppendQuote(b, s)
+}
+func editions2024AppendMsg[T any](b []byte, lit string, p *T, f func(*T, []byte) ([]byte, error), err error) ([]byte, error) {
+	if err != nil || p == nil {
+		return b, err
+	}
+	return f(p, append(b, lit...))
+}
 func editions2024CloseObject(b []byte, start int) []byte {
 	if len(b) == start {
 		return append(b, "{}"...)
@@ -623,9 +476,9 @@ func editions2024CloseObject(b []byte, start int) []byte {
 	b[start] = '{'
 	return append(b, '}')
 }
-
-func editions2024EndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func editions2024MergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -633,26 +486,20 @@ func editions2024EndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func editions2024MergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := editions2024StrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func editions2024StrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func editions2024OpenJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) (bool, error) {
-	if d.PeekKind() == jsontext.KindNull {
-		return false, d.SkipValue()
-	}
-	err := editions2024ExpectJSON(d, kind, name, what)
-	return err == nil, err
-}
-
 func editions2024ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what string) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -663,16 +510,68 @@ func editions2024ExpectJSON(d *jsontext.Decoder, kind jsontext.Kind, name, what 
 	}
 	return nil
 }
-
-func editions2024NextKey(d *jsontext.Decoder) (jsontext.Token, bool, error) {
-	if d.PeekKind() == jsontext.KindEndObject {
-		_, err := d.ReadToken()
-		return jsontext.Token{}, false, err
+func editions2024OpenObject(d *jsontext.Decoder, name string) (jsontext.Token, error) {
+	if d.PeekKind() == jsontext.KindNull {
+		return jsontext.EndObject, d.SkipValue()
 	}
-	tok, err := d.ReadToken()
-	return tok, err == nil, err
+	return editions2024NextKey(d, editions2024ExpectJSON(d, jsontext.KindBeginObject, name, "object"))
 }
-
+func editions2024NextKey(d *jsontext.Decoder, err error) (jsontext.Token, error) {
+	if err != nil {
+		return jsontext.Token{}, err
+	}
+	return d.ReadToken()
+}
+func editions2024Field[T any](d *jsontext.Decoder, seen *bool, key, name string, p *T, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return editions2024JSONError(name, editions2024ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	return parse(d, p, name)
+}
+func editions2024OptField[T any](d *jsontext.Decoder, seen *bool, key, name string, p **T, parse func(*jsontext.Decoder, *T, string) error) error {
+	if *seen {
+		return editions2024JSONError(name, editions2024ErrDuplicateField+strconv.Quote(key))
+	}
+	*seen = true
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return parse(d, editions2024New(p), name)
+}
+func editions2024JSONInt[T ~int32 | ~int64](d *jsontext.Decoder, p *T, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	bits := 64
+	if T(1)<<31 < 0 {
+		bits = 32
+	}
+	v, err := editions2024ParseInt(tok, bits, name)
+	*p = T(v)
+	return err
+}
+func editions2024JSONString(d *jsontext.Decoder, p *string, name string) error {
+	tok, err := d.ReadToken()
+	if err != nil || tok.Kind() == jsontext.KindNull {
+		return err
+	}
+	if tok.Kind() != jsontext.KindString {
+		return editions2024JSONError(name, "invalid string "+tok.String())
+	}
+	*p = tok.String()
+	return nil
+}
+func editions2024JSONMsg[T any, PT interface {
+	*T
+	ProtoMergeJSONFrom(*jsontext.Decoder) error
+}](d *jsontext.Decoder, p **T, _ string) error {
+	if d.PeekKind() == jsontext.KindNull {
+		return d.SkipValue()
+	}
+	return PT(editions2024Alloc(p)).ProtoMergeJSONFrom(d)
+}
 func editions2024ParseInt(tok jsontext.Token, bits int, name string) (int64, error) {
 	s, err := editions2024JSONNumber(tok, name)
 	if err != nil {
@@ -687,7 +586,6 @@ func editions2024ParseInt(tok jsontext.Token, bits int, name string) (int64, err
 	}
 	return n.Int64(), nil
 }
-
 func editions2024ExactInt(s string) *big.Int {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		if e, err := strconv.Atoi(s[i+1:]); err != nil || e > editions2024MaxJSONExponent || e < -editions2024MaxJSONExponent {
@@ -700,7 +598,6 @@ func editions2024ExactInt(s string) *big.Int {
 	}
 	return r.Num()
 }
-
 func editions2024JSONNumber(tok jsontext.Token, name string) (string, error) {
 	s := tok.String()
 	if k := tok.Kind(); k != jsontext.KindNumber && (k != jsontext.KindString || s == "" || (s[0] != '-' && (s[0] < '0' || s[0] > '9')) || !jsontext.Value(s).IsValid()) {
@@ -708,14 +605,4 @@ func editions2024JSONNumber(tok jsontext.Token, name string) (string, error) {
 	}
 	return s, nil
 }
-
-func editions2024ParseString(tok jsontext.Token, name string) (string, error) {
-	if tok.Kind() != jsontext.KindString {
-		return "", editions2024JSONError(name, "invalid string "+tok.String())
-	}
-	return tok.String(), nil
-}
-
-func editions2024JSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
-}
+func editions2024JSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }

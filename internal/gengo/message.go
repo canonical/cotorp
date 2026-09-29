@@ -23,7 +23,7 @@ func (fg *fileGen) genEnum(e *desc.Enum) {
 	}
 	fg.P(")")
 	fg.P()
-	fg.P("// ", name, "_name maps ", name, " numbers to their names.")
+	fg.P("// ", name, "_name maps ", name, " numbers to their names, and ", name, "_value the reverse.")
 	fg.P("var ", name, "_name = map[int32]string{")
 	seen := map[int32]bool{}
 	var numbers []int32 // distinct, in declaration order
@@ -35,8 +35,6 @@ func (fg *fileGen) genEnum(e *desc.Enum) {
 		}
 	}
 	fg.P("}")
-	fg.P()
-	fg.P("// ", name, "_value maps ", name, " names to their numbers.")
 	if len(numbers) == len(e.Values) {
 		// Without aliases, the names map inverts exactly.
 		fg.P("var ", name, "_value = ", fg.fn("Invert"), "(", name, "_name)")
@@ -135,27 +133,30 @@ func (fg *fileGen) genMessage(mi *messageInfo) {
 	fg.P("unknownFields []byte")
 	fg.P("}")
 	fg.P()
+	// Getters read through z, which substitutes this zero value for a nil
+	// receiver. If is a plain branch after inlining; cmp.Or builds a slice.
+	zero := fg.constName("Zero" + name)
+	fg.zeros = append(fg.zeros, zero+" "+name)
 
 	// Default values.
 	fg.genDefaults(mi)
 
 	fg.P("// Reset clears all fields of m.")
 	fg.P("func (m *", name, ") Reset() { *m = ", name, "{} }")
-	fg.P()
+	fg.P("func (m *", name, ") z() *", name, " { return ", fg.fn("If"), "(m == nil, &", zero, ", m) }")
 
 	// Getters.
 	for _, fi := range mi.fields {
 		if fi.oneof != nil && fi.oneof.fields[0] == fi {
 			oi := fi.oneof
-			fg.P("func (m *", name, ") ", oi.getter, "() ", oi.iface, " { return ", fg.getVia(name, oi.iface, "m."+oi.goName), " }")
+			fg.P("func (m *", name, ") ", oi.getter, "() ", oi.iface, " { return m.z().", oi.goName, " }")
 		}
 		fg.genGetter(mi, fi)
 	}
 	fg.P()
 
-	fg.P("// ProtoUnknownFields returns the raw bytes of fields that were not")
-	fg.P("// recognized when m was decoded.")
-	fg.P("func (m *", name, ") ProtoUnknownFields() []byte { return ", fg.getVia(name, "[]byte", "m.unknownFields"), " }")
+	fg.P("// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.")
+	fg.P("func (m *", name, ") ProtoUnknownFields() []byte { return m.z().unknownFields }")
 	fg.P()
 
 	// Oneof types, then their marker methods: gofmt separates declarations
@@ -249,49 +250,32 @@ func (fg *fileGen) defaultExpr(fi *fieldInfo) string {
 	return fg.zeroExpr(fi.f)
 }
 
-// getVia returns an expression for field expression v of message type msg,
-// or the zero value of type typ if m is nil. The Get helper and the function
-// literal are inlined.
-func (fg *fileGen) getVia(msg, typ, v string) string {
-	return fg.fn("Get") + "(m, func(m *" + msg + ") " + typ + " { return " + v + " })"
-}
-
 func (fg *fileGen) genGetter(mi *messageInfo, fi *fieldInfo) {
 	f := fi.f
 	typ := fg.fieldType(fi)
 	sig := "func (m *" + mi.goName + ") " + fi.getter + "() "
-	fv := "m." + fi.goName
-	zeroDefault := f.Kind != desc.KindEnum || len(f.EnumType.Values) == 0 || f.EnumType.Values[0].Number == 0
+	fv := "m.z()." + fi.goName
 	switch {
-	case fi.oneof != nil:
-		// A generic helper would assert the type through a dictionary,
-		// which is measurably slower.
+	case fi.oneof != nil && fi.defName != "":
 		fg.P(sig, typ, " {")
 		fg.P("if x, ok := m.", fi.oneof.getter, "().(*", fi.wrapper, "); ok {")
 		fg.P("return x.", fi.goName)
 		fg.P("}")
 		fg.P("return ", fg.defaultExpr(fi))
 		fg.P("}")
-	case f.Repeated || f.Kind == desc.KindMessage,
-		f.HasPresence && f.Kind == desc.KindBytes && fi.defName == "",
-		!f.HasPresence && zeroDefault:
-		fg.P(sig, typ, " { return ", fg.getVia(mi.goName, typ, fv), " }")
-	case f.HasPresence && f.Kind == desc.KindBytes:
-		// The default is copied, so it must not be evaluated when unused.
+	case fi.oneof != nil:
+		// The assertion stays in the method: a generic helper would assert
+		// through a dictionary, which is measurably slower. The wrapper
+		// allocated for the other cases does not escape.
 		fg.P(sig, typ, " {")
-		fg.P("if m != nil && ", fv, " != nil {")
-		fg.P("return ", fv)
+		fg.P("x, _ := m.", fi.oneof.getter, "().(*", fi.wrapper, ")")
+		fg.P("return ", fg.fn("If"), "(x == nil, new(", fi.wrapper, "), x).", fi.goName)
 		fg.P("}")
-		fg.P("return ", fg.defaultExpr(fi))
-		fg.P("}")
-	case f.HasPresence:
-		fg.P(sig, typ[1:], " { return ", fg.fn("GetOr"), "(m, func(m *", mi.goName, ") ", typ, " { return ", fv, " }, ", fg.defaultExpr(fi), ") }")
+	case f.HasPresence && f.Kind == desc.KindBytes && fi.defName != "":
+		fg.P(sig, typ, " { return ", fg.fn("BytesOr"), "(", fv, ", ", fi.defName, ") }")
+	case f.HasPresence && f.Kind != desc.KindBytes && f.Kind != desc.KindMessage:
+		fg.P(sig, typ[1:], " { return ", fg.fn("Deref"), "(", fv, ", ", fg.defaultExpr(fi), ") }")
 	default:
-		fg.P(sig, typ, " {")
-		fg.P("if m != nil {")
-		fg.P("return ", fv)
-		fg.P("}")
-		fg.P("return ", fg.zeroExpr(f))
-		fg.P("}")
+		fg.P(sig, typ, " { return ", fv, " }")
 	}
 }

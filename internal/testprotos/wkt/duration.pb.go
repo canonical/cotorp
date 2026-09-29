@@ -5,6 +5,7 @@ package wktpb
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -31,7 +32,6 @@ const (
 	durationVarintPayloadBits     = 7
 	durationVarintContBit         = 0x80
 	durationMaxDepth              = 10000
-	durationSkipStackSize         = 16
 	durationMaxFracDigits         = 9
 	durationMaxDurationSeconds    = 315576000000
 	durationNanosPerSecond        = 1000000000
@@ -39,7 +39,6 @@ const (
 	durationNanosPerMicro         = 1000
 	durationMicrosPerSecond       = 1000000
 	durationMillisPerSecond       = 1000
-	durationErrDepth              = "proto: exceeded maximum recursion depth"
 	durationErrParse              = "proto: cannot parse invalid wire-format data"
 	durationDurationErrOutOfRange = "proto: google.protobuf.Duration: duration out of range"
 )
@@ -119,34 +118,20 @@ type Duration struct {
 }
 
 // Reset clears all fields of m.
-func (m *Duration) Reset() { *m = Duration{} }
+func (m *Duration) Reset()            { *m = Duration{} }
+func (m *Duration) z() *Duration      { return durationIf(m == nil, &durationZeroDuration, m) }
+func (m *Duration) GetSeconds() int64 { return m.z().Seconds }
+func (m *Duration) GetNanos() int32   { return m.z().Nanos }
 
-func (m *Duration) GetSeconds() int64 {
-	return durationGet(m, func(m *Duration) int64 { return m.Seconds })
-}
-func (m *Duration) GetNanos() int32 {
-	return durationGet(m, func(m *Duration) int32 { return m.Nanos })
-}
-
-// ProtoUnknownFields returns the raw bytes of fields that were not
-// recognized when m was decoded.
-func (m *Duration) ProtoUnknownFields() []byte {
-	return durationGet(m, func(m *Duration) []byte { return m.unknownFields })
-}
+// ProtoUnknownFields returns the raw bytes of fields that were not recognized when m was decoded.
+func (m *Duration) ProtoUnknownFields() []byte { return m.z().unknownFields }
 
 // ProtoSize returns the size of the wire-format encoding of m.
 func (m *Duration) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	if m.Seconds != 0 {
-		n += 1 + (bits.Len64(uint64(m.Seconds)|1)+durationVarintPayloadBits-1)/durationVarintPayloadBits
-	}
-	if m.Nanos != 0 {
-		n += 1 + (bits.Len64(uint64(int64(m.Nanos))|1)+durationVarintPayloadBits-1)/durationVarintPayloadBits
-	}
-	n += len(m.unknownFields)
-	return n
+	m = m.z()
+	n += durationSizeVarint(1, uint64(m.Seconds))
+	n += durationSizeVarint(1, uint64(int64(m.Nanos)))
+	return n + len(m.unknownFields)
 }
 
 // MarshalBinary returns the wire-format encoding of m.
@@ -154,98 +139,57 @@ func (m *Duration) MarshalBinary() ([]byte, error) { return m.AppendBinary(nil) 
 
 // AppendBinary appends the wire-format encoding of m to b.
 func (m *Duration) AppendBinary(b []byte) ([]byte, error) {
-	size := m.ProtoSize()
-	b = slices.Grow(b, size)
-	n, err := m.ProtoMarshalToSizedBuffer(b[len(b) : len(b)+size])
-	return durationAppended(b, size, n, err)
+	return durationAppendBinary(b, m.ProtoSize(), m.ProtoMarshalToSizedBuffer)
 }
 
-// ProtoMarshalToSizedBuffer encodes m into the end of b, which must be
-// at least m.ProtoSize() bytes long, and returns the number of bytes
-// written. It does not check required fields.
+// ProtoMarshalToSizedBuffer encodes m into the end of b, which must hold m.ProtoSize() bytes, and returns the count written, without checking required fields.
 func (m *Duration) ProtoMarshalToSizedBuffer(b []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(b)
-	if len(m.unknownFields) > 0 {
-		i -= copy(b[i-len(m.unknownFields):], m.unknownFields)
-	}
-	if m.Nanos != 0 {
-		i = durationPutVarint(b, durationPutVarint(b, i, uint64(int64(m.Nanos))), 2<<durationTagTypeBits|durationWireVarint)
-	}
-	if m.Seconds != 0 {
-		i = durationPutVarint(b, durationPutVarint(b, i, uint64(m.Seconds)), 1<<durationTagTypeBits|durationWireVarint)
-	}
+	m = m.z()
+	i := durationCopyUnknown(b, len(b), m.unknownFields)
+	i = durationPutVarintField(b, i, uint64(int64(m.Nanos)), 2<<durationTagTypeBits|durationWireVarint)
+	i = durationPutVarintField(b, i, uint64(m.Seconds), 1<<durationTagTypeBits|durationWireVarint)
 	return len(b) - i, nil
 }
 
-// UnmarshalBinary replaces the contents of m with the decoded
-// wire-format message in b.
-func (m *Duration) UnmarshalBinary(b []byte) error {
-	*m = Duration{}
-	return m.ProtoMergeDepth(b, 0)
-}
+// UnmarshalBinary replaces the contents of m with the wire-format message in b.
+func (m *Duration) UnmarshalBinary(b []byte) error { *m = Duration{}; return m.ProtoMergeDepth(b, 0) }
 
-// ProtoMerge decodes the wire-format message in b and merges it into m.
-// It does not check required fields.
+// ProtoMerge decodes the wire-format message in b and merges it into m, without checking required fields.
 func (m *Duration) ProtoMerge(b []byte) error { return m.ProtoMergeDepth(b, 0) }
 
 // ProtoMergeDepth is ProtoMerge for a message nested depth levels deep.
 func (m *Duration) ProtoMergeDepth(b []byte, depth int) error {
-	if depth >= durationMaxDepth {
-		return errors.New(durationErrDepth)
-	}
-	for len(b) > 0 {
-		t, n := binary.Uvarint(b)
-		if n <= 0 || t>>durationTagTypeBits == 0 || t>>durationTagTypeBits > durationMaxFieldNumber {
-			goto errParse
-		}
-		start := b
+	err := durationDepth(depth)
+	for t, n := binary.Uvarint(b); n > 0 && err == nil; t, n = binary.Uvarint(b) {
 		b = b[n:]
 		switch t {
 		case 1<<durationTagTypeBits | durationWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Seconds = b[n:], int64(x)
+			n = durationVarint(b, &m.Seconds)
 		case 2<<durationTagTypeBits | durationWireVarint:
-			x, n := binary.Uvarint(b)
-			if n <= 0 {
-				goto errParse
-			}
-			b, m.Nanos = b[n:], int32(x)
+			n = durationVarint(b, &m.Nanos)
 		default:
-			n, err := durationSkipField(b, t, depth)
-			if err != nil {
-				return err
-			}
-			m.unknownFields = append(m.unknownFields, start[:len(start)-len(b)+n]...)
-			b = b[n:]
+			n, err = durationUnknown(b, t, depth, &m.unknownFields)
 		}
+		if n <= 0 || err != nil {
+			return cmp.Or(err, errors.New(durationErrParse))
+		}
+		b = b[n:]
 	}
-	return nil
-errParse:
-	return errors.New(durationErrParse)
+	return durationEnd(b, err)
 }
 
-// ProtoCheckInitialized returns an error if any required field in m
-// or its sub-messages is not set.
+// ProtoCheckInitialized returns an error if a required field of m or of a message in m is not set.
 func (m *Duration) ProtoCheckInitialized() error { return nil }
 
 // MarshalJSON returns the ProtoJSON encoding of m.
 func (m *Duration) MarshalJSON() ([]byte, error) { return m.ProtoAppendJSON(nil) }
 
-// MarshalJSONTo writes the ProtoJSON encoding of m to e. It implements
-// json.MarshalerTo from encoding/json/v2.
+// MarshalJSONTo writes the ProtoJSON encoding of m to e, implementing json.MarshalerTo from encoding/json/v2.
 func (m *Duration) MarshalJSONTo(e *jsontext.Encoder) error {
-	b, err := m.ProtoAppendJSON(e.AvailableBuffer())
-	return durationWriteJSON(e, b, err)
+	return durationMarshalTo(e, m.ProtoAppendJSON)
 }
 
-// ProtoAppendJSON appends the ProtoJSON encoding of m to b. It does not
-// check required fields.
+// ProtoAppendJSON appends the ProtoJSON encoding of m to b, without checking required fields.
 func (m *Duration) ProtoAppendJSON(b []byte) ([]byte, error) {
 	var s int64
 	var ns int32
@@ -277,34 +221,21 @@ func (m *Duration) ProtoAppendJSON(b []byte) ([]byte, error) {
 	return b, nil
 }
 
-// UnmarshalJSON replaces the contents of m with the decoded ProtoJSON
-// value in b.
-func (m *Duration) UnmarshalJSON(b []byte) error {
-	*m = Duration{}
-	return m.ProtoMergeJSON(b)
-}
+// UnmarshalJSON replaces the contents of m with the ProtoJSON value in b.
+func (m *Duration) UnmarshalJSON(b []byte) error { *m = Duration{}; return m.ProtoMergeJSON(b) }
 
-// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m.
-// It does not check required fields.
+// ProtoMergeJSON decodes the ProtoJSON value in b and merges it into m, without checking required fields.
 func (m *Duration) ProtoMergeJSON(b []byte) error {
-	d := jsontext.NewDecoder(bytes.NewBuffer(b))
-	return durationEndJSON(d, m.ProtoMergeJSONFrom(d), "google.protobuf.Duration")
+	return durationMergeJSON(b, "google.protobuf.Duration", m.ProtoMergeJSONFrom)
 }
 
-// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value
-// read from d. It implements json.UnmarshalerFrom from encoding/json/v2.
+// UnmarshalJSONFrom replaces the contents of m with the ProtoJSON value read from d, implementing json.UnmarshalerFrom from encoding/json/v2.
 func (m *Duration) UnmarshalJSONFrom(d *jsontext.Decoder) error {
-	d, err := durationStrictDecoder(d)
-	if err != nil {
-		return err
-	}
 	*m = Duration{}
-	return m.ProtoMergeJSONFrom(d)
+	return durationMergeFrom(d, m.ProtoMergeJSONFrom)
 }
 
-// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it
-// into m. It does not check required fields. d should reject invalid
-// UTF-8, as jsontext decoders do by default.
+// ProtoMergeJSONFrom decodes one ProtoJSON value from d and merges it into m, without checking required fields; d should reject invalid UTF-8, as jsontext decoders do by default.
 func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	tok, err := d.ReadToken()
 	if err != nil {
@@ -345,81 +276,25 @@ func (m *Duration) ProtoMergeJSONFrom(d *jsontext.Decoder) error {
 	return nil
 }
 
-func durationPutVarint(b []byte, i int, u uint64) int {
-	if u < durationVarintContBit {
-		b[i-1] = byte(u)
-		return i - 1
+var (
+	durationZeroDuration Duration
+)
+
+func durationSizeVarint(tag int, u uint64) int {
+	return durationIf(u == 0, 0, tag+durationVarintLen(u))
+}
+func durationVarintLen[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](v T) int {
+	return (bits.Len64(uint64(int64(v))|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
+}
+func durationCopyUnknown(b []byte, i int, u []byte) int {
+	if len(u) > 0 {
+		i -= copy(b[i-len(u):], u)
 	}
-	i -= (bits.Len64(u|1) + durationVarintPayloadBits - 1) / durationVarintPayloadBits
-	binary.PutUvarint(b[i:], u)
 	return i
 }
-
-func durationReadBytes(b []byte) (v []byte, n int) {
-	ln, k := binary.Uvarint(b)
-	if k <= 0 || ln > uint64(len(b)-k) {
-		return nil, -1
-	}
-	return b[k : k+int(ln)], k + int(ln)
-}
-
-func durationSkipField(b []byte, t uint64, depth int) (int, error) {
-	switch t & durationTagTypeMask {
-	case durationWireVarint:
-		if _, n := binary.Uvarint(b); n > 0 {
-			return n, nil
-		}
-	case durationWireFixed64:
-		if len(b) >= durationFixed64Size {
-			return durationFixed64Size, nil
-		}
-	case durationWireBytes:
-		if _, n := durationReadBytes(b); n >= 0 {
-			return n, nil
-		}
-	case durationWireStartGroup:
-		return durationSkipGroup(b, int32(t>>durationTagTypeBits), depth)
-	case durationWireFixed32:
-		if len(b) >= durationFixed32Size {
-			return durationFixed32Size, nil
-		}
-	}
-	return 0, errors.New(durationErrParse)
-}
-
-func durationSkipGroup(b []byte, num int32, depth int) (int, error) {
-	var stk [durationSkipStackSize]int32
-	open := append(stk[:0], num)
-	n := 0
-	for len(open) > 0 {
-		if depth+len(open) > durationMaxDepth {
-			return 0, errors.New(durationErrDepth)
-		}
-		t, k := binary.Uvarint(b[n:])
-		if k <= 0 || t>>durationTagTypeBits == 0 || t>>durationTagTypeBits > durationMaxFieldNumber {
-			return 0, errors.New(durationErrParse)
-		}
-		n += k
-		switch t & durationTagTypeMask {
-		case durationWireStartGroup:
-			open = append(open, int32(t>>durationTagTypeBits))
-		case durationWireEndGroup:
-			if open[len(open)-1] != int32(t>>durationTagTypeBits) {
-				return 0, errors.New(durationErrParse)
-			}
-			open = open[:len(open)-1]
-		default:
-			k, err := durationSkipField(b[n:], t, depth)
-			if err != nil {
-				return 0, err
-			}
-			n += k
-		}
-	}
-	return n, nil
-}
-
-func durationAppended(b []byte, size, n int, err error) ([]byte, error) {
+func durationAppendBinary(b []byte, size int, marshal func([]byte) (int, error)) ([]byte, error) {
+	b = slices.Grow(b, size)
+	n, err := marshal(b[len(b) : len(b)+size])
 	if err == nil && n != size {
 		err = errors.New("proto: message size changed during marshal")
 	}
@@ -428,23 +303,101 @@ func durationAppended(b []byte, size, n int, err error) ([]byte, error) {
 	}
 	return b[:len(b)+size], nil
 }
-
-func durationGet[M, T any](m *M, f func(*M) T) (t T) {
-	if m != nil {
-		t = f(m)
+func durationPutVarintField(b []byte, i int, u uint64, tag byte) int {
+	if u == 0 {
+		return i
 	}
-	return t
+	i -= (bits.Len64(u|1)+durationVarintPayloadBits-1)/durationVarintPayloadBits + 1
+	b[i] = tag
+	p := i + 1
+	for ; u >= durationVarintContBit; u >>= durationVarintPayloadBits {
+		b[p] = byte(u) | durationVarintContBit
+		p++
+	}
+	b[p] = byte(u)
+	return i
 }
-
-func durationWriteJSON(e *jsontext.Encoder, b []byte, err error) error {
+func durationIf[T any](c bool, a, b T) T {
+	if c {
+		return a
+	}
+	return b
+}
+func durationDepth(depth int) error {
+	if depth >= durationMaxDepth {
+		return errors.New("proto: exceeded maximum recursion depth")
+	}
+	return nil
+}
+func durationReadBytes(b []byte) (v []byte, n int) {
+	ln, k := binary.Uvarint(b)
+	if k <= 0 || ln > uint64(len(b)-k) {
+		return nil, -1
+	}
+	return b[k : k+int(ln)], k + int(ln)
+}
+func durationSkipField(b []byte, t uint64, depth int) (int, error) {
+	n, num := 0, t>>durationTagTypeBits
+	switch wt := t & durationTagTypeMask; {
+	case num == 0 || num > durationMaxFieldNumber:
+	case wt == durationWireVarint:
+		_, n = binary.Uvarint(b)
+	case wt == durationWireBytes:
+		_, n = durationReadBytes(b)
+	case wt == durationWireStartGroup:
+		return durationSkipGroup(b, int32(num), depth+1)
+	case wt == durationWireFixed64 || wt == durationWireFixed32:
+		n = durationIf(wt == durationWireFixed64, durationFixed64Size, durationFixed32Size)
+		n = durationIf(len(b) >= n, n, 0)
+	}
+	if n <= 0 {
+		return 0, errors.New(durationErrParse)
+	}
+	return n, nil
+}
+func durationSkipGroup(b []byte, num int32, depth int) (int, error) {
+	n, err := 0, durationDepth(depth)
+	for err == nil {
+		t, k := binary.Uvarint(b[n:])
+		if k <= 0 {
+			return 0, errors.New(durationErrParse)
+		}
+		if n += k; t == uint64(num)<<durationTagTypeBits|durationWireEndGroup {
+			return n, nil
+		}
+		k, err = durationSkipField(b[n:], t, depth)
+		n += k
+	}
+	return 0, err
+}
+func durationUnknown(b []byte, t uint64, depth int, unk *[]byte) (int, error) {
+	n, err := durationSkipField(b, t, depth)
+	if err == nil {
+		*unk = append(binary.AppendUvarint(*unk, t), b[:n]...)
+	}
+	return n, err
+}
+func durationEnd(b []byte, err error) error {
+	if err == nil && len(b) > 0 {
+		return errors.New(durationErrParse)
+	}
+	return err
+}
+func durationVarint[T ~int | ~int32 | ~int64 | ~uint32 | ~uint64](b []byte, p *T) int {
+	u, n := binary.Uvarint(b)
+	*p = T(u)
+	return n
+}
+func durationMarshalTo(e *jsontext.Encoder, f func([]byte) ([]byte, error)) error {
+	b, err := f(e.AvailableBuffer())
 	if err != nil {
 		return err
 	}
 	return e.WriteValue(b)
 }
-
-func durationEndJSON(d *jsontext.Decoder, err error, name string) error {
-	if err != nil {
+func durationMergeJSON(b []byte, name string, merge func(*jsontext.Decoder) error) error {
+	d := jsontext.NewDecoder(bytes.NewBuffer(b))
+	if err := merge(d); err != nil {
 		return err
 	}
 	if _, err := d.ReadToken(); err != io.EOF {
@@ -452,18 +405,18 @@ func durationEndJSON(d *jsontext.Decoder, err error, name string) error {
 	}
 	return nil
 }
-
+func durationMergeFrom(d *jsontext.Decoder, merge func(*jsontext.Decoder) error) error {
+	d, err := durationStrictDecoder(d)
+	return cmp.Or(err, merge(d))
+}
 func durationStrictDecoder(d *jsontext.Decoder) (*jsontext.Decoder, error) {
 	if lax, _ := json.GetOption(d.Options(), jsontext.AllowInvalidUTF8); !lax {
 		return d, nil
 	}
 	v, err := d.ReadValue()
 	if err != nil {
-		return nil, err
+		return d, err
 	}
 	return jsontext.NewDecoder(bytes.NewBuffer(v)), nil
 }
-
-func durationJSONError(name, msg string) error {
-	return errors.New("proto: " + name + ": " + msg)
-}
+func durationJSONError(name, msg string) error { return errors.New("proto: " + name + ": " + msg) }
